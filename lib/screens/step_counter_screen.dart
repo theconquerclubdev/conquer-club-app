@@ -161,7 +161,9 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
             ],
           ),
           content: SizedBox(
-            width: 260,
+            width: MediaQuery.sizeOf(context).width < 360
+                ? MediaQuery.sizeOf(context).width - 88
+                : 260,
             child: GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),

@@ -33,6 +33,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen>
         automaticallyImplyLeading: false,
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: MediaQuery.sizeOf(context).width < 600,
           indicatorColor: AppColors.gold,
           labelColor: AppColors.gold,
           unselectedLabelColor: Colors.grey,

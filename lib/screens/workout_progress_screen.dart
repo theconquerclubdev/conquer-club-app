@@ -302,9 +302,20 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
       );
     }
 
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tableWidth = constraints.maxWidth < 560 ? 560.0 : constraints.maxWidth;
+
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: constraints.maxWidth < 560
+              ? const AlwaysScrollableScrollPhysics()
+              : const NeverScrollableScrollPhysics(),
+          child: SizedBox(
+            width: tableWidth,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
         color: AppColors.cardDark,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(
@@ -540,8 +551,12 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
                 ),
               ),
             ),
-        ],
+            ],
+          ),
+        ),
       ),
+    );
+      },
     );
   }
 }

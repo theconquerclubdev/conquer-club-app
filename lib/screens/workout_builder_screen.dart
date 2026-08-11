@@ -84,12 +84,14 @@ class ExerciseEntry {
   String bodyPart;
   bool isBodyweight;
   List<Map<String, dynamic>> sets;
+  int? savedOrderIndex;
   ExerciseEntry({
     this.exerciseId,
     required this.name,
     required this.bodyPart,
     required this.sets,
     this.isBodyweight = false,
+    this.savedOrderIndex,
   });
 }
 
@@ -151,9 +153,6 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
     loadWorkout();
   }
 
-  // ============================================================
-  // ✅ FIX: Added .order('order_index') to maintain sequence
-  // ============================================================
   Future<void> loadWorkout() async {
     setState(() => isLoading = true);
     try {
@@ -177,14 +176,13 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
       workoutId = workout['id'];
       nameController.text = workout['workout_name'] ?? '';
 
-      // ✅ FIX: Added .order('order_index') to maintain exercise sequence
       final weData = await Supabase.instance.client
           .from('workout_exercises')
           .select(
             'id, order_index, exercises(id, name, body_part), workout_sets(id, set_number, kg, reps)',
           )
           .eq('workout_id', workoutId!)
-          .order('order_index'); // ✅ Ensures correct order
+          .order('order_index');
 
       final loaded = <ExerciseEntry>[];
       for (final we in weData) {
@@ -202,6 +200,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
             name: exerciseName,
             bodyPart: ex['body_part'],
             isBodyweight: isBW,
+            savedOrderIndex: we['order_index'] as int?,
             sets: sets
                 .map(
                   (s) => {
@@ -244,6 +243,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
             name: exerciseName,
             bodyPart: picked['body_part'],
             isBodyweight: isBW,
+            savedOrderIndex: exercises.length,
             sets: [
               {'set_number': 1, 'kg': null, 'reps': null},
             ],
@@ -278,9 +278,6 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
     setState(() => exercises.removeAt(index));
   }
 
-  // ============================================================
-  // ✅ FIX: order_index preserved during save
-  // ============================================================
   Future<void> saveWorkout() async {
     if (nameController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -321,7 +318,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
           .delete()
           .eq('workout_id', newWorkoutId);
 
-      // ✅ Save exercises with order_index
+      // Save exercises with order_index preserving the sequence
       for (int i = 0; i < exercises.length; i++) {
         final ex = exercises[i];
         final weRow = await Supabase.instance.client
@@ -329,7 +326,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
             .insert({
               'workout_id': newWorkoutId,
               'exercise_id': ex.exerciseId,
-              'order_index': i, // ✅ Preserve order
+              'order_index': i,
             })
             .select()
             .single();
@@ -449,7 +446,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
 }
 
 // ============================================================
-// EXERCISE CARD (Unchanged)
+// EXERCISE CARD
 // ============================================================
 class _ExerciseCard extends StatelessWidget {
   final ExerciseEntry exercise;
@@ -646,7 +643,7 @@ class _ExerciseCard extends StatelessWidget {
 }
 
 // ============================================================
-// EXERCISE PICKER SHEET (Unchanged)
+// EXERCISE PICKER SHEET
 // ============================================================
 class _ExercisePickerSheet extends StatefulWidget {
   final List<Map<String, dynamic>> allExercises;
