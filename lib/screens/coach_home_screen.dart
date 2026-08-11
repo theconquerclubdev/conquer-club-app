@@ -106,6 +106,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
     try {
       final coachId = Supabase.instance.client.auth.currentUser!.id;
 
+      // ✅ Load only needed columns (faster)
       final data = await Supabase.instance.client
           .from('profiles')
           .select(
@@ -126,9 +127,11 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           expTomorrow = 0,
           expIn7Days = 0;
 
+      // ✅ Process members with parallel queries
       for (final member in data) {
         final memberId = member['id'];
 
+        // ✅ Get latest workout and diet in parallel
         final results = await Future.wait([
           Supabase.instance.client
               .from('workout_sessions')
@@ -152,23 +155,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
         final hasWorkout = latestWorkout != null;
         final hasDiet = latestDiet != null;
 
-        // ✅ Get current streak
-        final streakData = await Supabase.instance.client
-            .from('member_streaks')
-            .select('is_streak_met')
-            .eq('member_id', memberId)
-            .order('date', ascending: false)
-            .limit(30);
-
-        int streak = 0;
-        for (final record in streakData) {
-          if (record['is_streak_met'] == true) {
-            streak++;
-          } else {
-            break;
-          }
-        }
-
+        // ✅ Membership status
         final endDateStr = member['membership_end_date'] as String?;
         int daysLeft = -999;
         bool membershipActive = false;
@@ -183,11 +170,13 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           }
         }
 
+        // ✅ Count stats
         if (membershipActive) {
           active++;
           if (!hasWorkout) noWorkout++;
           if (!hasDiet) noDiet++;
 
+          // Diet alerts
           if (hasDiet && latestDiet!['updated_at'] != null) {
             final dietDate = DateTime.parse(latestDiet['updated_at']);
             final daysSince = today.difference(dietDate).inDays;
@@ -198,6 +187,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
             else if (daysSince == 5) dueToday++;
           }
 
+          // Membership expiry alerts
           if (daysLeft == 0)
             expToday++;
           else if (daysLeft == 1)
@@ -210,6 +200,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           else if (daysLeft <= -7) expLastWeek++;
         }
 
+        // ✅ New member: Active + No Diet + No Workout
         if (membershipActive && !hasDiet && !hasWorkout) newMembers++;
 
         membersWithInfo.add({
@@ -221,7 +212,6 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           'is_active': membershipActive,
           'days_left': daysLeft,
           'membership_end_date': endDateStr,
-          'current_streak': streak,
         });
       }
 
@@ -331,19 +321,11 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
     });
   }
 
-  String _formatDateShort(String? dateTime) {
+  String formatDate(String? dateTime) {
     if (dateTime == null) return '—';
     try {
       final date = DateTime.parse(dateTime);
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final yesterday = today.subtract(const Duration(days: 1));
-
-      final dateOnly = DateTime(date.year, date.month, date.day);
-
-      if (dateOnly == today) return 'Today';
-      if (dateOnly == yesterday) return 'Yesterday';
-      return '${date.day}/${date.month}';
+      return '${date.day}/${date.month} ${date.hour.toString().padLeft(2, '0')}:${date.minute.toString().padLeft(2, '0')}';
     } catch (e) {
       return '—';
     }
@@ -510,6 +492,9 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
     );
   }
 
+  // ============================================================
+  // DASHBOARD TAB
+  // ============================================================
   Widget _buildDashboardTab() {
     if (isLoading || isLoadingPermissions) {
       return const Center(
@@ -589,93 +574,112 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
 
             const SizedBox(height: 16),
 
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '📅 MEMBERSHIP EXPIRY ALERTS',
-                  style: TextStyle(
-                    color: AppColors.gold,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1,
+            // ✅ Membership Expiry Alerts
+            if (expiredLastWeek > 0 ||
+                expiredYesterday > 0 ||
+                expiredToday > 0 ||
+                expiringTomorrow > 0 ||
+                expiringIn7Days > 0)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '📅 MEMBERSHIP EXPIRY ALERTS',
+                    style: TextStyle(
+                      color: AppColors.gold,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                _AlertChip(
-                  label: '⏰ Expired 7+ days ago',
-                  count: expiredLastWeek,
-                  color: Colors.red.shade700,
-                  onTap: () => _navigateToMembersWithFilter('inactive'),
-                ),
-                _AlertChip(
-                  label: '⚠️ Expired Yesterday',
-                  count: expiredYesterday,
-                  color: Colors.deepOrange,
-                  onTap: () => _navigateToMembersWithFilter('inactive'),
-                ),
-                _AlertChip(
-                  label: '🔥 Expires Today',
-                  count: expiredToday,
-                  color: Colors.orange,
-                  onTap: () => _navigateToMembersWithFilter('active'),
-                ),
-                _AlertChip(
-                  label: '📋 Expires Tomorrow',
-                  count: expiringTomorrow,
-                  color: Colors.blue,
-                  onTap: () => _navigateToMembersWithFilter('active'),
-                ),
-                _AlertChip(
-                  label: '📅 Expires in 7 days',
-                  count: expiringIn7Days,
-                  color: Colors.green,
-                  onTap: () => _navigateToMembersWithFilter('active'),
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
+                  const SizedBox(height: 6),
+                  if (expiredLastWeek > 0)
+                    _AlertChip(
+                      label: '⏰ Expired 7+ days ago',
+                      count: expiredLastWeek,
+                      color: Colors.red.shade700,
+                      onTap: () => _navigateToMembersWithFilter('inactive'),
+                    ),
+                  if (expiredYesterday > 0)
+                    _AlertChip(
+                      label: '⚠️ Expired Yesterday',
+                      count: expiredYesterday,
+                      color: Colors.deepOrange,
+                      onTap: () => _navigateToMembersWithFilter('inactive'),
+                    ),
+                  if (expiredToday > 0)
+                    _AlertChip(
+                      label: '🔥 Expires Today',
+                      count: expiredToday,
+                      color: Colors.orange,
+                      onTap: () => _navigateToMembersWithFilter('active'),
+                    ),
+                  if (expiringTomorrow > 0)
+                    _AlertChip(
+                      label: '📋 Expires Tomorrow',
+                      count: expiringTomorrow,
+                      color: Colors.blue,
+                      onTap: () => _navigateToMembersWithFilter('active'),
+                    ),
+                  if (expiringIn7Days > 0)
+                    _AlertChip(
+                      label: '📅 Expires in 7 days',
+                      count: expiringIn7Days,
+                      color: Colors.green,
+                      onTap: () => _navigateToMembersWithFilter('active'),
+                    ),
+                  const SizedBox(height: 8),
+                ],
+              ),
 
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  '🍽️ DIET UPDATE ALERTS',
-                  style: TextStyle(
-                    color: AppColors.gold,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1,
+            // ✅ Diet Update Alerts
+            if (dietDueToday > 0 || dietDueTomorrow > 0 || dietOverdue > 0)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    '🍽️ DIET UPDATE ALERTS',
+                    style: TextStyle(
+                      color: AppColors.gold,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                _AlertChip(
-                  label: '📋 Diet Due Today',
-                  count: dietDueToday,
-                  color: Colors.orange,
-                  onTap: () => _navigateToMembersWithFilter('active'),
-                ),
-                _AlertChip(
-                  label: '📋 Diet Due Tomorrow',
-                  count: dietDueTomorrow,
-                  color: Colors.blue,
-                  onTap: () => _navigateToMembersWithFilter('active'),
-                ),
-                _AlertChip(
-                  label: '⚠️ Diet Overdue (7+ days)',
-                  count: dietOverdue,
-                  color: Colors.red,
-                  onTap: () => _navigateToMembersWithFilter('active'),
-                ),
-                const SizedBox(height: 8),
-              ],
-            ),
+                  const SizedBox(height: 6),
+                  if (dietDueToday > 0)
+                    _AlertChip(
+                      label: '📋 Diet Due Today',
+                      count: dietDueToday,
+                      color: Colors.orange,
+                      onTap: () => _navigateToMembersWithFilter('active'),
+                    ),
+                  if (dietDueTomorrow > 0)
+                    _AlertChip(
+                      label: '📋 Diet Due Tomorrow',
+                      count: dietDueTomorrow,
+                      color: Colors.blue,
+                      onTap: () => _navigateToMembersWithFilter('active'),
+                    ),
+                  if (dietOverdue > 0)
+                    _AlertChip(
+                      label: '⚠️ Diet Overdue (7+ days)',
+                      count: dietOverdue,
+                      color: Colors.red,
+                      onTap: () => _navigateToMembersWithFilter('active'),
+                    ),
+                  const SizedBox(height: 8),
+                ],
+              ),
           ],
         ),
       ),
     );
   }
 
+  // ============================================================
+  // MEMBERS TAB
+  // ============================================================
   Widget _buildMembersTab() {
     if (isLoading || isLoadingPermissions) {
       return const Center(
@@ -886,7 +890,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                         );
                         loadMembers();
                       },
-                      formatDateShort: _formatDateShort,
+                      formatDate: formatDate,
                     ),
                   ),
                 ),
@@ -1026,32 +1030,35 @@ class _AlertChip extends StatelessWidget {
 }
 
 // ============================================================
-// ✅ UPDATED MEMBER CARD - Right side shows Workout, Diet, Streak
+// MEMBER CARD
 // ============================================================
 class _MemberCard extends StatelessWidget {
   final Map<String, dynamic> member;
   final bool canEditDiet;
   final bool canEditWorkout;
   final VoidCallback onTap;
-  final String Function(String?) formatDateShort;
+  final String Function(String?) formatDate;
 
   const _MemberCard({
     required this.member,
     required this.canEditDiet,
     required this.canEditWorkout,
     required this.onTap,
-    required this.formatDateShort,
+    required this.formatDate,
   });
 
   @override
   Widget build(BuildContext context) {
-    final name = (member['full_name'] ?? 'No name').toString();
-    final goal = (member['goal'] ?? 'No goal').toString();
+    final name = member['full_name'] ?? 'No name';
+    final goal = member['goal'] ?? 'No goal';
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
-    final isActive = member['is_active'] == true;
+    final isActive = member['is_active'] ?? false;
+    final hasWorkout = member['has_workout'] ?? false;
+    final hasDiet = member['has_diet'] ?? false;
     final hasEditPermissions = canEditDiet || canEditWorkout;
     final isSmall = MediaQuery.of(context).size.width < 360;
 
+    // ✅ Membership days left
     String membershipStatus = '';
     Color membershipColor = Colors.grey;
     final daysLeft = member['days_left'] as int?;
@@ -1065,6 +1072,7 @@ class _MemberCard extends StatelessWidget {
       }
     }
 
+    // ✅ Diet status
     String dietStatus = '';
     Color dietColor = Colors.grey;
     if (member['latest_diet'] != null &&
@@ -1086,9 +1094,7 @@ class _MemberCard extends StatelessWidget {
       dietColor = Colors.grey;
     }
 
-    final lastWorkoutText = formatDateShort(member['latest_workout']?['ended_at']);
-    final lastDietText = formatDateShort(member['latest_diet']?['updated_at']);
-    final currentStreak = (member['current_streak'] as num?)?.toInt() ?? 0;
+    final lastWorkoutText = formatDate(member['latest_workout']?['ended_at']);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
@@ -1113,203 +1119,123 @@ class _MemberCard extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             child: Row(
               children: [
-                // ✅ LEFT SIDE - UNCHANGED
-                Row(
+                // Avatar
+                Stack(
                   children: [
-                    Stack(
-                      children: [
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: isActive
-                                  ? [
-                                      AppColors.gold,
-                                      AppColors.gold.withOpacity(0.6)
-                                    ]
-                                  : [Colors.grey, Colors.grey.withOpacity(0.6)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(
-                            child: Text(
-                              initial,
-                              style: TextStyle(
-                                color: isActive
-                                    ? Colors.black
-                                    : Colors.grey.shade700,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: isActive
+                              ? [
+                                  AppColors.gold,
+                                  AppColors.gold.withOpacity(0.6)
+                                ]
+                              : [Colors.grey, Colors.grey.withOpacity(0.6)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          initial,
+                          style: TextStyle(
+                            color:
+                                isActive ? Colors.black : Colors.grey.shade700,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            width: 10,
-                            height: 10,
-                            decoration: BoxDecoration(
-                              color: isActive ? Colors.green : Colors.red,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: AppColors.cardDark,
-                                width: 1.5,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(width: 8),
-
-                    SizedBox(
-                      width: isSmall ? 70 : 100,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  name,
-                                  style: TextStyle(
-                                    color: isActive
-                                        ? Colors.white
-                                        : Colors.grey.shade400,
-                                    fontSize: isSmall ? 10 : 12,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                  maxLines: 1,
-                                ),
-                              ),
-                              const SizedBox(width: 2),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 3, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: membershipColor.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(3),
-                                ),
-                                child: Text(
-                                  membershipStatus,
-                                  style: TextStyle(
-                                    color: membershipColor,
-                                    fontSize: isSmall ? 6 : 7,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ],
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: isActive ? Colors.green : Colors.red,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: AppColors.cardDark,
+                            width: 1.5,
                           ),
-                          Text(
-                            goal,
-                            style: TextStyle(
-                              color: Colors.grey.shade500,
-                              fontSize: isSmall ? 7 : 9,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
-                          Text(
-                            dietStatus,
-                            style: TextStyle(
-                              color: dietColor,
-                              fontSize: isSmall ? 6 : 8,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ),
                   ],
                 ),
+                const SizedBox(width: 8),
 
-                const Spacer(),
+                // Name + Goal + Membership Status
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            name,
+                            style: TextStyle(
+                              color: isActive
+                                  ? Colors.white
+                                  : Colors.grey.shade400,
+                              fontSize: isSmall ? 11 : 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: membershipColor.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              membershipStatus,
+                              style: TextStyle(
+                                color: membershipColor,
+                                fontSize: isSmall ? 7 : 9,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Text(
+                        goal,
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: isSmall ? 8 : 10,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                      Text(
+                        dietStatus,
+                        style: TextStyle(
+                          color: dietColor,
+                          fontSize: isSmall ? 7 : 9,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
-                // ✅ RIGHT SIDE - Workout + Diet + Streak (Plain text, compact)
+                // Stats
                 Row(
                   children: [
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Workout',
-                          style: TextStyle(
-                            color: Colors.grey.shade500,
-                            fontSize: isSmall ? 6 : 7,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          lastWorkoutText,
-                          style: TextStyle(
-                            color: lastWorkoutText == '—'
-                                ? Colors.grey.shade600
-                                : Colors.white70,
-                            fontSize: isSmall ? 7 : 8,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 8),
-
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Diet',
-                          style: TextStyle(
-                            color: Colors.grey.shade500,
-                            fontSize: isSmall ? 6 : 7,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          lastDietText,
-                          style: TextStyle(
-                            color: lastDietText == '—'
-                                ? Colors.grey.shade600
-                                : Colors.white70,
-                            fontSize: isSmall ? 7 : 8,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(width: 8),
-
-                    Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        Text(
-                          'Streak',
-                          style: TextStyle(
-                            color: Colors.grey.shade500,
-                            fontSize: isSmall ? 6 : 7,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          currentStreak > 0 ? '$currentStreak d' : '0 d',
-                          style: TextStyle(
-                            color: currentStreak > 0
-                                ? AppColors.gold
-                                : Colors.grey.shade600,
-                            fontSize: isSmall ? 7 : 8,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
+                    _buildStat('Workout', lastWorkoutText, isActive, isSmall),
+                    const SizedBox(width: 4),
+                    _buildStat('Diet', hasDiet ? '✅' : '❌', isActive, isSmall),
                   ],
                 ),
               ],
@@ -1317,6 +1243,36 @@ class _MemberCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildStat(String label, String value, bool isActive, bool isSmall) {
+    final isNotAssigned = value == '—';
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: isActive ? Colors.grey.shade600 : Colors.grey.shade700,
+            fontSize: isSmall ? 6 : 8,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 0.3,
+          ),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            color: isActive
+                ? (isNotAssigned ? Colors.grey.shade600 : Colors.white70)
+                : Colors.grey.shade600,
+            fontSize: isSmall ? 7 : 9,
+            fontWeight: isNotAssigned ? FontWeight.normal : FontWeight.w500,
+          ),
+          overflow: TextOverflow.ellipsis,
+          maxLines: 1,
+        ),
+      ],
     );
   }
 }

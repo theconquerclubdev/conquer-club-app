@@ -3,8 +3,16 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import 'diet_preview_page.dart';
 
+// Remove DietFoodItem and kDietSections from here
+// They are now defined in diet_preview_page.dart
+
+// A slightly darker, more muted green than Colors.green.shade400 so the
+// white text/numbers overlaid on progress bars stay clearly readable.
 const Color kBarDarkGreen = Color(0xFF1B6B33);
 
+// Preset diet types: name -> {carbs%, protein%, fats%}.
+// "Custom" is not in this list — it's the free-editing fallback state,
+// selected whenever selectedDietType == kCustomDietType.
 const List<Map<String, Object>> kDietTypePresets = [
   {'name': 'High Carb', 'carbs': 60, 'protein': 25, 'fats': 15},
   {'name': 'Moderate Carb', 'carbs': 50, 'protein': 30, 'fats': 20},
@@ -58,15 +66,13 @@ class _DietBuilderScreenState extends State<DietBuilderScreen> {
   @override
   Widget build(BuildContext context) {
     final memberName = widget.member['full_name'] ?? 'Member';
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isSmall = screenWidth < 380;
 
     return Scaffold(
       backgroundColor: AppColors.background,
       body: Column(
         children: [
           Container(
-            padding: EdgeInsets.fromLTRB(12, isSmall ? 12 : 16, 12, 8),
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
             decoration: BoxDecoration(
               color: AppColors.cardDark,
               borderRadius: const BorderRadius.only(
@@ -82,23 +88,27 @@ class _DietBuilderScreenState extends State<DietBuilderScreen> {
                       color: Colors.white, size: 18),
                   onPressed: () => Navigator.pop(context),
                   padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 24, minHeight: 24),
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
                 ),
                 IconButton(
                   icon: Icon(Icons.visibility, color: AppColors.gold, size: 18),
                   onPressed: _openPreviewForSelected,
                   padding: EdgeInsets.zero,
-                  constraints:
-                      const BoxConstraints(minWidth: 24, minHeight: 24),
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
                 ),
                 const SizedBox(width: 4),
                 Expanded(
                   child: Row(
                     children: [
-                      _buildDietTab('Veg', 0, memberName, isSmall),
+                      _buildDietTab('Veg', 0, memberName),
                       const SizedBox(width: 4),
-                      _buildDietTab('Non-Veg', 1, memberName, isSmall),
+                      _buildDietTab('Non-Veg', 1, memberName),
                     ],
                   ),
                 ),
@@ -141,15 +151,13 @@ class _DietBuilderScreenState extends State<DietBuilderScreen> {
     return '${parts.first} ${parts.last[0]}';
   }
 
-  Widget _buildDietTab(
-      String label, int index, String memberName, bool isSmall) {
+  Widget _buildDietTab(String label, int index, String memberName) {
     final isSelected = selectedDietIndex == index;
     return Expanded(
       child: GestureDetector(
         onTap: () => setState(() => selectedDietIndex = index),
         child: Container(
-          padding:
-              EdgeInsets.symmetric(vertical: isSmall ? 8 : 10, horizontal: 4),
+          padding: const EdgeInsets.symmetric(vertical: 5, horizontal: 4),
           decoration: BoxDecoration(
             color: isSelected
                 ? AppColors.gold.withOpacity(0.15)
@@ -168,7 +176,7 @@ class _DietBuilderScreenState extends State<DietBuilderScreen> {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: isSelected ? AppColors.gold : Colors.grey,
-              fontSize: isSmall ? 9 : 10,
+              fontSize: 9,
               fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
             ),
           ),
@@ -203,6 +211,7 @@ class _DietSlotEditor extends StatefulWidget {
 class _DietSlotEditorState extends State<_DietSlotEditor> {
   final nameController = TextEditingController();
   final targetController = TextEditingController(text: '3000');
+
   final proteinTargetController = TextEditingController(text: '150');
   final carbsTargetController = TextEditingController(text: '300');
   final fatsTargetController = TextEditingController(text: '80');
@@ -577,8 +586,6 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
     final t = totals;
     final pct = progressPercentage;
     final remaining = calorieTarget - t['calories']!;
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isSmall = screenWidth < 380;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       widget.onStatsChanged?.call(t['calories']!, pct);
@@ -586,9 +593,9 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
 
     return Column(
       children: [
+        // ✅ Compact header
         Container(
-          padding: EdgeInsets.symmetric(
-              horizontal: isSmall ? 6 : 8, vertical: isSmall ? 6 : 8),
+          padding: const EdgeInsets.all(6),
           decoration: BoxDecoration(
             color: AppColors.cardDark,
             borderRadius: const BorderRadius.only(
@@ -596,35 +603,38 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
               bottomRight: Radius.circular(10),
             ),
             border: Border(
-              bottom: BorderSide(color: Colors.white.withOpacity(0.05)),
+              bottom: BorderSide(
+                color: Colors.white.withOpacity(0.05),
+              ),
             ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ✅ Row 1: Target + Progress Bar + Stats
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Container(
-                    width: isSmall ? 50 : 55,
-                    padding: const EdgeInsets.only(right: 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'TARGET',
-                          style: TextStyle(
-                            color: Colors.grey,
-                            fontSize: 7,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
-                          ),
+                  // TARGET
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'TARGET',
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: 7,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
                         ),
-                        TextField(
+                      ),
+                      SizedBox(
+                        width: 40,
+                        child: TextField(
                           controller: targetController,
-                          style: TextStyle(
+                          style: const TextStyle(
                             color: Colors.white,
-                            fontSize: isSmall ? 12 : 14,
+                            fontSize: 12,
                             fontWeight: FontWeight.bold,
                           ),
                           keyboardType: TextInputType.number,
@@ -661,18 +671,19 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                             });
                           },
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
                   const SizedBox(width: 4),
+                  // Progress bar
                   Expanded(
                     child: SizedBox(
-                      height: isSmall ? 18 : 20,
+                      height: 16,
                       child: Stack(
                         alignment: Alignment.center,
                         children: [
                           ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
+                            borderRadius: BorderRadius.circular(3),
                             child: LinearProgressIndicator(
                               value: (pct / 100).clamp(0.0, 1.0),
                               backgroundColor: Colors.grey.shade800,
@@ -681,14 +692,14 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                                   : pct < 100
                                       ? Colors.orange
                                       : Colors.redAccent,
-                              minHeight: isSmall ? 18 : 20,
+                              minHeight: 16,
                             ),
                           ),
                           Text(
                             '${t['calories']!.toStringAsFixed(0)} kcal (${pct.toStringAsFixed(0)}%)',
-                            style: TextStyle(
+                            style: const TextStyle(
                               color: Colors.white,
-                              fontSize: isSmall ? 8 : 9,
+                              fontSize: 8,
                               fontWeight: FontWeight.bold,
                               shadows: [
                                 Shadow(color: Colors.black54, blurRadius: 2)
@@ -700,6 +711,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                     ),
                   ),
                   const SizedBox(width: 4),
+                  // REMAINING stat - Compact
                   _buildMiniStatCompact(
                     remaining.abs() < 1
                         ? 'ACHIEVED'
@@ -714,9 +726,9 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                         : remaining > 0
                             ? Colors.orange
                             : Colors.redAccent,
-                    isSmall,
                   ),
                   const SizedBox(width: 2),
+                  // CALORIE stat - Compact
                   _buildMiniStatCompact(
                     'CAL',
                     '${_calculateCaloriesFromMacros().toStringAsFixed(0)}',
@@ -725,11 +737,11 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                         : _calculateCaloriesFromMacros() < calorieTarget
                             ? Colors.orange
                             : Colors.redAccent,
-                    isSmall,
                   ),
                 ],
               ),
               const SizedBox(height: 4),
+              // ✅ Row 2: Diet Type Picker
               GestureDetector(
                 onTap: _openDietTypePicker,
                 child: Container(
@@ -747,7 +759,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                         selectedDietType == kCustomDietType
                             ? Icons.edit
                             : Icons.lock_outline,
-                        size: 10,
+                        size: 9,
                         color: AppColors.gold,
                       ),
                       const SizedBox(width: 3),
@@ -755,33 +767,33 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                         selectedDietType,
                         style: const TextStyle(
                           color: AppColors.gold,
-                          fontSize: 9,
+                          fontSize: 8,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       const SizedBox(width: 2),
                       Icon(Icons.arrow_drop_down,
-                          size: 14, color: AppColors.gold),
+                          size: 12, color: AppColors.gold),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 4),
+              // ✅ Row 3: Macro Rows - Compact
               _buildMacroRow('Protein', t['protein']!, proteinTarget,
-                  proteinTargetController, isSmall),
+                  proteinTargetController),
               const SizedBox(height: 2),
-              _buildMacroRow('Carbs', t['carbs']!, carbsTarget,
-                  carbsTargetController, isSmall),
+              _buildMacroRow(
+                  'Carbs', t['carbs']!, carbsTarget, carbsTargetController),
               const SizedBox(height: 2),
-              _buildMacroRow('Fats', t['fats']!, fatsTarget,
-                  fatsTargetController, isSmall),
+              _buildMacroRow(
+                  'Fats', t['fats']!, fatsTarget, fatsTargetController),
             ],
           ),
         ),
         Expanded(
           child: ListView(
-            padding: EdgeInsets.fromLTRB(isSmall ? 4 : 6, isSmall ? 4 : 6,
-                isSmall ? 4 : 6, isSmall ? 6 : 8),
+            padding: const EdgeInsets.fromLTRB(6, 4, 6, 8),
             children: [
               _SectionBlock(
                 section: 'Breakfast',
@@ -791,7 +803,6 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                     setState(() => sections['Breakfast']!.remove(item)),
                 onQuantityChanged: (item, value) =>
                     setState(() => item.quantity = value),
-                isSmall: isSmall,
               ),
               const SizedBox(height: 4),
               _SectionBlock(
@@ -802,7 +813,6 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                     setState(() => sections['Lunch']!.remove(item)),
                 onQuantityChanged: (item, value) =>
                     setState(() => item.quantity = value),
-                isSmall: isSmall,
               ),
               const SizedBox(height: 4),
               _SectionBlock(
@@ -813,7 +823,6 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                     setState(() => sections['Snacks']!.remove(item)),
                 onQuantityChanged: (item, value) =>
                     setState(() => item.quantity = value),
-                isSmall: isSmall,
               ),
               const SizedBox(height: 4),
               _SectionBlock(
@@ -824,10 +833,9 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                     setState(() => sections['Dinner']!.remove(item)),
                 onQuantityChanged: (item, value) =>
                     setState(() => item.quantity = value),
-                isSmall: isSmall,
               ),
               const SizedBox(height: 8),
-              _buildRadioButtons(isSmall),
+              _buildRadioButtons(),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -846,7 +854,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                         style: TextStyle(
                           color: Colors.grey.shade400,
                           fontWeight: FontWeight.bold,
-                          fontSize: isSmall ? 9 : 10,
+                          fontSize: 10,
                         ),
                       ),
                     ),
@@ -857,7 +865,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                     child: ElevatedButton(
                       onPressed: isSaving ? null : saveDiet,
                       style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(6),
                         ),
@@ -873,7 +881,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                             )
                           : Text(
                               'SAVE ${widget.dietType.toUpperCase()}',
-                              style: TextStyle(fontSize: isSmall ? 9 : 10),
+                              style: const TextStyle(fontSize: 10),
                             ),
                     ),
                   ),
@@ -887,7 +895,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
     );
   }
 
-  Widget _buildRadioButtons(bool isSmall) {
+  Widget _buildRadioButtons() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
       decoration: BoxDecoration(
@@ -896,15 +904,15 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
       ),
       child: Row(
         children: [
-          _buildRadioOption('Veg', 'veg', isSmall),
-          _buildRadioOption('Non-Veg', 'nonveg', isSmall),
-          _buildRadioOption('Both', 'both', isSmall),
+          _buildRadioOption('Veg', 'veg'),
+          _buildRadioOption('Non-Veg', 'nonveg'),
+          _buildRadioOption('Both', 'both'),
         ],
       ),
     );
   }
 
-  Widget _buildRadioOption(String label, String value, bool isSmall) {
+  Widget _buildRadioOption(String label, String value) {
     final isSelected = selectedDisplayOption == value;
     return Expanded(
       child: GestureDetector(
@@ -948,7 +956,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                 label,
                 style: TextStyle(
                   color: isSelected ? Colors.white : Colors.grey.shade500,
-                  fontSize: isSmall ? 7 : 8,
+                  fontSize: 8,
                   fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
                 ),
               ),
@@ -959,8 +967,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
     );
   }
 
-  Widget _buildMiniStatCompact(
-      String label, String value, Color color, bool isSmall) {
+  Widget _buildMiniStatCompact(String label, String value, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
       decoration: BoxDecoration(
@@ -976,7 +983,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
             label,
             style: TextStyle(
               color: Colors.grey.shade500,
-              fontSize: isSmall ? 5 : 6,
+              fontSize: 5,
               fontWeight: FontWeight.bold,
               letterSpacing: 0.3,
             ),
@@ -986,7 +993,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
             value,
             style: TextStyle(
               color: color,
-              fontSize: isSmall ? 7 : 8,
+              fontSize: 8,
               fontWeight: FontWeight.bold,
             ),
             overflow: TextOverflow.ellipsis,
@@ -997,7 +1004,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
   }
 
   Widget _buildMacroRow(String label, double actual, double target,
-      TextEditingController controller, bool isSmall) {
+      TextEditingController controller) {
     final progress = target > 0 ? (actual / target).clamp(0.0, 1.0) : 0.0;
     final statusColor = getMacroStatus(actual, target);
     final statusLabel = getMacroStatusLabel(actual, target);
@@ -1014,19 +1021,19 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
       child: Row(
         children: [
           SizedBox(
-            width: isSmall ? 30 : 36,
+            width: 32,
             child: Text(
               label,
-              style: TextStyle(
+              style: const TextStyle(
                 color: Colors.white,
-                fontSize: isSmall ? 7 : 8,
+                fontSize: 8,
                 fontWeight: FontWeight.bold,
               ),
             ),
           ),
           Expanded(
             child: SizedBox(
-              height: isSmall ? 12 : 14,
+              height: 12,
               child: Stack(
                 alignment: Alignment.center,
                 children: [
@@ -1036,14 +1043,14 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                       value: progress,
                       backgroundColor: Colors.grey.shade800,
                       color: statusColor,
-                      minHeight: isSmall ? 12 : 14,
+                      minHeight: 12,
                     ),
                   ),
                   Text(
                     '${actual.toStringAsFixed(0)}g ($pct%)',
-                    style: TextStyle(
+                    style: const TextStyle(
                       color: Colors.white,
-                      fontSize: isSmall ? 6 : 7,
+                      fontSize: 7,
                       fontWeight: FontWeight.bold,
                       shadows: [Shadow(color: Colors.black54, blurRadius: 2)],
                     ),
@@ -1062,29 +1069,29 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
               statusLabel,
               style: TextStyle(
                 color: statusColor,
-                fontSize: isSmall ? 5 : 6,
+                fontSize: 6,
                 fontWeight: FontWeight.bold,
               ),
             ),
           ),
           const SizedBox(width: 2),
-          Text(
+          const Text(
             '/',
             style: TextStyle(
               color: Colors.white,
-              fontSize: isSmall ? 6 : 7,
+              fontSize: 7,
               fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(width: 2),
           SizedBox(
-            width: isSmall ? 20 : 26,
+            width: 22,
             child: TextField(
               controller: controller,
               readOnly: !macrosAreEditable,
               style: TextStyle(
                 color: macrosAreEditable ? Colors.white : Colors.grey.shade500,
-                fontSize: isSmall ? 6 : 7,
+                fontSize: 7,
                 fontWeight: FontWeight.bold,
               ),
               keyboardType: TextInputType.number,
@@ -1106,11 +1113,11 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
                     },
             ),
           ),
-          Text(
+          const Text(
             'g',
             style: TextStyle(
               color: Colors.white70,
-              fontSize: isSmall ? 5 : 6,
+              fontSize: 6,
             ),
           ),
         ],
@@ -1286,7 +1293,6 @@ class _SectionBlock extends StatelessWidget {
   final VoidCallback onAdd;
   final void Function(DietFoodItem) onRemove;
   final void Function(DietFoodItem, double) onQuantityChanged;
-  final bool isSmall;
 
   const _SectionBlock({
     required this.section,
@@ -1294,7 +1300,6 @@ class _SectionBlock extends StatelessWidget {
     required this.onAdd,
     required this.onRemove,
     required this.onQuantityChanged,
-    this.isSmall = false,
   });
 
   @override
@@ -1318,19 +1323,18 @@ class _SectionBlock extends StatelessWidget {
                 style: TextStyle(
                   color: AppColors.gold,
                   fontWeight: FontWeight.bold,
-                  fontSize: isSmall ? 8 : 9,
+                  fontSize: 8,
                   letterSpacing: 0.5,
                 ),
               ),
               TextButton.icon(
                 onPressed: onAdd,
-                icon: Icon(Icons.add,
-                    size: isSmall ? 12 : 14, color: AppColors.gold),
+                icon: Icon(Icons.add, size: 12, color: AppColors.gold),
                 label: Text(
                   'Add',
                   style: TextStyle(
                     color: AppColors.gold,
-                    fontSize: isSmall ? 8 : 9,
+                    fontSize: 9,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1349,12 +1353,12 @@ class _SectionBlock extends StatelessWidget {
             ],
           ),
           if (items.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 2),
               child: Center(
                 child: Text(
                   'No items',
-                  style: const TextStyle(color: Colors.grey, fontSize: 8),
+                  style: TextStyle(color: Colors.grey, fontSize: 8),
                 ),
               ),
             ),
@@ -1362,7 +1366,6 @@ class _SectionBlock extends StatelessWidget {
                 item: item,
                 onRemove: () => onRemove(item),
                 onQuantityChanged: (v) => onQuantityChanged(item, v),
-                isSmall: isSmall,
               )),
         ],
       ),
@@ -1374,13 +1377,11 @@ class _FoodItemRow extends StatefulWidget {
   final DietFoodItem item;
   final VoidCallback onRemove;
   final void Function(double) onQuantityChanged;
-  final bool isSmall;
 
   const _FoodItemRow({
     required this.item,
     required this.onRemove,
     required this.onQuantityChanged,
-    this.isSmall = false,
   });
 
   @override
@@ -1416,100 +1417,92 @@ class _FoodItemRowState extends State<_FoodItemRow> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
               Expanded(
                 flex: 2,
                 child: Text(
                   widget.item.name,
-                  style: TextStyle(
+                  style: const TextStyle(
                     color: Colors.white,
-                    fontSize: widget.isSmall ? 9 : 10,
+                    fontSize: 10,
                     fontWeight: FontWeight.w500,
                   ),
-                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                 ),
               ),
               const SizedBox(width: 2),
-              Container(
-                width: widget.isSmall ? 32 : 38,
-                height: widget.isSmall ? 22 : 26,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade800,
-                  borderRadius: BorderRadius.circular(4),
-                  border: Border.all(
-                    color: AppColors.gold.withOpacity(0.3),
-                    width: 0.5,
-                  ),
-                ),
-                child: Center(
-                  child: TextField(
-                    controller: _controller,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: widget.isSmall ? 9 : 10,
-                      fontWeight: FontWeight.bold,
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SizedBox(
+                    width: 24,
+                    child: TextField(
+                      controller: _controller,
+                      keyboardType:
+                          const TextInputType.numberWithOptions(decimal: true),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 9,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      textAlign: TextAlign.center,
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        contentPadding: EdgeInsets.symmetric(vertical: 1),
+                        border: InputBorder.none,
+                      ),
+                      onChanged: (value) {
+                        final newValue = double.tryParse(value);
+                        if (newValue != null && newValue >= 0) {
+                          widget.onQuantityChanged(newValue);
+                        }
+                      },
                     ),
-                    textAlign: TextAlign.center,
-                    decoration: const InputDecoration(
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(vertical: 1),
-                      border: InputBorder.none,
-                    ),
-                    onChanged: (value) {
-                      final newValue = double.tryParse(value);
-                      if (newValue != null && newValue >= 0) {
-                        widget.onQuantityChanged(newValue);
-                      }
-                    },
                   ),
-                ),
-              ),
-              const SizedBox(width: 2),
-              Text(
-                widget.item.unit,
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: widget.isSmall ? 7 : 8,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(width: 2),
-              IconButton(
-                icon: Icon(
-                  Icons.close,
-                  size: widget.isSmall ? 12 : 14,
-                  color: Colors.grey,
-                ),
-                onPressed: widget.onRemove,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                  const SizedBox(width: 2),
+                  Text(
+                    widget.item.unit,
+                    style: const TextStyle(
+                      color: Colors.grey,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 12, color: Colors.grey),
+                    onPressed: widget.onRemove,
+                    padding: EdgeInsets.zero,
+                    constraints:
+                        const BoxConstraints(minWidth: 16, minHeight: 16),
+                  ),
+                ],
               ),
             ],
           ),
           Padding(
-            padding: EdgeInsets.only(left: widget.isSmall ? 1 : 2, top: 1),
+            padding: const EdgeInsets.only(left: 2),
             child: Text(
               '${calories.toStringAsFixed(0)} kcal · '
               'P${protein.toStringAsFixed(0)}g '
               'C${carbs.toStringAsFixed(0)}g '
               'F${fats.toStringAsFixed(0)}g',
-              style: TextStyle(
-                color: Colors.grey.shade500,
-                fontSize: widget.isSmall ? 6 : 7,
+              style: const TextStyle(
+                color: Colors.grey,
+                fontSize: 7,
               ),
             ),
           ),
-          const SizedBox(height: 1),
         ],
       ),
     );
   }
 }
 
+// ============================================================
+// _FoodPickerSheet - Mobile friendly, compact, editable
+// ============================================================
 class _FoodPickerSheet extends StatefulWidget {
   final String dietType;
   const _FoodPickerSheet({required this.dietType});
@@ -1611,13 +1604,13 @@ class _FoodPickerSheetState extends State<_FoodPickerSheet> {
             return name.contains(query.toLowerCase());
           }).toList();
 
-    final bool isSmall = MediaQuery.of(context).size.width < 380;
-
     return Container(
       height: MediaQuery.of(context).size.height * 0.92,
       decoration: const BoxDecoration(
         color: AppColors.cardDark,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(20),
+        ),
       ),
       child: Column(
         children: [
@@ -1664,8 +1657,10 @@ class _FoodPickerSheetState extends State<_FoodPickerSheet> {
                       icon: const Icon(Icons.close, color: Colors.white70),
                       onPressed: () => Navigator.pop(context),
                       padding: EdgeInsets.zero,
-                      constraints:
-                          const BoxConstraints(minWidth: 28, minHeight: 28),
+                      constraints: const BoxConstraints(
+                        minWidth: 28,
+                        minHeight: 28,
+                      ),
                     ),
                   ],
                 ),
@@ -1694,8 +1689,10 @@ class _FoodPickerSheetState extends State<_FoodPickerSheet> {
                           });
                         },
                         padding: EdgeInsets.zero,
-                        constraints:
-                            const BoxConstraints(minWidth: 24, minHeight: 24),
+                        constraints: const BoxConstraints(
+                          minWidth: 24,
+                          minHeight: 24,
+                        ),
                       )
                     : null,
                 filled: true,
@@ -1704,8 +1701,10 @@ class _FoodPickerSheetState extends State<_FoodPickerSheet> {
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide.none,
                 ),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
               ),
               onChanged: (v) => setState(() => query = v.trim()),
             ),
@@ -1725,10 +1724,8 @@ class _FoodPickerSheetState extends State<_FoodPickerSheet> {
                             SizedBox(height: 4),
                             Text(
                               'No foods found',
-                              style: TextStyle(
-                                color: Colors.grey,
-                                fontSize: 12,
-                              ),
+                              style:
+                                  TextStyle(color: Colors.grey, fontSize: 12),
                             ),
                           ],
                         ),
@@ -1776,7 +1773,9 @@ class _FoodPickerSheetState extends State<_FoodPickerSheet> {
                             ),
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.center,
                                 children: [
@@ -1926,10 +1925,9 @@ class _FoodPickerSheetState extends State<_FoodPickerSheet> {
                     child: Text(
                       'ADD ${selectedIds.length} FOOD${selectedIds.length > 1 ? 'S' : ''}',
                       style: const TextStyle(
-                        color: Colors.black,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 10,
-                      ),
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 10),
                     ),
                   ),
                 ),

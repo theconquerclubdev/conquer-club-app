@@ -68,8 +68,13 @@ extension on _Slot {
 
 class MemberProgressScreen extends StatefulWidget {
   final String? memberId; // ✅ ADDED: If provided, shows this member's photos
+  final bool readOnly; // ✅ ADDED: When true, disables all uploads (coach view)
 
-  const MemberProgressScreen({super.key, this.memberId});
+  const MemberProgressScreen({
+    super.key,
+    this.memberId,
+    this.readOnly = false,
+  });
 
   @override
   State<MemberProgressScreen> createState() => _MemberProgressScreenState();
@@ -169,6 +174,7 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
   }
 
   Future<void> _handleTap(_Slot slot) async {
+    if (widget.readOnly) return;
     final blocked = _blockedReason(slot);
     if (blocked != null) {
       ScaffoldMessenger.of(context)
@@ -333,8 +339,10 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
       appBar: AppBar(
         backgroundColor: AppColors.background,
         elevation: 0,
-        title: const Text('Body Transformation',
-            style: TextStyle(color: Colors.white)),
+        title: Text(
+          widget.readOnly ? 'Body Transformation (View Only)' : 'Body Transformation',
+          style: const TextStyle(color: Colors.white),
+        ),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           IconButton(
@@ -367,11 +375,15 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
                   _sectionHeader('After', locked: false),
                   const SizedBox(height: 4),
                   Text(
-                    _isSunday
-                        ? 'It\'s Sunday — you can update your after photos today.'
-                        : 'After photos can only be replaced on Sundays.',
+                    widget.readOnly
+                        ? 'Viewing only — uploads happen from the member\'s app.'
+                        : (_isSunday
+                            ? 'It\'s Sunday — you can update your after photos today.'
+                            : 'After photos can only be replaced on Sundays.'),
                     style: TextStyle(
-                      color: _isSunday ? AppColors.gold : Colors.grey,
+                      color: widget.readOnly
+                          ? Colors.grey
+                          : (_isSunday ? AppColors.gold : Colors.grey),
                       fontSize: 12.5,
                     ),
                   ),
@@ -416,7 +428,7 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
     final locked = slot.isBefore && hasPhoto;
 
     return GestureDetector(
-      onTap: isUploading ? null : () => _handleTap(slot),
+      onTap: (isUploading || widget.readOnly) ? null : () => _handleTap(slot),
       child: AspectRatio(
         aspectRatio: 3 / 4,
         child: Container(
@@ -458,16 +470,26 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
                         size: 30,
                       ),
                       const SizedBox(height: 8),
-                      Icon(Icons.add_a_photo_outlined,
-                          color: AppColors.gold.withOpacity(0.8), size: 20),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Tap to upload',
-                        style: TextStyle(
-                          color: Colors.grey.shade500,
-                          fontSize: 10,
+                      if (widget.readOnly)
+                        Text(
+                          'No photo yet',
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: 10,
+                          ),
+                        )
+                      else ...[
+                        Icon(Icons.add_a_photo_outlined,
+                            color: AppColors.gold.withOpacity(0.8), size: 20),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Tap to upload',
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: 10,
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -493,7 +515,7 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
                   ),
                 ),
               ),
-              if (locked)
+              if (locked && !widget.readOnly)
                 const Positioned(
                   top: 8,
                   right: 8,
@@ -524,6 +546,29 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
   }
 
   Widget _buildInfoCard() {
+    if (widget.readOnly) {
+      return Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.cardDark,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withOpacity(0.06)),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.visibility_outlined, color: Colors.grey.shade500, size: 16),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'You\'re viewing this member\'s photos in read-only mode. '
+                'Only the member can upload or replace their own photos.',
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(

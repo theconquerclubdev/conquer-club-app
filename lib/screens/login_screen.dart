@@ -93,11 +93,10 @@ class _LoginScreenState extends State<LoginScreen> {
               minHeight: MediaQuery.of(context).size.height -
                   MediaQuery.of(context).padding.top -
                   MediaQuery.of(context).padding.bottom -
-                  32, // subtract vertical padding
+                  32,
             ),
             child: Column(
-              mainAxisAlignment:
-                  MainAxisAlignment.center, // ✅ Center vertically
+              mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 RichText(
