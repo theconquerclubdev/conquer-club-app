@@ -1,0 +1,1322 @@
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../theme/app_theme.dart';
+import 'login_screen.dart';
+import 'member_profile_coach_view_screen.dart';
+
+class CoachHomeScreen extends StatefulWidget {
+  const CoachHomeScreen({super.key});
+
+  @override
+  State<CoachHomeScreen> createState() => _CoachHomeScreenState();
+}
+
+class _CoachHomeScreenState extends State<CoachHomeScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  final searchController = TextEditingController();
+  String search = '';
+  String filterType = 'all'; // all, active, inactive, new, no_diet, no_workout
+  String sortType = 'name';
+  bool sortAscending = true;
+
+  List<Map<String, dynamic>> allMembers = [];
+  List<Map<String, dynamic>> filteredMembers = [];
+  bool isLoading = true;
+
+  // Dashboard Stats
+  int activeCount = 0;
+  int inactiveCount = 0;
+  int newMembersCount = 0;
+  int noDietCount = 0;
+  int noWorkoutCount = 0;
+  int dietDueToday = 0;
+  int dietDueTomorrow = 0;
+  int dietOverdue = 0;
+  int expiredToday = 0;
+  int expiredYesterday = 0;
+  int expiredLastWeek = 0;
+  int expiringTomorrow = 0;
+  int expiringIn7Days = 0;
+
+  // Coach permissions
+  bool canEditDiet = false;
+  bool canEditWorkout = false;
+  bool isLoadingPermissions = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadPermissionsAndMembers();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPermissionsAndMembers() async {
+    await _loadPermissions();
+    await loadMembers();
+  }
+
+  Future<void> _loadPermissions() async {
+    if (!mounted) return;
+    setState(() => isLoadingPermissions = true);
+    try {
+      final coachId = Supabase.instance.client.auth.currentUser!.id;
+      final data = await Supabase.instance.client
+          .from('coach_permissions')
+          .select()
+          .eq('coach_id', coachId)
+          .maybeSingle();
+
+      if (mounted) {
+        setState(() {
+          canEditDiet = data?['can_edit_diet'] ?? false;
+          canEditWorkout = data?['can_edit_workout'] ?? false;
+          isLoadingPermissions = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading permissions: $e');
+      if (mounted) {
+        setState(() {
+          canEditDiet = false;
+          canEditWorkout = false;
+          isLoadingPermissions = false;
+        });
+      }
+    }
+  }
+
+  // ============================================================
+  // ✅ OPTIMIZED: loadMembers with parallel queries for speed
+  // ============================================================
+  Future<void> loadMembers() async {
+    if (!mounted) return;
+    setState(() => isLoading = true);
+    try {
+      final coachId = Supabase.instance.client.auth.currentUser!.id;
+
+      final data = await Supabase.instance.client
+          .from('profiles')
+          .select(
+              'id, full_name, email, is_active, goal, phone, membership_end_date, assigned_coach_id')
+          .eq('assigned_coach_id', coachId)
+          .eq('role', 'member')
+          .order('full_name');
+
+      final membersWithInfo = <Map<String, dynamic>>[];
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      int active = 0, inactive = 0, newMembers = 0, noDiet = 0, noWorkout = 0;
+      int dueToday = 0, dueTomorrow = 0, overdue = 0;
+      int expToday = 0,
+          expYesterday = 0,
+          expLastWeek = 0,
+          expTomorrow = 0,
+          expIn7Days = 0;
+
+      for (final member in data) {
+        final memberId = member['id'];
+
+        final results = await Future.wait([
+          Supabase.instance.client
+              .from('workout_sessions')
+              .select('ended_at')
+              .eq('member_id', memberId)
+              .eq('status', 'completed')
+              .order('ended_at', ascending: false)
+              .limit(1)
+              .maybeSingle(),
+          Supabase.instance.client
+              .from('diets')
+              .select('updated_at')
+              .eq('member_id', memberId)
+              .order('updated_at', ascending: false)
+              .limit(1)
+              .maybeSingle(),
+        ]);
+
+        final latestWorkout = results[0];
+        final latestDiet = results[1];
+        final hasWorkout = latestWorkout != null;
+        final hasDiet = latestDiet != null;
+
+        // ✅ Get current streak
+        final streakData = await Supabase.instance.client
+            .from('member_streaks')
+            .select('is_streak_met')
+            .eq('member_id', memberId)
+            .order('date', ascending: false)
+            .limit(30);
+
+        int streak = 0;
+        for (final record in streakData) {
+          if (record['is_streak_met'] == true) {
+            streak++;
+          } else {
+            break;
+          }
+        }
+
+        final endDateStr = member['membership_end_date'] as String?;
+        int daysLeft = -999;
+        bool membershipActive = false;
+
+        if (endDateStr != null) {
+          try {
+            final endDate = DateTime.parse(endDateStr);
+            daysLeft = endDate.difference(today).inDays;
+            membershipActive = daysLeft >= 0;
+          } catch (_) {
+            membershipActive = false;
+          }
+        }
+
+        if (membershipActive) {
+          active++;
+          if (!hasWorkout) noWorkout++;
+          if (!hasDiet) noDiet++;
+
+          if (hasDiet && latestDiet!['updated_at'] != null) {
+            final dietDate = DateTime.parse(latestDiet['updated_at']);
+            final daysSince = today.difference(dietDate).inDays;
+            if (daysSince >= 7)
+              overdue++;
+            else if (daysSince == 6)
+              dueTomorrow++;
+            else if (daysSince == 5) dueToday++;
+          }
+
+          if (daysLeft == 0)
+            expToday++;
+          else if (daysLeft == 1)
+            expTomorrow++;
+          else if (daysLeft == 7) expIn7Days++;
+        } else {
+          inactive++;
+          if (daysLeft == -1)
+            expYesterday++;
+          else if (daysLeft <= -7) expLastWeek++;
+        }
+
+        if (membershipActive && !hasDiet && !hasWorkout) newMembers++;
+
+        membersWithInfo.add({
+          ...member,
+          'latest_workout': latestWorkout,
+          'latest_diet': latestDiet,
+          'has_workout': hasWorkout,
+          'has_diet': hasDiet,
+          'is_active': membershipActive,
+          'days_left': daysLeft,
+          'membership_end_date': endDateStr,
+          'current_streak': streak,
+        });
+      }
+
+      if (mounted) {
+        setState(() {
+          allMembers = membersWithInfo;
+          filteredMembers = membersWithInfo;
+          isLoading = false;
+
+          activeCount = active;
+          inactiveCount = inactive;
+          newMembersCount = newMembers;
+          noDietCount = noDiet;
+          noWorkoutCount = noWorkout;
+          dietDueToday = dueToday;
+          dietDueTomorrow = dueTomorrow;
+          dietOverdue = overdue;
+          expiredToday = expToday;
+          expiredYesterday = expYesterday;
+          expiredLastWeek = expLastWeek;
+          expiringTomorrow = expTomorrow;
+          expiringIn7Days = expIn7Days;
+
+          applyFiltersAndSort();
+        });
+      }
+    } catch (e) {
+      print('Error loading members: $e');
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    }
+  }
+
+  void applyFiltersAndSort() {
+    if (!mounted) return;
+    var list = List<Map<String, dynamic>>.from(allMembers);
+
+    if (search.isNotEmpty) {
+      list = list.where((m) {
+        final name = (m['full_name'] ?? '').toString().toLowerCase();
+        final email = (m['email'] ?? '').toString().toLowerCase();
+        final q = search.toLowerCase();
+        return name.contains(q) || email.contains(q);
+      }).toList();
+    }
+
+    switch (filterType) {
+      case 'active':
+        list = list.where((m) => m['is_active'] == true).toList();
+        break;
+      case 'inactive':
+        list = list.where((m) => m['is_active'] == false).toList();
+        break;
+      case 'new':
+        list = list
+            .where((m) =>
+                m['is_active'] == true &&
+                m['has_diet'] == false &&
+                m['has_workout'] == false)
+            .toList();
+        break;
+      case 'no_diet':
+        list = list
+            .where((m) =>
+                m['is_active'] == true &&
+                m['has_diet'] == false &&
+                m['has_workout'] == true)
+            .toList();
+        break;
+      case 'no_workout':
+        list = list
+            .where((m) =>
+                m['is_active'] == true &&
+                m['has_diet'] == true &&
+                m['has_workout'] == false)
+            .toList();
+        break;
+      default:
+        break;
+    }
+
+    list.sort((a, b) {
+      int comparison = 0;
+      switch (sortType) {
+        case 'name':
+          comparison = (a['full_name'] ?? '').compareTo(b['full_name'] ?? '');
+          break;
+        case 'last_workout':
+          final aDate = a['latest_workout']?['ended_at'] ?? '';
+          final bDate = b['latest_workout']?['ended_at'] ?? '';
+          comparison = aDate.compareTo(bDate);
+          break;
+        case 'last_diet':
+          final aDate = a['latest_diet']?['updated_at'] ?? '';
+          final bDate = b['latest_diet']?['updated_at'] ?? '';
+          comparison = aDate.compareTo(bDate);
+          break;
+        default:
+          comparison = 0;
+      }
+      return sortAscending ? comparison : -comparison;
+    });
+
+    setState(() {
+      filteredMembers = list;
+    });
+  }
+
+  String _formatDateShort(String? dateTime) {
+    if (dateTime == null) return '—';
+    try {
+      final date = DateTime.parse(dateTime);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final yesterday = today.subtract(const Duration(days: 1));
+
+      final dateOnly = DateTime(date.year, date.month, date.day);
+
+      if (dateOnly == today) return 'Today';
+      if (dateOnly == yesterday) return 'Yesterday';
+      return '${date.day}/${date.month}';
+    } catch (e) {
+      return '—';
+    }
+  }
+
+  void _navigateToMembersWithFilter(String filter) {
+    setState(() {
+      filterType = filter;
+      applyFiltersAndSort();
+    });
+    _tabController.animateTo(1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.gold.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: AppColors.gold.withOpacity(0.2),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.people_alt_rounded,
+                              color: AppColors.gold,
+                              size: 16,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${allMembers.length}',
+                              style: TextStyle(
+                                color: AppColors.gold,
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        'Athletes',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.cardDark,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.logout_rounded,
+                        color: Colors.white60,
+                        size: 20,
+                      ),
+                      onPressed: () async {
+                        await Supabase.instance.client.auth.signOut();
+                        if (context.mounted) {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const LoginScreen(),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                color: AppColors.cardDark,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                indicator: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [AppColors.gold, AppColors.gold.withOpacity(0.75)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                indicatorSize: TabBarIndicatorSize.tab,
+                labelColor: Colors.black,
+                unselectedLabelColor: Colors.grey,
+                labelStyle: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 12,
+                ),
+                unselectedLabelStyle: const TextStyle(
+                  fontWeight: FontWeight.w500,
+                  fontSize: 11,
+                ),
+                tabs: const [
+                  Tab(
+                    height: 40,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.dashboard, size: 14),
+                        SizedBox(width: 4),
+                        Text('DASHBOARD'),
+                      ],
+                    ),
+                  ),
+                  Tab(
+                    height: 40,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.people, size: 14),
+                        SizedBox(width: 4),
+                        Text('MEMBERS'),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildDashboardTab(),
+                  _buildMembersTab(),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDashboardTab() {
+    if (isLoading || isLoadingPermissions) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.gold),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: loadMembers,
+      color: AppColors.gold,
+      backgroundColor: AppColors.cardDark,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(12),
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                _DashboardStatCard(
+                  label: 'Active',
+                  count: activeCount,
+                  color: Colors.green,
+                  icon: Icons.check_circle,
+                  onTap: () => _navigateToMembersWithFilter('active'),
+                ),
+                const SizedBox(width: 8),
+                _DashboardStatCard(
+                  label: 'Inactive',
+                  count: inactiveCount,
+                  color: Colors.red,
+                  icon: Icons.cancel,
+                  onTap: () => _navigateToMembersWithFilter('inactive'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _DashboardStatCard(
+                  label: 'New Members',
+                  count: newMembersCount,
+                  color: AppColors.gold,
+                  icon: Icons.person_add,
+                  onTap: () => _navigateToMembersWithFilter('new'),
+                ),
+                const SizedBox(width: 8),
+                _DashboardStatCard(
+                  label: 'No Diet',
+                  count: noDietCount,
+                  color: Colors.orange,
+                  icon: Icons.restaurant,
+                  onTap: () => _navigateToMembersWithFilter('no_diet'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _DashboardStatCard(
+                  label: 'No Workout',
+                  count: noWorkoutCount,
+                  color: Colors.blue,
+                  icon: Icons.fitness_center,
+                  onTap: () => _navigateToMembersWithFilter('no_workout'),
+                ),
+                const SizedBox(width: 8),
+                _DashboardStatCard(
+                  label: 'Total',
+                  count: allMembers.length,
+                  color: Colors.grey,
+                  icon: Icons.people,
+                  onTap: () => _navigateToMembersWithFilter('all'),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '📅 MEMBERSHIP EXPIRY ALERTS',
+                  style: TextStyle(
+                    color: AppColors.gold,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _AlertChip(
+                  label: '⏰ Expired 7+ days ago',
+                  count: expiredLastWeek,
+                  color: Colors.red.shade700,
+                  onTap: () => _navigateToMembersWithFilter('inactive'),
+                ),
+                _AlertChip(
+                  label: '⚠️ Expired Yesterday',
+                  count: expiredYesterday,
+                  color: Colors.deepOrange,
+                  onTap: () => _navigateToMembersWithFilter('inactive'),
+                ),
+                _AlertChip(
+                  label: '🔥 Expires Today',
+                  count: expiredToday,
+                  color: Colors.orange,
+                  onTap: () => _navigateToMembersWithFilter('active'),
+                ),
+                _AlertChip(
+                  label: '📋 Expires Tomorrow',
+                  count: expiringTomorrow,
+                  color: Colors.blue,
+                  onTap: () => _navigateToMembersWithFilter('active'),
+                ),
+                _AlertChip(
+                  label: '📅 Expires in 7 days',
+                  count: expiringIn7Days,
+                  color: Colors.green,
+                  onTap: () => _navigateToMembersWithFilter('active'),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '🍽️ DIET UPDATE ALERTS',
+                  style: TextStyle(
+                    color: AppColors.gold,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _AlertChip(
+                  label: '📋 Diet Due Today',
+                  count: dietDueToday,
+                  color: Colors.orange,
+                  onTap: () => _navigateToMembersWithFilter('active'),
+                ),
+                _AlertChip(
+                  label: '📋 Diet Due Tomorrow',
+                  count: dietDueTomorrow,
+                  color: Colors.blue,
+                  onTap: () => _navigateToMembersWithFilter('active'),
+                ),
+                _AlertChip(
+                  label: '⚠️ Diet Overdue (7+ days)',
+                  count: dietOverdue,
+                  color: Colors.red,
+                  onTap: () => _navigateToMembersWithFilter('active'),
+                ),
+                const SizedBox(height: 8),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMembersTab() {
+    if (isLoading || isLoadingPermissions) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.gold),
+      );
+    }
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: AppColors.cardDark,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: search.isNotEmpty
+                          ? AppColors.gold.withOpacity(0.3)
+                          : Colors.white.withOpacity(0.06),
+                    ),
+                  ),
+                  child: TextField(
+                    controller: searchController,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                    ),
+                    decoration: InputDecoration(
+                      hintText: 'Search...',
+                      hintStyle: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 11,
+                      ),
+                      prefixIcon: Icon(
+                        Icons.search_rounded,
+                        color: Colors.grey.shade600,
+                        size: 16,
+                      ),
+                      suffixIcon: search.isNotEmpty
+                          ? IconButton(
+                              icon: Icon(
+                                Icons.close_rounded,
+                                color: Colors.grey.shade600,
+                                size: 14,
+                              ),
+                              onPressed: () {
+                                searchController.clear();
+                                setState(() {
+                                  search = '';
+                                  applyFiltersAndSort();
+                                });
+                              },
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 24,
+                                minHeight: 24,
+                              ),
+                            )
+                          : null,
+                      border: InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 2,
+                      ),
+                      isDense: true,
+                    ),
+                    onChanged: (v) {
+                      setState(() {
+                        search = v.trim();
+                        applyFiltersAndSort();
+                      });
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                height: 34,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.cardDark,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.06),
+                  ),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<String>(
+                    value: filterType,
+                    dropdownColor: AppColors.cardDark,
+                    icon: Icon(
+                      Icons.filter_list,
+                      color: AppColors.gold,
+                      size: 16,
+                    ),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                    ),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() {
+                          filterType = value;
+                          applyFiltersAndSort();
+                        });
+                      }
+                    },
+                    items: const [
+                      DropdownMenuItem(value: 'all', child: Text('All')),
+                      DropdownMenuItem(value: 'active', child: Text('Active')),
+                      DropdownMenuItem(
+                          value: 'inactive', child: Text('Inactive')),
+                      DropdownMenuItem(value: 'new', child: Text('New')),
+                      DropdownMenuItem(
+                          value: 'no_diet', child: Text('No Diet')),
+                      DropdownMenuItem(
+                          value: 'no_workout', child: Text('No Workout')),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 2),
+              IconButton(
+                icon: Icon(
+                  sortAscending
+                      ? Icons.arrow_upward_rounded
+                      : Icons.arrow_downward_rounded,
+                  color: Colors.grey.shade500,
+                  size: 16,
+                ),
+                onPressed: () {
+                  setState(() {
+                    sortAscending = !sortAscending;
+                    applyFiltersAndSort();
+                  });
+                },
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 28,
+                  minHeight: 28,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 1),
+          child: Row(
+            children: [
+              Text(
+                'Showing ${filteredMembers.length} members',
+                style: TextStyle(
+                  color: Colors.grey.shade500,
+                  fontSize: 10,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: filteredMembers.isEmpty
+              ? Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.search_off_rounded,
+                        color: Colors.grey.shade600,
+                        size: 40,
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'No matches found',
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                )
+              : RefreshIndicator(
+                  onRefresh: loadMembers,
+                  color: AppColors.gold,
+                  backgroundColor: AppColors.cardDark,
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
+                    itemCount: filteredMembers.length,
+                    itemBuilder: (context, index) => _MemberCard(
+                      member: filteredMembers[index],
+                      canEditDiet: canEditDiet,
+                      canEditWorkout: canEditWorkout,
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => MemberProfileCoachViewScreen(
+                              member: filteredMembers[index],
+                              canEditDiet: canEditDiet,
+                              canEditWorkout: canEditWorkout,
+                            ),
+                          ),
+                        );
+                        loadMembers();
+                      },
+                      formatDateShort: _formatDateShort,
+                    ),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// ============================================================
+// DASHBOARD STAT CARD
+// ============================================================
+class _DashboardStatCard extends StatelessWidget {
+  final String label;
+  final int count;
+  final Color color;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  const _DashboardStatCard({
+    required this.label,
+    required this.count,
+    required this.color,
+    required this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isSmall = MediaQuery.of(context).size.width < 360;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: EdgeInsets.all(isSmall ? 8 : 12),
+        decoration: BoxDecoration(
+          color: AppColors.cardDark,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: isSmall ? 12 : 14),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: Colors.grey.shade400,
+                    fontSize: isSmall ? 8 : 9,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 1),
+            Text(
+              '$count',
+              style: TextStyle(
+                color: color,
+                fontSize: isSmall ? 16 : 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// ALERT CHIP
+// ============================================================
+class _AlertChip extends StatelessWidget {
+  final String label;
+  final int count;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _AlertChip({
+    required this.label,
+    required this.count,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isSmall = MediaQuery.of(context).size.width < 360;
+
+    return GestureDetector(
+      onTap: count > 0 ? onTap : null,
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 4),
+        padding: EdgeInsets.symmetric(
+          horizontal: isSmall ? 10 : 14,
+          vertical: isSmall ? 6 : 8,
+        ),
+        decoration: BoxDecoration(
+          color: AppColors.cardDark,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color.withOpacity(0.3)),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: isSmall ? 10 : 12,
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                count.toString(),
+                style: TextStyle(
+                  color: color,
+                  fontWeight: FontWeight.bold,
+                  fontSize: isSmall ? 10 : 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// ✅ UPDATED MEMBER CARD - Right side shows Workout, Diet, Streak
+// ============================================================
+class _MemberCard extends StatelessWidget {
+  final Map<String, dynamic> member;
+  final bool canEditDiet;
+  final bool canEditWorkout;
+  final VoidCallback onTap;
+  final String Function(String?) formatDateShort;
+
+  const _MemberCard({
+    required this.member,
+    required this.canEditDiet,
+    required this.canEditWorkout,
+    required this.onTap,
+    required this.formatDateShort,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final name = (member['full_name'] ?? 'No name').toString();
+    final goal = (member['goal'] ?? 'No goal').toString();
+    final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+    final isActive = member['is_active'] == true;
+    final hasEditPermissions = canEditDiet || canEditWorkout;
+    final isSmall = MediaQuery.of(context).size.width < 360;
+
+    String membershipStatus = '';
+    Color membershipColor = Colors.grey;
+    final daysLeft = member['days_left'] as int?;
+    if (daysLeft != null) {
+      if (daysLeft >= 0) {
+        membershipStatus = '$daysLeft d left';
+        membershipColor = daysLeft <= 7 ? Colors.orange : Colors.green;
+      } else {
+        membershipStatus = 'Expired';
+        membershipColor = Colors.red;
+      }
+    }
+
+    String dietStatus = '';
+    Color dietColor = Colors.grey;
+    if (member['latest_diet'] != null &&
+        member['latest_diet']['updated_at'] != null) {
+      final dietDate = DateTime.parse(member['latest_diet']['updated_at']);
+      final daysSince = DateTime.now().difference(dietDate).inDays;
+      if (daysSince >= 7) {
+        dietStatus = '⚠️ Diet Overdue';
+        dietColor = Colors.red;
+      } else if (daysSince >= 5) {
+        dietStatus = '📋 Diet Due Soon';
+        dietColor = Colors.orange;
+      } else {
+        dietStatus = '✅ Diet Updated';
+        dietColor = Colors.green;
+      }
+    } else {
+      dietStatus = '📋 No Diet';
+      dietColor = Colors.grey;
+    }
+
+    final lastWorkoutText = formatDateShort(member['latest_workout']?['ended_at']);
+    final lastDietText = formatDateShort(member['latest_diet']?['updated_at']);
+    final currentStreak = (member['current_streak'] as num?)?.toInt() ?? 0;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
+      decoration: BoxDecoration(
+        color: AppColors.cardDark,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: hasEditPermissions
+              ? AppColors.gold.withOpacity(0.15)
+              : (isActive
+                  ? Colors.white.withOpacity(0.04)
+                  : Colors.red.withOpacity(0.15)),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              children: [
+                // ✅ LEFT SIDE - UNCHANGED
+                Row(
+                  children: [
+                    Stack(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: isActive
+                                  ? [
+                                      AppColors.gold,
+                                      AppColors.gold.withOpacity(0.6)
+                                    ]
+                                  : [Colors.grey, Colors.grey.withOpacity(0.6)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              initial,
+                              style: TextStyle(
+                                color: isActive
+                                    ? Colors.black
+                                    : Colors.grey.shade700,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: isActive ? Colors.green : Colors.red,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: AppColors.cardDark,
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 8),
+
+                    SizedBox(
+                      width: isSmall ? 70 : 100,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Flexible(
+                                child: Text(
+                                  name,
+                                  style: TextStyle(
+                                    color: isActive
+                                        ? Colors.white
+                                        : Colors.grey.shade400,
+                                    fontSize: isSmall ? 10 : 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 1,
+                                ),
+                              ),
+                              const SizedBox(width: 2),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 3, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: membershipColor.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                                child: Text(
+                                  membershipStatus,
+                                  style: TextStyle(
+                                    color: membershipColor,
+                                    fontSize: isSmall ? 6 : 7,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          Text(
+                            goal,
+                            style: TextStyle(
+                              color: Colors.grey.shade500,
+                              fontSize: isSmall ? 7 : 9,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                          Text(
+                            dietStatus,
+                            style: TextStyle(
+                              color: dietColor,
+                              fontSize: isSmall ? 6 : 8,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const Spacer(),
+
+                // ✅ RIGHT SIDE - Workout + Diet + Streak (Plain text, compact)
+                Row(
+                  children: [
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Workout',
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: isSmall ? 6 : 7,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          lastWorkoutText,
+                          style: TextStyle(
+                            color: lastWorkoutText == '—'
+                                ? Colors.grey.shade600
+                                : Colors.white70,
+                            fontSize: isSmall ? 7 : 8,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 8),
+
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Diet',
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: isSmall ? 6 : 7,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          lastDietText,
+                          style: TextStyle(
+                            color: lastDietText == '—'
+                                ? Colors.grey.shade600
+                                : Colors.white70,
+                            fontSize: isSmall ? 7 : 8,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(width: 8),
+
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Text(
+                          'Streak',
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: isSmall ? 6 : 7,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          currentStreak > 0 ? '$currentStreak d' : '0 d',
+                          style: TextStyle(
+                            color: currentStreak > 0
+                                ? AppColors.gold
+                                : Colors.grey.shade600,
+                            fontSize: isSmall ? 7 : 8,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
