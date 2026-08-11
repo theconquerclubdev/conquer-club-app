@@ -405,14 +405,18 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
                     width: 90,
                     child: Row(
                       children: [
-                        Text(
-                          record['displayName'],
-                          style: TextStyle(
-                            color:
-                                hasData ? Colors.white : Colors.grey.shade500,
-                            fontSize: 12,
-                            fontWeight:
-                                hasData ? FontWeight.w600 : FontWeight.normal,
+                        Expanded(
+                          child: Text(
+                            record['displayName'],
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color:
+                                  hasData ? Colors.white : Colors.grey.shade500,
+                              fontSize: 12,
+                              fontWeight:
+                                  hasData ? FontWeight.w600 : FontWeight.normal,
+                            ),
                           ),
                         ),
                         if (isFlatBench && hasData)

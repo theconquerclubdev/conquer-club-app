@@ -71,8 +71,11 @@ class _DietBuilderScreenState extends State<DietBuilderScreen> {
       backgroundColor: AppColors.background,
       body: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
+          SafeArea(
+            top: true,
+            bottom: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
             decoration: BoxDecoration(
               color: AppColors.cardDark,
               borderRadius: const BorderRadius.only(
@@ -113,6 +116,7 @@ class _DietBuilderScreenState extends State<DietBuilderScreen> {
                   ),
                 ),
               ],
+              ),
             ),
           ),
           Expanded(

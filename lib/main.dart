@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -8,6 +9,49 @@ import 'screens/member_home_screen.dart';
 import 'screens/admin_home_screen.dart';
 import 'screens/onboarding_screen.dart'; // ✅ ADD THIS
 import 'theme/app_theme.dart';
+
+/// Responsive breakpoints used by the app.
+///
+/// This does not change any existing screen logic. Screens can use these
+/// helpers later when a specific layout genuinely needs to adapt.
+class AppResponsive {
+  static double width(BuildContext context) =>
+      MediaQuery.sizeOf(context).width;
+
+  static bool isCompact(BuildContext context) =>
+      width(context) < 600;
+
+  static bool isMedium(BuildContext context) =>
+      width(context) >= 600 && width(context) < 1200;
+
+  static bool isExpanded(BuildContext context) =>
+      width(context) >= 1200;
+}
+
+/// Common maximum content width for large windows.
+///
+/// Mobile/tablet layouts keep their available width. Very wide windows are
+/// prevented from stretching content unnecessarily.
+class ResponsiveContent extends StatelessWidget {
+  final Widget child;
+
+  const ResponsiveContent({
+    super.key,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(
+          maxWidth: 1400,
+        ),
+        child: child,
+      ),
+    );
+  }
+}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -74,6 +118,18 @@ class MyApp extends StatelessWidget {
       ),
       home: const AuthWrapper(),
       debugShowCheckedModeBanner: false,
+
+      // Responsive foundation: allows the app to receive its actual
+      // available window size and supports mouse/trackpad scrolling on
+      // desktop/tablet web without changing existing screen logic.
+      scrollBehavior: const MaterialScrollBehavior().copyWith(
+        scrollbars: true,
+        dragDevices: {
+          PointerDeviceKind.touch,
+          PointerDeviceKind.mouse,
+          PointerDeviceKind.trackpad,
+        },
+      ),
     );
   }
 }

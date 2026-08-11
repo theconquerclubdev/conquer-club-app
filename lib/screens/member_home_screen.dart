@@ -479,8 +479,14 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           children: [
             Icon(Icons.rocket_launch, color: AppColors.gold),
             SizedBox(width: 10),
-            Text('Complete Your Profile',
-                style: TextStyle(color: Colors.white, fontSize: 17)),
+            Flexible(
+              child: Text(
+                'Complete Your Profile',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.white, fontSize: 17),
+              ),
+            ),
           ],
         ),
         content: const Text(
