@@ -82,6 +82,17 @@ class GetStartedScreen extends StatelessWidget {
                     ],
                   ),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  'BY ABHISHEK MOHITE',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: taglineSize * 0.8,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 1.5,
+                  ),
+                ),
                 const SizedBox(height: 24),
                 _buildFeature('💪', 'LEAN MUSCLE GAIN'),
                 _buildFeature('🔥', 'STRONGER CORE'),

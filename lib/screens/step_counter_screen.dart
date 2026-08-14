@@ -25,6 +25,7 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
   late int stepGoal;
   bool isLoading = true;
   Map<String, int> dailySteps = {};
+  Map<String, int> dailyGoals = {};
   DateTime today = DateTime.now();
   late DateTime monthCursor;
   late DateTime signupMonth;
@@ -60,13 +61,16 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
     try {
       final rows = await Supabase.instance.client
           .from('step_logs')
-          .select('log_date, steps')
+          .select('log_date, steps, goal')
           .eq('member_id', userId)
           .gte('log_date', _fmt(start));
       final map = Map<String, int>.from(dailySteps);
+      final goalMap = Map<String, int>.from(dailyGoals);
       for (final r in List<Map<String, dynamic>>.from(rows)) {
         final key = r['log_date'].toString().substring(0, 10);
         map[key] = (r['steps'] as num?)?.toInt() ?? 0;
+        final g = (r['goal'] as num?)?.toInt();
+        if (g != null) goalMap[key] = g;
       }
       final todayKey = _fmt(today);
       if (widget.liveTodaySteps > (map[todayKey] ?? 0)) {
@@ -75,6 +79,7 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
       if (mounted) {
         setState(() {
           dailySteps = map;
+          dailyGoals = goalMap;
           if (_loadedStart == null || start.isBefore(_loadedStart!)) {
             _loadedStart = start;
           }
@@ -220,6 +225,16 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
 
   int stepsOn(DateTime d) => dailySteps[_fmt(d)] ?? 0;
 
+  // ✅ Per-day goal: use that day's stored goal if we have one (once the
+  // write side starts saving it), else fall back to current profile target.
+  int goalOn(DateTime d) => dailyGoals[_fmt(d)] ?? stepGoal;
+
+  // ✅ Achieved = steps met or exceeded that day's goal.
+  bool isAchieved(DateTime d) {
+    final g = goalOn(d);
+    return g > 0 && stepsOn(d) >= g;
+  }
+
   // ============================================================
   // ✅ SHOW DAY STATS POPUP - When tapping on a date in month view
   // ============================================================
@@ -235,6 +250,8 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
     final kcal = (steps * 0.04).round();
     final km = (steps * 0.000762);
     final mins = (steps / 100).round();
+    final achieved = isAchieved(date);
+    final dayGoal = goalOn(date);
 
     showModalBottomSheet(
       context: context,
@@ -262,6 +279,17 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
                 color: Colors.white,
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              achieved
+                  ? '✅ Goal achieved ($steps / $dayGoal)'
+                  : '$steps / $dayGoal steps',
+              style: TextStyle(
+                color: achieved ? Colors.green : Colors.grey,
+                fontSize: 12.5,
+                fontWeight: achieved ? FontWeight.bold : FontWeight.normal,
               ),
             ),
             const SizedBox(height: 20),
@@ -376,7 +404,13 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
           await Supabase.instance.client
               .from('profiles')
               .update({'step_goal': result}).eq('id', userId);
-        } catch (_) {}
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Target save failed: $e')),
+            );
+          }
+        }
       }
     }
   }
@@ -476,7 +510,9 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
   // ---- DAY: circular ring ----
   Widget _buildDayView() {
     final steps = stepsOn(today);
-    final progress = (steps / stepGoal).clamp(0.0, 1.0);
+    final todayGoal = goalOn(today);
+    final progress = (steps / todayGoal).clamp(0.0, 1.0);
+    final achieved = isAchieved(today);
     return Column(
       children: [
         const SizedBox(height: 8),
@@ -522,9 +558,30 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
                     ),
                   ),
                   Text(
-                    'of $stepGoal steps',
+                    'of $todayGoal steps',
                     style: const TextStyle(color: Colors.grey, fontSize: 12.5),
                   ),
+                  if (achieved) ...[
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(20),
+                        border:
+                            Border.all(color: Colors.green.withOpacity(0.4)),
+                      ),
+                      child: const Text(
+                        '✅ Achieved',
+                        style: TextStyle(
+                          color: Colors.green,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ],

@@ -112,6 +112,17 @@ class _SignupScreenState extends State<SignupScreen> {
                     ],
                   ),
                 ),
+                const SizedBox(height: 4),
+                const Text(
+                  'BY ABHISHEK MOHITE',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    letterSpacing: 1.5,
+                  ),
+                ),
                 const SizedBox(height: 8),
                 const Text(
                   'Create Your Account',

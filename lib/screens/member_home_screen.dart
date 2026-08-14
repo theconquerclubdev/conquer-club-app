@@ -749,7 +749,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           ],
         ),
         child: stepPermissionDenied
-            ? _buildManualStepEntry() // ✅ Show manual entry when permission denied
+            ? _buildManualStepEntry() // Show manual entry when permission denied
             : Row(
                 children: [
                   Expanded(
@@ -902,7 +902,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   // ============================================================
-  // TODAY'S TASKS CARD - Compact Version
+  // TODAY'S TASKS CARD - Updated to remove steps from streak
   // ============================================================
   Widget _buildTodayTasksCard() {
     final now = DateTime.now();
@@ -912,30 +912,17 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     // Skip if membership not active
     if (!isMembershipActive) return const SizedBox.shrink();
 
-    // Get task data
-    final stepsCompleted = todaySteps >= stepGoal;
-    final stepsProgress = (todaySteps / stepGoal).clamp(0.0, 1.0);
-
     // Build task items based on day
     List<Map<String, dynamic>> tasks = [];
 
     if (isSunday) {
-      // SUNDAY TASKS
+      // SUNDAY TASKS - Only Photos + Measurements
       final photosDone =
           _photoStatus['front'] == true && _photoStatus['back'] == true;
       final photoCount = (_photoStatus['front'] == true ? 1 : 0) +
           (_photoStatus['back'] == true ? 1 : 0);
 
       tasks = [
-        {
-          'icon': '👟',
-          'label': 'Steps',
-          'completed': stepsCompleted,
-          'detail': '$todaySteps/$stepGoal',
-          'progress': stepsProgress,
-          'actionable': !isAfterCutoff && !stepsCompleted,
-          'onTap': _openStepCounter,
-        },
         {
           'icon': '📸',
           'label': 'Photos',
@@ -956,7 +943,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         },
       ];
     } else {
-      // WEEKDAY TASKS (Mon-Sat)
+      // WEEKDAY TASKS (Mon-Sat) - Only Workout
       final day = DateFormat('EEE').format(now);
 
       tasks = [
@@ -968,15 +955,6 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           'progress': _workoutCompletedToday ? 1.0 : 0.0,
           'actionable': !_workoutCompletedToday,
           'onTap': _openWorkoutTab,
-        },
-        {
-          'icon': '👟',
-          'label': 'Steps',
-          'completed': stepsCompleted,
-          'detail': '$todaySteps/$stepGoal',
-          'progress': stepsProgress,
-          'actionable': !stepsCompleted,
-          'onTap': _openStepCounter,
         },
       ];
     }
@@ -1038,8 +1016,6 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
                   ),
                 ),
               ),
-              if (isSunday && !isAfterCutoff && completedCount < totalCount)
-                const SizedBox(width: 4),
               if (isSunday && !isAfterCutoff && completedCount < totalCount)
                 const Icon(
                   Icons.timer,
@@ -1745,7 +1721,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 }
 
 // ============================================================
-// WEEK WORKOUT LIST
+// WEEK WORKOUT LIST - FIXED
 // ============================================================
 class _WeekWorkoutList extends StatefulWidget {
   final String memberId;
@@ -1851,12 +1827,17 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList> {
           final now = DateTime.now();
           final isSundayReset =
               now.weekday == DateTime.sunday && now.hour >= 21;
-          final canStart = widget.isMembershipActive &&
+
+          // FIX: If there's an in-progress session, allow continuing (not view-only)
+          // Also allow starting if not completed and membership is active
+          final bool canStart = widget.isMembershipActive &&
               isToday &&
               workout != null &&
               !isCompleted &&
-              !isInProgress &&
               !isSundayReset;
+
+          // If in progress, we should allow continuing the workout (not view-only)
+          final bool canContinue = isToday && isInProgress && workout != null;
 
           final accent = isCompleted
               ? Colors.green
@@ -1946,12 +1927,16 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList> {
                         child: Icon(
                           isCompleted
                               ? Icons.check_circle
-                              : isToday
-                                  ? Icons.today
-                                  : Icons.remove_red_eye,
+                              : isInProgress
+                                  ? Icons.play_circle
+                                  : isToday
+                                      ? Icons.today
+                                      : Icons.remove_red_eye,
                           color: isCompleted
                               ? Colors.green
-                              : (isToday ? AppColors.gold : Colors.grey),
+                              : isInProgress
+                                  ? AppColors.gold
+                                  : (isToday ? AppColors.gold : Colors.grey),
                           size: 20,
                         ),
                       ),
@@ -1986,13 +1971,16 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList> {
                             ),
                       onTap: (workout != null)
                           ? () {
-                              // Always allow viewing
+                              // FIX: If in progress, allow continuing with edit mode (not view-only)
+                              // If not in progress, use canStart to determine view-only
+                              final bool isViewOnly = !canStart && !canContinue;
+
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
                                   builder: (_) => WorkoutDaySessionScreen(
                                     workout: workout,
-                                    isViewOnly: !canStart,
+                                    isViewOnly: isViewOnly,
                                   ),
                                 ),
                               ).then((_) => load());

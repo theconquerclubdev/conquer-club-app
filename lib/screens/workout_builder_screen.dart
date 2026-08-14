@@ -82,48 +82,24 @@ class ExerciseEntry {
   String? exerciseId;
   String name;
   String bodyPart;
-  bool isBodyweight;
+  String inputType; // 'Reps', 'kg × reps', or 'Min'
   List<Map<String, dynamic>> sets;
   int? savedOrderIndex;
+
+  bool get isBodyweight => inputType == 'Reps';
+
   ExerciseEntry({
     this.exerciseId,
     required this.name,
     required this.bodyPart,
+    required this.inputType,
     required this.sets,
-    this.isBodyweight = false,
     this.savedOrderIndex,
   });
 }
 
-bool isBodyweightExercise(String name) {
-  final lowerName = name.toLowerCase();
-
-  if (lowerName.contains('dumbbell') ||
-      lowerName.contains('bar') ||
-      lowerName.contains('cable') ||
-      lowerName.contains('barbell') ||
-      lowerName.contains('db') ||
-      lowerName.contains('bb')) {
-    return false;
-  }
-
-  return lowerName.contains('free') ||
-      lowerName == 'push up' ||
-      lowerName == 'plank' ||
-      lowerName == 'side plank' ||
-      lowerName == 'crunches' ||
-      lowerName == 'squat' ||
-      lowerName == 'lunges' ||
-      lowerName == 'burpees' ||
-      lowerName == 'mountain climbers' ||
-      lowerName == 'jumping jacks' ||
-      lowerName == 'high knees' ||
-      lowerName == 'pull up' ||
-      lowerName == 'chin up' ||
-      lowerName == 'dips' ||
-      lowerName == 'sit ups' ||
-      lowerName == 'pushup' ||
-      lowerName == 'plank hold';
+String getInputType(Map<String, dynamic> exercise) {
+  return exercise['input_type'] ?? 'Reps';
 }
 
 class _DayWorkoutEditor extends StatefulWidget {
@@ -153,6 +129,12 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
     loadWorkout();
   }
 
+  @override
+  void dispose() {
+    nameController.dispose();
+    super.dispose();
+  }
+
   Future<void> loadWorkout() async {
     setState(() => isLoading = true);
     try {
@@ -176,19 +158,20 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
       workoutId = workout['id'];
       nameController.text = workout['workout_name'] ?? '';
 
+      // ✅ Load exercises with order_index to preserve sequence
       final weData = await Supabase.instance.client
           .from('workout_exercises')
           .select(
-            'id, order_index, exercises(id, name, body_part), workout_sets(id, set_number, kg, reps)',
+            'id, order_index, exercises(id, name, body_part, input_type), workout_sets(id, set_number, kg, reps)',
           )
           .eq('workout_id', workoutId!)
-          .order('order_index');
+          .order('order_index', ascending: true);
 
       final loaded = <ExerciseEntry>[];
       for (final we in weData) {
         final ex = we['exercises'];
         final exerciseName = ex['name'] ?? '';
-        final isBW = isBodyweightExercise(exerciseName);
+        final inputType = ex['input_type'] ?? 'Reps';
 
         final sets = List<Map<String, dynamic>>.from(we['workout_sets'] ?? []);
         sets.sort(
@@ -199,7 +182,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
             exerciseId: ex['id'],
             name: exerciseName,
             bodyPart: ex['body_part'],
-            isBodyweight: isBW,
+            inputType: inputType,
             savedOrderIndex: we['order_index'] as int?,
             sets: sets
                 .map(
@@ -207,6 +190,8 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
                     'set_number': s['set_number'],
                     'kg': s['kg'],
                     'reps': s['reps'],
+                    'minutes': s['minutes'] ?? 0,
+                    'seconds': s['seconds'] ?? 0,
                   },
                 )
                 .toList(),
@@ -219,12 +204,13 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
         isLoading = false;
       });
     } catch (e) {
+      print('Error loading workout: $e');
       setState(() => isLoading = false);
     }
   }
 
   void openExercisePicker() async {
-    final picked = await showModalBottomSheet<Map<String, dynamic>>(
+    final picked = await showModalBottomSheet<List<Map<String, dynamic>>>(
       context: context,
       backgroundColor: AppColors.cardDark,
       isScrollControlled: true,
@@ -232,23 +218,28 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
           _ExercisePickerSheet(allExercises: widget.allExercises),
     );
 
-    if (picked != null) {
-      final exerciseName = picked['name'] ?? '';
-      final isBW = isBodyweightExercise(exerciseName);
-
+    if (picked != null && picked.isNotEmpty) {
       setState(() {
-        exercises.add(
-          ExerciseEntry(
-            exerciseId: picked['id'],
-            name: exerciseName,
-            bodyPart: picked['body_part'],
-            isBodyweight: isBW,
-            savedOrderIndex: exercises.length,
-            sets: [
-              {'set_number': 1, 'kg': null, 'reps': null},
-            ],
-          ),
-        );
+        for (final ex in picked) {
+          exercises.add(
+            ExerciseEntry(
+              exerciseId: ex['id'],
+              name: ex['name'] ?? '',
+              bodyPart: ex['body_part'] ?? '',
+              inputType: ex['input_type'] ?? 'Reps',
+              savedOrderIndex: exercises.length,
+              sets: [
+                {
+                  'set_number': 1,
+                  'kg': null,
+                  'reps': null,
+                  'minutes': 0,
+                  'seconds': 0
+                },
+              ],
+            ),
+          );
+        }
       });
     }
   }
@@ -313,43 +304,32 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
       final newWorkoutId = workoutRow['id'];
       workoutId = newWorkoutId;
 
-      await Supabase.instance.client
-          .from('workout_exercises')
-          .delete()
-          .eq('workout_id', newWorkoutId);
-
-      // Save exercises with order_index preserving the sequence
-      for (int i = 0; i < exercises.length; i++) {
-        final ex = exercises[i];
-        final weRow = await Supabase.instance.client
-            .from('workout_exercises')
-            .insert({
-              'workout_id': newWorkoutId,
-              'exercise_id': ex.exerciseId,
-              'order_index': i,
-            })
-            .select()
-            .single();
-
-        final weId = weRow['id'];
-
-        final setsToInsert = ex.sets
-            .map(
-              (s) => {
-                'workout_exercise_id': weId,
-                'set_number': s['set_number'],
-                'kg': ex.isBodyweight ? null : s['kg'],
-                'reps': s['reps'] ?? 0,
-              },
-            )
-            .toList();
-
-        if (setsToInsert.isNotEmpty) {
-          await Supabase.instance.client
-              .from('workout_sets')
-              .insert(setsToInsert);
-        }
-      }
+      // ✅ FIX: single atomic call (delete+insert done server-side in one
+      // transaction via save_workout_exercises RPC). This prevents any
+      // partial/half-written state between delete and insert, which was
+      // the cause of order_index getting scrambled on reload.
+      await Supabase.instance.client.rpc(
+        'save_workout_exercises',
+        params: {
+          'p_workout_id': newWorkoutId,
+          'p_exercises': exercises
+              .map(
+                (ex) => {
+                  'exercise_id': ex.exerciseId,
+                  'sets': ex.sets
+                      .map(
+                        (s) => {
+                          'set_number': s['set_number'],
+                          'kg': ex.isBodyweight ? null : s['kg'],
+                          'reps': s['reps'] ?? 0,
+                        },
+                      )
+                      .toList(),
+                },
+              )
+              .toList(),
+        },
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -551,16 +531,27 @@ class _ExerciseCard extends StatelessWidget {
                   style: TextStyle(color: Colors.grey, fontSize: 11),
                 ),
               ),
-              if (!exercise.isBodyweight)
+              if (exercise.inputType == 'kg × reps')
                 const Expanded(
                   child: Text(
                     'KG',
                     style: TextStyle(color: Colors.grey, fontSize: 11),
                   ),
                 ),
-              const Expanded(
+              if (exercise.inputType == 'Min')
+                const Expanded(
+                  child: Text(
+                    'MIN',
+                    style: TextStyle(color: Colors.grey, fontSize: 11),
+                  ),
+                ),
+              Expanded(
                 child: Text(
-                  'REPS',
+                  exercise.inputType == 'Reps'
+                      ? 'REPS'
+                      : exercise.inputType == 'Min'
+                          ? 'SEC'
+                          : 'REPS',
                   style: TextStyle(color: Colors.grey, fontSize: 11),
                 ),
               ),
@@ -581,7 +572,7 @@ class _ExerciseCard extends StatelessWidget {
                       style: const TextStyle(color: Colors.white),
                     ),
                   ),
-                  if (!exercise.isBodyweight)
+                  if (exercise.inputType == 'kg × reps')
                     Expanded(
                       child: TextFormField(
                         initialValue: set['kg']?.toString() ?? '',
@@ -599,17 +590,41 @@ class _ExerciseCard extends StatelessWidget {
                         onChanged: (v) => set['kg'] = double.tryParse(v),
                       ),
                     ),
+                  if (exercise.inputType == 'Min')
+                    Expanded(
+                      child: TextFormField(
+                        initialValue: set['minutes']?.toString() ?? '',
+                        keyboardType: TextInputType.number,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                        ),
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(vertical: 8),
+                        ),
+                        onChanged: (v) => set['minutes'] = int.tryParse(v) ?? 0,
+                      ),
+                    ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextFormField(
-                      initialValue: set['reps']?.toString() ?? '',
+                      initialValue: exercise.inputType == 'Min'
+                          ? (set['seconds']?.toString() ?? '')
+                          : (set['reps']?.toString() ?? ''),
                       keyboardType: TextInputType.number,
                       style: const TextStyle(color: Colors.white, fontSize: 14),
                       decoration: const InputDecoration(
                         isDense: true,
                         contentPadding: EdgeInsets.symmetric(vertical: 8),
                       ),
-                      onChanged: (v) => set['reps'] = int.tryParse(v),
+                      onChanged: (v) {
+                        if (exercise.inputType == 'Min') {
+                          set['seconds'] = int.tryParse(v) ?? 0;
+                        } else {
+                          set['reps'] = int.tryParse(v);
+                        }
+                      },
                     ),
                   ),
                   SizedBox(
@@ -655,6 +670,7 @@ class _ExercisePickerSheet extends StatefulWidget {
 
 class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
   String query = '';
+  final Set<String> _selectedIds = {};
 
   @override
   Widget build(BuildContext context) {
@@ -740,9 +756,25 @@ class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
                               ...groupEntry.value.map(
                                 (ex) {
                                   final name = ex['name'] ?? '';
-                                  final isBW = isBodyweightExercise(name);
+                                  final inputType = ex['input_type'] ?? 'Reps';
+                                  final displayType = inputType == 'Reps'
+                                      ? 'Free'
+                                      : inputType == 'kg × reps'
+                                          ? 'Weighted'
+                                          : 'Min';
+                                  final isSelected =
+                                      _selectedIds.contains(ex['id']);
                                   return ListTile(
                                     contentPadding: EdgeInsets.zero,
+                                    leading: Icon(
+                                      isSelected
+                                          ? Icons.check_box
+                                          : Icons.check_box_outline_blank,
+                                      color: isSelected
+                                          ? AppColors.gold
+                                          : Colors.grey,
+                                      size: 22,
+                                    ),
                                     title: Row(
                                       children: [
                                         Expanded(
@@ -759,18 +791,28 @@ class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
                                             vertical: 2,
                                           ),
                                           decoration: BoxDecoration(
-                                            color: isBW
+                                            color: inputType == 'Reps'
                                                 ? Colors.orange.withOpacity(0.2)
-                                                : Colors.blue.withOpacity(0.2),
+                                                : inputType == 'kg × reps'
+                                                    ? Colors.blue
+                                                        .withOpacity(0.2)
+                                                    : Colors.green
+                                                        .withOpacity(0.2),
                                             borderRadius:
                                                 BorderRadius.circular(4),
                                           ),
                                           child: Text(
-                                            isBW ? 'FREE' : 'WEIGHT',
+                                            inputType == 'Reps'
+                                                ? 'FREE'
+                                                : inputType == 'kg × reps'
+                                                    ? 'WEIGHT'
+                                                    : 'MIN',
                                             style: TextStyle(
-                                              color: isBW
+                                              color: inputType == 'Reps'
                                                   ? Colors.orange
-                                                  : Colors.blue,
+                                                  : inputType == 'kg × reps'
+                                                      ? Colors.blue
+                                                      : Colors.green,
                                               fontSize: 8,
                                               fontWeight: FontWeight.bold,
                                             ),
@@ -779,13 +821,21 @@ class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
                                       ],
                                     ),
                                     subtitle: Text(
-                                      '${ex['body_part']} · ${isBW ? 'Bodyweight only' : 'Kg + Reps'}',
+                                      '${ex['body_part']} · ${inputType == 'Reps' ? 'Bodyweight only' : inputType == 'kg × reps' ? 'Kg + Reps' : 'Minutes + Seconds'}',
                                       style: const TextStyle(
                                         color: Colors.grey,
                                         fontSize: 11,
                                       ),
                                     ),
-                                    onTap: () => Navigator.pop(context, ex),
+                                    onTap: () {
+                                      setState(() {
+                                        if (isSelected) {
+                                          _selectedIds.remove(ex['id']);
+                                        } else {
+                                          _selectedIds.add(ex['id']);
+                                        }
+                                      });
+                                    },
                                   );
                                 },
                               ),
@@ -793,6 +843,28 @@ class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
                           );
                         }).toList(),
                       ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _selectedIds.isEmpty
+                        ? null
+                        : () {
+                            final selectedExercises = widget.allExercises
+                                .where((e) => _selectedIds.contains(e['id']))
+                                .toList();
+                            Navigator.pop(context, selectedExercises);
+                          },
+                    child: Text(
+                      'ADD SELECTED (${_selectedIds.length})',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
               ),
             ],
           );

@@ -18,7 +18,8 @@ class WorkoutDaySessionScreen extends StatefulWidget {
       _WorkoutDaySessionScreenState();
 }
 
-class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
+class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
+    with WidgetsBindingObserver {
   bool isLoading = true;
   List<Map<String, dynamic>> exercises = [];
   bool isViewingDetails = false;
@@ -33,14 +34,31 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     loadEverything();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     tickTimer?.cancel();
     stopwatch.stop();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void deactivate() {
+    if (sessionStatus == 'in_progress' && stopwatch.isRunning) {
+      pauseWorkout();
+    }
+    super.deactivate();
   }
 
   int get totalSetsCount =>
@@ -64,10 +82,10 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
       final weData = await Supabase.instance.client
           .from('workout_exercises')
           .select(
-            'id, order_index, exercises(id, name, body_part), workout_sets(set_number, kg, reps)',
+            'id, order_index, exercises(id, name, body_part, input_type), workout_sets(set_number, kg, reps, minutes, seconds)',
           )
           .eq('workout_id', widget.workout['id'])
-          .order('order_index');
+          .order('order_index', ascending: true);
 
       final loadedExercises = <Map<String, dynamic>>[];
       for (final we in weData) {
@@ -78,6 +96,7 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
           (a, b) => (a['set_number'] as int).compareTo(b['set_number'] as int),
         );
 
+        final inputType = we['exercises']['input_type'] ?? 'Reps';
         final sets = rawSets.map((s) {
           return {
             'set_number': s['set_number'],
@@ -85,6 +104,8 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
             'coach_reps': s['reps'],
             'actual_kg': s['kg'],
             'actual_reps': s['reps'],
+            'actual_minutes': s['minutes'] ?? 0,
+            'actual_seconds': s['seconds'] ?? 0,
             'completed': false,
           };
         }).toList();
@@ -93,22 +114,28 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
           'workout_exercise_id': we['id'],
           'name': we['exercises']['name'],
           'body_part': we['exercises']['body_part'],
+          'input_type': inputType,
           'sets': sets,
         });
       }
 
-      final todayStart = DateTime(
-        DateTime.now().year,
-        DateTime.now().month,
-        DateTime.now().day,
-      );
+      // Keep the member's completed workout records available for the
+      // current weekly cycle. Sunday starts a new cycle, so sessions from
+      // the previous week are not loaded after the Sunday reset.
+      final now = DateTime.now();
+      final daysSinceSunday = now.weekday % 7;
+      final weekStart = DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ).subtract(Duration(days: daysSinceSunday));
 
       final existing = await Supabase.instance.client
           .from('workout_sessions')
           .select()
           .eq('workout_id', widget.workout['id'])
           .eq('member_id', memberId)
-          .gte('started_at', todayStart.toIso8601String())
+          .gte('started_at', weekStart.toIso8601String())
           .order('started_at', ascending: false)
           .limit(1)
           .maybeSingle();
@@ -131,6 +158,10 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
               if (set['set_number'] == log['set_number']) {
                 set['actual_kg'] = log['actual_kg'] ?? set['actual_kg'];
                 set['actual_reps'] = log['actual_reps'] ?? set['actual_reps'];
+                set['actual_minutes'] =
+                    log['actual_minutes'] ?? set['actual_minutes'];
+                set['actual_seconds'] =
+                    log['actual_seconds'] ?? set['actual_seconds'];
                 set['completed'] = log['completed'] ?? false;
               }
             }
@@ -239,6 +270,13 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
     set[field] = value;
   }
 
+  String getInputType(String workoutExerciseId) {
+    final exercise = exercises.firstWhere(
+      (e) => e['workout_exercise_id'] == workoutExerciseId,
+    );
+    return exercise['input_type'] ?? 'Reps';
+  }
+
   Future<void> toggleSetDone(String workoutExerciseId, int setIndex) async {
     if (widget.isViewOnly) return;
 
@@ -247,17 +285,32 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
     );
     final set = exercise['sets'][setIndex];
     final nowCompleted = !(set['completed'] as bool);
+    final inputType = exercise['input_type'] ?? 'Reps';
+
+    final Map<String, dynamic> upsertData = {
+      'session_id': sessionId,
+      'workout_exercise_id': workoutExerciseId,
+      'set_number': set['set_number'],
+      'completed': nowCompleted,
+      'completed_at': nowCompleted ? DateTime.now().toIso8601String() : null,
+    };
+
+    if (inputType == 'kg × reps') {
+      upsertData['actual_kg'] = set['actual_kg'];
+      upsertData['actual_reps'] = set['actual_reps'];
+    } else if (inputType == 'Min') {
+      upsertData['actual_minutes'] = set['actual_minutes'];
+      upsertData['actual_seconds'] = set['actual_seconds'];
+    } else {
+      // 'Reps'
+      upsertData['actual_reps'] = set['actual_reps'];
+    }
 
     try {
-      await Supabase.instance.client.from('session_set_logs').upsert({
-        'session_id': sessionId,
-        'workout_exercise_id': workoutExerciseId,
-        'set_number': set['set_number'],
-        'actual_kg': set['actual_kg'],
-        'actual_reps': set['actual_reps'],
-        'completed': nowCompleted,
-        'completed_at': nowCompleted ? DateTime.now().toIso8601String() : null,
-      }, onConflict: 'session_id,workout_exercise_id,set_number');
+      await Supabase.instance.client.from('session_set_logs').upsert(
+            upsertData,
+            onConflict: 'session_id,workout_exercise_id,set_number',
+          );
 
       setState(() => set['completed'] = nowCompleted);
 
@@ -509,8 +562,8 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
                     ),
                     const SizedBox(height: 10),
                     Row(
-                      children: const [
-                        SizedBox(
+                      children: [
+                        const SizedBox(
                           width: 36,
                           child: Text(
                             'SET',
@@ -518,27 +571,25 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
                           ),
                         ),
                         Expanded(
-                          child: Text(
-                            'TARGET',
-                            style: TextStyle(color: Colors.grey, fontSize: 11),
-                          ),
-                        ),
-                        Expanded(
                           flex: 2,
                           child: Text(
-                            'ACTUAL (kg / reps)',
-                            style: TextStyle(color: Colors.grey, fontSize: 11),
+                            ex['input_type'] == 'kg × reps'
+                                ? 'ACTUAL (kg / reps)'
+                                : ex['input_type'] == 'Min'
+                                    ? 'ACTUAL (min / sec)'
+                                    : 'ACTUAL (reps)',
+                            style: const TextStyle(
+                                color: Colors.grey, fontSize: 11),
                           ),
                         ),
-                        SizedBox(width: 36),
+                        const SizedBox(width: 36),
                       ],
                     ),
                     ...sets.asMap().entries.map((entry) {
                       final setIdx = entry.key;
                       final set = entry.value;
                       final setDone = set['completed'] == true;
-                      final coachKg = set['coach_kg'];
-                      final coachReps = set['coach_reps'];
+                      final inputType = ex['input_type'] ?? 'Reps';
 
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
@@ -553,68 +604,101 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
                               ),
                             ),
                             Expanded(
-                              child: Text(
-                                coachKg != null
-                                    ? '${coachKg}kg×$coachReps'
-                                    : '$coachReps reps',
-                                style: const TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                            Expanded(
                               flex: 2,
                               child: Row(
                                 children: [
-                                  Expanded(
-                                    child: setDone
-                                        ? Text(
-                                            '${set['actual_kg'] ?? '-'}',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          )
-                                        : TextFormField(
-                                            initialValue:
-                                                set['actual_kg']?.toString() ??
-                                                    '',
-                                            keyboardType: const TextInputType
-                                                .numberWithOptions(
-                                              decimal: true,
-                                            ),
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 14,
-                                            ),
-                                            decoration: const InputDecoration(
-                                              isDense: true,
-                                              contentPadding:
-                                                  EdgeInsets.symmetric(
-                                                vertical: 8,
+                                  if (inputType == 'kg × reps')
+                                    Expanded(
+                                      child: setDone
+                                          ? Text(
+                                              '${set['actual_kg'] ?? '-'}',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : TextFormField(
+                                              initialValue: set['actual_kg']
+                                                      ?.toString() ??
+                                                  '',
+                                              keyboardType: const TextInputType
+                                                  .numberWithOptions(
+                                                decimal: true,
+                                              ),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 14,
+                                              ),
+                                              decoration: const InputDecoration(
+                                                isDense: true,
+                                                contentPadding:
+                                                    EdgeInsets.symmetric(
+                                                  vertical: 8,
+                                                ),
+                                              ),
+                                              onChanged: (v) =>
+                                                  updateActualValue(
+                                                id,
+                                                setIdx,
+                                                'actual_kg',
+                                                double.tryParse(v),
                                               ),
                                             ),
-                                            onChanged: (v) => updateActualValue(
-                                              id,
-                                              setIdx,
-                                              'actual_kg',
-                                              double.tryParse(v),
+                                    ),
+                                  if (inputType == 'Min')
+                                    Expanded(
+                                      child: setDone
+                                          ? Text(
+                                              '${set['actual_minutes'] ?? 0}',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                              ),
+                                            )
+                                          : TextFormField(
+                                              initialValue:
+                                                  set['actual_minutes']
+                                                          ?.toString() ??
+                                                      '',
+                                              keyboardType:
+                                                  TextInputType.number,
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 14,
+                                              ),
+                                              decoration: const InputDecoration(
+                                                isDense: true,
+                                                contentPadding:
+                                                    EdgeInsets.symmetric(
+                                                  vertical: 8,
+                                                ),
+                                              ),
+                                              onChanged: (v) =>
+                                                  updateActualValue(
+                                                id,
+                                                setIdx,
+                                                'actual_minutes',
+                                                int.tryParse(v) ?? 0,
+                                              ),
                                             ),
-                                          ),
-                                  ),
+                                    ),
                                   const SizedBox(width: 6),
                                   Expanded(
                                     child: setDone
                                         ? Text(
-                                            '${set['actual_reps'] ?? '-'}',
+                                            inputType == 'Min'
+                                                ? '${set['actual_seconds'] ?? 0}'
+                                                : '${set['actual_reps'] ?? '-'}',
                                             style: const TextStyle(
                                               color: Colors.white,
                                             ),
                                           )
                                         : TextFormField(
-                                            initialValue: set['actual_reps']
-                                                    ?.toString() ??
-                                                '',
+                                            initialValue: inputType == 'Min'
+                                                ? (set['actual_seconds']
+                                                        ?.toString() ??
+                                                    '')
+                                                : (set['actual_reps']
+                                                        ?.toString() ??
+                                                    ''),
                                             keyboardType: TextInputType.number,
                                             style: const TextStyle(
                                               color: Colors.white,
@@ -630,8 +714,12 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
                                             onChanged: (v) => updateActualValue(
                                               id,
                                               setIdx,
-                                              'actual_reps',
-                                              int.tryParse(v),
+                                              inputType == 'Min'
+                                                  ? 'actual_seconds'
+                                                  : 'actual_reps',
+                                              inputType == 'Min'
+                                                  ? (int.tryParse(v) ?? 0)
+                                                  : int.tryParse(v),
                                             ),
                                           ),
                                   ),
@@ -725,8 +813,23 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
                         spacing: 8,
                         runSpacing: 4,
                         children: sets.map<Widget>((s) {
+                          final inputType = ex['input_type'] ?? 'Reps';
                           final kg = s['actual_kg'];
                           final reps = s['actual_reps'];
+                          final minutes = s['actual_minutes'] ?? 0;
+                          final seconds = s['actual_seconds'] ?? 0;
+
+                          String displayText;
+                          if (inputType == 'kg × reps') {
+                            displayText = kg != null
+                                ? '${kg}kg × $reps reps'
+                                : '$reps reps';
+                          } else if (inputType == 'Min') {
+                            displayText = '${minutes}m ${seconds}s';
+                          } else {
+                            displayText = '$reps reps';
+                          }
+
                           return Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8,
@@ -737,9 +840,7 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              kg != null
-                                  ? '${kg}kg × $reps reps'
-                                  : '$reps reps',
+                              displayText,
                               style: const TextStyle(
                                 color: Colors.white70,
                                 fontSize: 11,
@@ -917,8 +1018,8 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
                     ),
                     const SizedBox(height: 10),
                     Row(
-                      children: const [
-                        SizedBox(
+                      children: [
+                        const SizedBox(
                           width: 36,
                           child: Text(
                             'SET',
@@ -926,27 +1027,25 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
                           ),
                         ),
                         Expanded(
-                          child: Text(
-                            'TARGET',
-                            style: TextStyle(color: Colors.grey, fontSize: 11),
-                          ),
-                        ),
-                        Expanded(
                           flex: 2,
                           child: Text(
-                            'ACTUAL (kg / reps)',
-                            style: TextStyle(color: Colors.grey, fontSize: 11),
+                            ex['input_type'] == 'kg × reps'
+                                ? 'ACTUAL (kg / reps)'
+                                : ex['input_type'] == 'Min'
+                                    ? 'ACTUAL (min / sec)'
+                                    : 'ACTUAL (reps)',
+                            style: const TextStyle(
+                                color: Colors.grey, fontSize: 11),
                           ),
                         ),
-                        SizedBox(width: 36),
+                        const SizedBox(width: 36),
                       ],
                     ),
                     ...sets.asMap().entries.map((entry) {
                       final setIdx = entry.key;
                       final set = entry.value;
                       final setDone = set['completed'] == true;
-                      final coachKg = set['coach_kg'];
-                      final coachReps = set['coach_reps'];
+                      final inputType = ex['input_type'] ?? 'Reps';
 
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
@@ -961,32 +1060,33 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen> {
                               ),
                             ),
                             Expanded(
-                              child: Text(
-                                coachKg != null
-                                    ? '${coachKg}kg×$coachReps'
-                                    : '$coachReps reps',
-                                style: const TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ),
-                            Expanded(
                               flex: 2,
                               child: Row(
                                 children: [
-                                  Expanded(
-                                    child: Text(
-                                      '${set['actual_kg'] ?? '-'}',
-                                      style: const TextStyle(
-                                        color: Colors.white,
+                                  if (inputType == 'kg × reps')
+                                    Expanded(
+                                      child: Text(
+                                        '${set['actual_kg'] ?? '-'}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                        ),
                                       ),
                                     ),
-                                  ),
+                                  if (inputType == 'Min')
+                                    Expanded(
+                                      child: Text(
+                                        '${set['actual_minutes'] ?? 0}',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                        ),
+                                      ),
+                                    ),
                                   const SizedBox(width: 6),
                                   Expanded(
                                     child: Text(
-                                      '${set['actual_reps'] ?? '-'}',
+                                      inputType == 'Min'
+                                          ? '${set['actual_seconds'] ?? 0}'
+                                          : '${set['actual_reps'] ?? '-'}',
                                       style: const TextStyle(
                                         color: Colors.white,
                                       ),

@@ -1037,59 +1037,161 @@ class _ExercisesTabState extends State<_ExercisesTab> {
     }
   }
 
+  static const Map<String, List<String>> _muscleGroupsByCategory = {
+    'Lower': ['Quads', 'Hamstrings', 'Calves'],
+    'Upper': [
+      'Back',
+      'Chest',
+      'Shoulders',
+      'Traps',
+      'Biceps',
+      'Triceps',
+      'Overall',
+      'Abs',
+    ],
+    'Upper/Lower': ['Cardio'],
+  };
+
+  static const List<String> _typeOptions = ['Free', 'Weighted'];
+
+  static const List<String> _inputOptions = ['Reps', 'kg × reps', 'Min'];
+
   Future<void> addExercise() async {
     final nameController = TextEditingController();
-    final bodyPartController = TextEditingController();
+    String selectedCategory = _muscleGroupsByCategory.keys.first;
+    String selectedMuscleGroup = _muscleGroupsByCategory[selectedCategory]![0];
+    String selectedType = _typeOptions[0];
+    String selectedInput = _inputOptions[0];
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: AppColors.cardDark,
-        title:
-            const Text('Add Exercise', style: TextStyle(color: Colors.white)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: bodyPartController,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: 'Body Part (e.g. Chest, Legs)',
-                labelStyle: TextStyle(color: Colors.grey),
-                border: OutlineInputBorder(),
-              ),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          backgroundColor: AppColors.cardDark,
+          title:
+              const Text('Add Exercise', style: TextStyle(color: Colors.white)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String>(
+                  value: selectedCategory,
+                  dropdownColor: AppColors.cardDark,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Category',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _muscleGroupsByCategory.keys
+                      .map((category) => DropdownMenuItem<String>(
+                            value: category,
+                            child: Text(category),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() {
+                      selectedCategory = value;
+                      selectedMuscleGroup = _muscleGroupsByCategory[value]![0];
+                    });
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedMuscleGroup,
+                  dropdownColor: AppColors.cardDark,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Muscle Group',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _muscleGroupsByCategory[selectedCategory]!
+                      .map((muscleGroup) => DropdownMenuItem<String>(
+                            value: muscleGroup,
+                            child: Text(muscleGroup),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() => selectedMuscleGroup = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: nameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Exercise Name',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedType,
+                  dropdownColor: AppColors.cardDark,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Type',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _typeOptions
+                      .map((type) => DropdownMenuItem<String>(
+                            value: type,
+                            child: Text(type),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() => selectedType = value);
+                  },
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: selectedInput,
+                  dropdownColor: AppColors.cardDark,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Input',
+                    labelStyle: TextStyle(color: Colors.grey),
+                    border: OutlineInputBorder(),
+                  ),
+                  items: _inputOptions
+                      .map((input) => DropdownMenuItem<String>(
+                            value: input,
+                            child: Text(input),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (value == null) return;
+                    setDialogState(() => selectedInput = value);
+                  },
+                ),
+              ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: nameController,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: 'Exercise Name',
-                labelStyle: TextStyle(color: Colors.grey),
-                border: OutlineInputBorder(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (nameController.text.trim().isNotEmpty) {
+                  Navigator.pop(context, true);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.gold,
+                foregroundColor: Colors.black,
               ),
+              child: const Text('Add'),
             ),
           ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              if (nameController.text.trim().isNotEmpty &&
-                  bodyPartController.text.trim().isNotEmpty) {
-                Navigator.pop(context, true);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.gold,
-              foregroundColor: Colors.black,
-            ),
-            child: const Text('Add'),
-          ),
-        ],
       ),
     );
 
@@ -1097,8 +1199,12 @@ class _ExercisesTabState extends State<_ExercisesTab> {
 
     try {
       await Supabase.instance.client.from('exercises').insert({
-        'body_part': bodyPartController.text.trim(),
+        'body_part': selectedCategory,
+        'category': selectedCategory,
+        'muscle_group': selectedMuscleGroup,
         'name': nameController.text.trim(),
+        'type': selectedType,
+        'input': selectedInput,
       });
       await load();
       if (mounted) {

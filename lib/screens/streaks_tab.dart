@@ -1,9 +1,46 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../models/streak_model.dart';
-import '../services/streak_service.dart';
 import '../theme/app_theme.dart';
+
+// Simple StreakModel defined inline
+class StreakModel {
+  final String id;
+  final String memberId;
+  final DateTime date;
+  final bool isWorkoutCompleted;
+  final bool isPhotosUploaded;
+  final bool isMeasurementsUpdated;
+  final int workoutMinutes;
+  final bool isSunday;
+  final bool isStreakMet;
+
+  StreakModel({
+    required this.id,
+    required this.memberId,
+    required this.date,
+    required this.isWorkoutCompleted,
+    required this.isPhotosUploaded,
+    required this.isMeasurementsUpdated,
+    required this.workoutMinutes,
+    required this.isSunday,
+    required this.isStreakMet,
+  });
+
+  factory StreakModel.fromJson(Map<String, dynamic> json) {
+    return StreakModel(
+      id: json['id'],
+      memberId: json['member_id'],
+      date: DateTime.parse(json['date']),
+      isWorkoutCompleted: json['is_workout_completed'] ?? false,
+      isPhotosUploaded: json['is_photos_uploaded'] ?? false,
+      isMeasurementsUpdated: json['is_measurements_updated'] ?? false,
+      workoutMinutes: json['workout_minutes'] ?? 0,
+      isSunday: json['is_sunday'] ?? false,
+      isStreakMet: json['is_streak_met'] ?? false,
+    );
+  }
+}
 
 class StreaksTab extends StatefulWidget {
   const StreaksTab({super.key});
@@ -13,7 +50,6 @@ class StreaksTab extends StatefulWidget {
 }
 
 class _StreaksTabState extends State<StreaksTab> {
-  final StreakService _streakService = StreakService();
   List<StreakModel> _streaks = [];
   Map<String, dynamic> _stats = {};
   bool _isLoading = true;
@@ -29,15 +65,150 @@ class _StreaksTabState extends State<StreaksTab> {
     setState(() => _isLoading = true);
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
+      final today = DateTime.now();
+      final todayStr = today.toIso8601String().substring(0, 10);
+      final isSunday = today.weekday == DateTime.sunday;
 
-      // Update today's streak first
-      await _streakService.checkAndUpdateStreak(userId);
+      // 1. Update today's streak record
+      final startOfDay = DateTime(today.year, today.month, today.day);
 
-      final stats = await _streakService.getStreakStats(userId);
+      // Check workout completion (>= 45 minutes)
+      final workoutSession = await Supabase.instance.client
+          .from('workout_sessions')
+          .select('elapsed_seconds')
+          .eq('member_id', userId)
+          .eq('status', 'completed')
+          .gte('started_at', startOfDay.toIso8601String())
+          .maybeSingle();
+
+      bool workoutCompleted = false;
+      int workoutMinutes = 0;
+      if (workoutSession != null) {
+        final elapsedSeconds =
+            (workoutSession['elapsed_seconds'] as num?)?.toInt() ?? 0;
+        workoutMinutes = (elapsedSeconds / 60).round();
+        workoutCompleted = workoutMinutes >= 45;
+      }
+
+      // For Sunday, check photos and measurements
+      bool photosUploaded = false;
+      bool measurementsUpdated = false;
+
+      if (isSunday) {
+        // Check after photos
+        final photos = await Supabase.instance.client
+            .from('member_progress_photos')
+            .select('after_front_updated_at, after_back_updated_at')
+            .eq('member_id', userId)
+            .maybeSingle();
+
+        if (photos != null) {
+          final frontDate = photos['after_front_updated_at'] != null
+              ? DateTime.tryParse(photos['after_front_updated_at'])
+              : null;
+          final backDate = photos['after_back_updated_at'] != null
+              ? DateTime.tryParse(photos['after_back_updated_at'])
+              : null;
+
+          photosUploaded = frontDate != null &&
+              frontDate.year == today.year &&
+              frontDate.month == today.month &&
+              frontDate.day == today.day &&
+              backDate != null &&
+              backDate.year == today.year &&
+              backDate.month == today.month &&
+              backDate.day == today.day;
+        }
+
+        // Check measurements
+        final measurement = await Supabase.instance.client
+            .from('measurement_logs')
+            .select('id')
+            .eq('member_id', userId)
+            .gte('recorded_at', startOfDay.toIso8601String())
+            .maybeSingle();
+
+        measurementsUpdated = measurement != null;
+      }
+
+      // Determine if streak is met
+      bool isStreakMet;
+      if (isSunday) {
+        isStreakMet = photosUploaded && measurementsUpdated;
+      } else {
+        isStreakMet = workoutCompleted;
+      }
+
+      // Upsert today's streak record
+      await Supabase.instance.client.from('member_streaks').upsert({
+        'member_id': userId,
+        'date': todayStr,
+        'is_workout_completed': workoutCompleted,
+        'is_steps_completed': false,
+        'is_photos_uploaded': photosUploaded,
+        'is_measurements_updated': measurementsUpdated,
+        'workout_minutes': workoutMinutes,
+        'steps_count': 0,
+        'is_sunday': isSunday,
+        'is_streak_met': isStreakMet,
+        'updated_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'member_id,date');
+
+      // 2. Get all streak history
+      final response = await Supabase.instance.client
+          .from('member_streaks')
+          .select()
+          .eq('member_id', userId)
+          .order('date', ascending: false);
+
+      final List<StreakModel> history = [];
+      int currentStreak = 0;
+      int highestStreak = 0;
+      int totalStreaks = 0;
+      int totalDays = 0;
+      DateTime? currentStreakStart;
+
+      for (var record in response) {
+        final streak = StreakModel.fromJson(record);
+        history.add(streak);
+
+        if (streak.isStreakMet) {
+          currentStreak++;
+          currentStreakStart ??= streak.date;
+        } else {
+          if (currentStreak > 0) break;
+        }
+      }
+
+      // Calculate highest streak
+      int tempStreak = 0;
+      for (var streak in history) {
+        if (streak.isStreakMet) {
+          tempStreak++;
+          highestStreak =
+              highestStreak > tempStreak ? highestStreak : tempStreak;
+        } else {
+          tempStreak = 0;
+        }
+      }
+
+      totalDays = history.length;
+      for (var streak in history) {
+        if (streak.isStreakMet) totalStreaks++;
+      }
+      final streakRate =
+          totalDays > 0 ? (totalStreaks / totalDays * 100).round() : 0;
 
       setState(() {
-        _stats = stats;
-        _streaks = List.from(stats['history'] ?? []);
+        _streaks = history;
+        _stats = {
+          'history': history,
+          'currentStreak': currentStreak,
+          'currentStreakStart': currentStreakStart,
+          'highestStreak': highestStreak,
+          'totalStreaks': totalStreaks,
+          'streakRate': streakRate,
+        };
         _isLoading = false;
       });
     } catch (e) {
@@ -139,7 +310,7 @@ class _StreaksTabState extends State<StreaksTab> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'Complete your workouts and steps to start building streaks!',
+                                    'Complete your workouts to start building streaks!',
                                     style: TextStyle(
                                       color: Colors.grey.shade400,
                                       fontSize: 12,
@@ -403,7 +574,7 @@ class _StreakCard extends StatelessWidget {
 
           const SizedBox(height: 10),
 
-          // Details
+          // Details - Only show workout for weekdays, photos+measurements for Sunday
           Wrap(
             spacing: 6,
             runSpacing: 6,
@@ -411,10 +582,6 @@ class _StreakCard extends StatelessWidget {
               _detailChip(
                 '🏋️ ${streak.workoutMinutes} min',
                 streak.isWorkoutCompleted,
-              ),
-              _detailChip(
-                '👟 ${streak.stepsCount} steps',
-                streak.isStepsCompleted,
               ),
               if (isSunday) ...[
                 _detailChip(
@@ -433,7 +600,7 @@ class _StreakCard extends StatelessWidget {
           if (isSunday) ...[
             const SizedBox(height: 6),
             Text(
-              'Sunday requirements: Steps + 2 After Photos + Measurements',
+              'Sunday requirements: 2 After Photos + Measurements',
               style: TextStyle(
                 color: Colors.grey.shade600,
                 fontSize: 10,
