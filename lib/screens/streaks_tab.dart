@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import 'package:share_plus/share_plus.dart';
 
 // Simple StreakModel defined inline
 class StreakModel {
@@ -225,6 +226,693 @@ class _StreaksTabState extends State<StreaksTab> {
     return _streaks.where((s) => !s.isStreakMet).toList();
   }
 
+  void _shareStreak(BuildContext context) {
+    final currentStreak = _stats['currentStreak'] ?? 0;
+    final currentStreakStart = _stats['currentStreakStart'] as DateTime?;
+    final highestStreak = _stats['highestStreak'] ?? 0;
+    final streakRate = _stats['streakRate'] ?? 0;
+    final totalStreaks = _stats['totalStreaks'] ?? 0;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Container(
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFF1a1a1a), Color(0xFF0d0d0d)],
+            ),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.gold.withOpacity(0.3)),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.gold.withOpacity(0.1),
+                blurRadius: 20,
+                spreadRadius: 5,
+              ),
+            ],
+          ),
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('🔥', style: TextStyle(fontSize: 32)),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        currentStreak > 0
+                            ? '$currentStreak DAYS'
+                            : 'NO ACTIVE STREAK',
+                        style: const TextStyle(
+                          color: AppColors.gold,
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 1.2,
+                        ),
+                      ),
+                      if (currentStreakStart != null && currentStreak > 0)
+                        Text(
+                          'Started: ${DateFormat('MMM d, yyyy').format(currentStreakStart)}',
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // Divider
+              Container(
+                height: 1,
+                color: Colors.white.withOpacity(0.1),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Stats Grid
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _shareStatItem('🏆', '$highestStreak', 'Best Streak'),
+                  _shareStatItem('📊', '$streakRate%', 'Success Rate'),
+                  _shareStatItem('✅', '$totalStreaks', 'Total Streaks'),
+                ],
+              ),
+
+              const SizedBox(height: 20),
+
+              // Tagline
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.gold.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: AppColors.gold.withOpacity(0.2)),
+                ),
+                child: const Text(
+                  'CONSISTENCY. DISCIPLINE. RESULTS.',
+                  style: TextStyle(
+                    color: AppColors.gold,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 2,
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // Gym Name
+              const Text(
+                'THE CONQUER CLUB',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.5,
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              // Action Buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(context),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: Colors.grey.shade700),
+                        foregroundColor: Colors.grey,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        _postShare(context);
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.gold,
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                      child: const Text(
+                        'Post',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _shareStatItem(String icon, String value, String label) {
+    return Column(
+      children: [
+        Text(icon, style: const TextStyle(fontSize: 22)),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.grey,
+            fontSize: 10,
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _postShare(BuildContext context) {
+    _showShareOptions(context);
+  }
+
+  void _showShareOptions(BuildContext context) {
+    final currentStreak = _stats['currentStreak'] ?? 0;
+    final currentStreakStart = _stats['currentStreakStart'] as DateTime?;
+    final highestStreak = _stats['highestStreak'] ?? 0;
+    final streakRate = _stats['streakRate'] ?? 0;
+    final totalStreaks = _stats['totalStreaks'] ?? 0;
+
+    final String shareText = '''
+🔥 MY CONQUER STREAK
+
+${currentStreak > 0 ? '$currentStreak DAYS' : 'NO ACTIVE STREAK'}${currentStreakStart != null && currentStreak > 0 ? '\nStarted: ${DateFormat('MMM d, yyyy').format(currentStreakStart)}' : ''}
+
+🏆 Best Streak: $highestStreak
+📊 Success Rate: $streakRate%
+✅ Total Streaks: $totalStreaks
+
+CONSISTENCY. DISCIPLINE. RESULTS.
+
+THE CONQUER CLUB
+''';
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1a1a1a),
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(20),
+            topRight: Radius.circular(20),
+          ),
+        ),
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade600,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Share Your Streak',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _shareOptionTile(
+              icon: Icons.photo_library,
+              title: 'Instagram Story',
+              subtitle: 'Share as a story with background image',
+              onTap: () {
+                Navigator.pop(context);
+                _shareWithImage(context, 'instagram_story', shareText);
+              },
+            ),
+            const Divider(color: Colors.grey, height: 1),
+            _shareOptionTile(
+              icon: Icons.grid_on,
+              title: 'Instagram Post',
+              subtitle: 'Share as a feed post',
+              onTap: () {
+                Navigator.pop(context);
+                _shareWithImage(context, 'instagram_post', shareText);
+              },
+            ),
+            const Divider(color: Colors.grey, height: 1),
+            _shareOptionTile(
+              icon: Icons.chat_bubble_outline,
+              title: 'Snapchat',
+              subtitle: 'Send as a snap',
+              onTap: () {
+                Navigator.pop(context);
+                _shareWithImage(context, 'snapchat', shareText);
+              },
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Colors.grey),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _shareOptionTile({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+  }) {
+    return ListTile(
+      leading: Container(
+        width: 44,
+        height: 44,
+        decoration: BoxDecoration(
+          color: AppColors.gold.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(icon, color: AppColors.gold),
+      ),
+      title: Text(
+        title,
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        style: TextStyle(
+          color: Colors.grey.shade500,
+          fontSize: 12,
+        ),
+      ),
+      trailing: const Icon(
+        Icons.arrow_forward_ios,
+        color: Colors.grey,
+        size: 16,
+      ),
+      onTap: onTap,
+    );
+  }
+
+  Future<void> _shareWithImage(
+    BuildContext context,
+    String platform,
+    String shareText,
+  ) async {
+    final currentStreak = _stats['currentStreak'] ?? 0;
+    final currentStreakStart = _stats['currentStreakStart'] as DateTime?;
+    final highestStreak = _stats['highestStreak'] ?? 0;
+    final streakRate = _stats['streakRate'] ?? 0;
+    final totalStreaks = _stats['totalStreaks'] ?? 0;
+
+    // Show loading
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Preparing for $platform...'),
+        backgroundColor: AppColors.gold,
+      ),
+    );
+
+    try {
+      // Fetch background image from Supabase storage
+      // You need to upload a background image to your Supabase storage bucket
+      // The image should be in a bucket named 'streak_share' or similar
+      final String imageUrl =
+          'https://dafbinwvwxuekdomdmro.supabase.co/storage/v1/object/public/streak_share/background.jpg';
+
+      // Show preview with image
+      _showImagePreview(
+        context,
+        imageUrl,
+        currentStreak,
+        currentStreakStart,
+        highestStreak,
+        streakRate,
+        totalStreaks,
+        platform,
+        shareText,
+      );
+    } catch (e) {
+      // Fallback to text share
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unable to load image. Sharing text instead.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      // Share text directly
+      await Share.share(shareText);
+    }
+  }
+
+  void _showImagePreview(
+    BuildContext context,
+    String imageUrl,
+    int currentStreak,
+    DateTime? currentStreakStart,
+    int highestStreak,
+    int streakRate,
+    int totalStreaks,
+    String platform,
+    String shareText,
+  ) {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            image: DecorationImage(
+              image: NetworkImage(imageUrl),
+              fit: BoxFit.cover,
+            ),
+          ),
+          child: Container(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(16),
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.transparent,
+                  Colors.black.withOpacity(0.4),
+                  Colors.black.withOpacity(0.7),
+                ],
+                stops: const [0.4, 0.7, 1.0],
+              ),
+            ),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Streak counter
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('🔥', style: TextStyle(fontSize: 40)),
+                    const SizedBox(width: 16),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          currentStreak > 0
+                              ? '$currentStreak DAYS'
+                              : 'NO ACTIVE STREAK',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            fontWeight: FontWeight.bold,
+                            shadows: [
+                              Shadow(
+                                offset: Offset(0, 2),
+                                blurRadius: 4,
+                                color: Colors.black,
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (currentStreakStart != null && currentStreak > 0)
+                          Text(
+                            'Started: ${DateFormat('MMM d, yyyy').format(currentStreakStart)}',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                              shadows: [
+                                Shadow(
+                                  offset: Offset(0, 1),
+                                  blurRadius: 3,
+                                  color: Colors.black,
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 24),
+
+                // Stats row
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  children: [
+                    _imagePreviewStat('🏆', '$highestStreak', 'Best Streak'),
+                    _imagePreviewStat('📊', '$streakRate%', 'Success Rate'),
+                    _imagePreviewStat('✅', '$totalStreaks', 'Total Streaks'),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+
+                // Tagline
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppColors.gold.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: AppColors.gold.withOpacity(0.3),
+                    ),
+                  ),
+                  child: const Text(
+                    'CONSISTENCY. DISCIPLINE. RESULTS.',
+                    style: TextStyle(
+                      color: AppColors.gold,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
+                      shadows: [
+                        Shadow(
+                          offset: Offset(0, 1),
+                          blurRadius: 3,
+                          color: Colors.black,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                // Gym name
+                const Text(
+                  'THE CONQUER CLUB',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.5,
+                    shadows: [
+                      Shadow(
+                        offset: Offset(0, 1),
+                        blurRadius: 3,
+                        color: Colors.black,
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Platform badge
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Sharing to: $platform',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 11,
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 16),
+
+                // Action buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                          side:
+                              BorderSide(color: Colors.white.withOpacity(0.3)),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text('Cancel'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _confirmShare(context, platform, shareText);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.gold,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Share Now',
+                          style: TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _imagePreviewStat(String icon, String value, String label) {
+    return Column(
+      children: [
+        Text(icon, style: const TextStyle(fontSize: 22)),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            shadows: [
+              Shadow(
+                offset: Offset(0, 1),
+                blurRadius: 3,
+                color: Colors.black,
+              ),
+            ],
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 10,
+            shadows: [
+              const Shadow(
+                offset: Offset(0, 1),
+                blurRadius: 3,
+                color: Colors.black,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _confirmShare(BuildContext context, String platform, String shareText) {
+    // Close any open dialogs
+    Navigator.pop(context);
+
+    // Show sharing progress
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('📤 Sharing to $platform...'),
+        backgroundColor: AppColors.gold,
+        duration: const Duration(seconds: 1),
+      ),
+    );
+
+    // Share the text content
+    // For Instagram/Snapchat, the user can choose the app from the share sheet
+    Share.share(
+      shareText,
+      subject: 'My Conquer Club Streak',
+    ).then((result) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Shared successfully!'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }).catchError((error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error sharing: $error'),
+          backgroundColor: Colors.red,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -423,6 +1111,32 @@ class _StreaksTabState extends State<StreaksTab> {
                 'Total Streaks',
               ),
             ],
+          ),
+
+          const SizedBox(height: 12),
+
+          // Share Button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () => _shareStreak(context),
+              icon: const Icon(Icons.share, size: 18),
+              label: const Text(
+                'Share Your Streak',
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.gold,
+                foregroundColor: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
           ),
         ],
       ),

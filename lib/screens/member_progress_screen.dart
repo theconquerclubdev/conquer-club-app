@@ -214,15 +214,21 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
     );
   }
 
-  Future<Uint8List?> _compressToWebp(String sourcePath) {
-    return FlutterImageCompress.compressWithFile(
-      sourcePath,
-      format: CompressFormat.webp,
-      quality: 65,
-      minWidth: 1080,
-      minHeight: 1350,
-      keepExif: false,
-    );
+  Future<Uint8List?> _compressToWebp(String sourcePath) async {
+    try {
+      final result = await FlutterImageCompress.compressWithFile(
+        sourcePath,
+        format: CompressFormat.webp,
+        quality: 65,
+        minWidth: 1080,
+        minHeight: 1350,
+        keepExif: false,
+      );
+      return result;
+    } catch (e) {
+      print('Compression error: $e');
+      return null;
+    }
   }
 
   Future<void> _pickCompressAndUpload(_Slot slot, ImageSource source) async {
@@ -230,13 +236,22 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
     XFile? picked;
 
     try {
-      picked = await picker.pickImage(
-        source: source,
-        maxWidth: 1080,
-        maxHeight: 1350,
-        imageQuality: 65,
-        preferredCameraDevice: CameraDevice.rear,
-      );
+      // Web doesn't support preferredCameraDevice
+      if (kIsWeb) {
+        picked = await picker.pickImage(
+          source: source,
+          maxWidth: 1080,
+          maxHeight: 1350,
+        );
+      } else {
+        picked = await picker.pickImage(
+          source: source,
+          maxWidth: 1080,
+          maxHeight: 1350,
+          imageQuality: 65,
+          preferredCameraDevice: CameraDevice.rear,
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -310,12 +325,14 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
         _version[slot] = _version[slot]! + 1;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${slot.label} uploaded successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${slot.label} uploaded successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -340,7 +357,9 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
         backgroundColor: AppColors.background,
         elevation: 0,
         title: Text(
-          widget.readOnly ? 'Body Transformation (View Only)' : 'Body Transformation',
+          widget.readOnly
+              ? 'Body Transformation (View Only)'
+              : 'Body Transformation',
           style: const TextStyle(color: Colors.white),
         ),
         iconTheme: const IconThemeData(color: Colors.white),
@@ -560,7 +579,8 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
         ),
         child: Row(
           children: [
-            Icon(Icons.visibility_outlined, color: Colors.grey.shade500, size: 16),
+            Icon(Icons.visibility_outlined,
+                color: Colors.grey.shade500, size: 16),
             const SizedBox(width: 8),
             Expanded(
               child: Text(

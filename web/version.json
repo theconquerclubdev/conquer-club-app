@@ -1,0 +1,5 @@
+{
+  "version": "1.0.1",
+  "apk_url": "https://conquer-club-app.pages.dev/conquer_club.apk",
+  "changelog": "- Fixed workout progress screen\n- Added multi-select in workout builder"
+}

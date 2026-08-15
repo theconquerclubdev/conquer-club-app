@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:io';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -18,6 +20,10 @@ import 'workout_progress_screen.dart';
 import 'member_payment_sheet.dart';
 import 'streaks_tab.dart';
 import 'payments_screen.dart';
+import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:open_file/open_file.dart';
 
 class MemberHomeScreen extends StatefulWidget {
   const MemberHomeScreen({super.key});
@@ -74,6 +80,10 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   bool _workoutCompletedToday = false;
   bool _measurementsUpdatedToday = false;
   Map<String, bool> _photoStatus = {'front': false, 'back': false};
+
+  // Update checker
+  bool _isCheckingUpdate = false;
+  String _currentVersion = '1.0.0';
 
   String get firstName {
     final trimmed = fullName.trim();
@@ -1330,7 +1340,28 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 4),
+          // Tiny version - tap to check update
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              GestureDetector(
+                onTap: _isCheckingUpdate ? null : _checkForUpdate,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  child: Text(
+                    _isCheckingUpdate ? '...' : 'v$_currentVersion',
+                    style: TextStyle(
+                      color: Colors.grey.shade600,
+                      fontSize: 8,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
           Row(
             children: [
               GestureDetector(
@@ -1642,6 +1673,106 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
               style: const TextStyle(color: Colors.white, fontSize: 13),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // UPDATE CHECKER
+  // ============================================================
+  Future<void> _checkForUpdate() async {
+    if (_isCheckingUpdate) return;
+    setState(() => _isCheckingUpdate = true);
+
+    try {
+      final url = Uri.parse('https://conquer-club-app.pages.dev/version.json');
+      final response = await http.get(url);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final hasUpdate = data['version'] != _currentVersion;
+
+        setState(() => _isCheckingUpdate = false);
+
+        if (hasUpdate) {
+          _showUpdateDialog(
+              data['version'], data['apk_url'] ?? '', data['changelog'] ?? '');
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('✅ You have the latest version')),
+          );
+        }
+      }
+    } catch (e) {
+      setState(() => _isCheckingUpdate = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Update check failed: $e')),
+      );
+    }
+  }
+
+  void _showUpdateDialog(String version, String apkUrl, String changelog) {
+    final isWeb = !Platform.isAndroid && !Platform.isIOS;
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: Row(
+          children: [
+            const Icon(Icons.system_update_alt, color: Colors.orange),
+            const SizedBox(width: 10),
+            const Text('Update Available!',
+                style: TextStyle(color: Colors.white)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Current: v$_currentVersion',
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 13)),
+            Text('Latest: v$version',
+                style: TextStyle(color: Colors.orange, fontSize: 13)),
+            if (changelog.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(changelog,
+                  style: TextStyle(color: Colors.grey, fontSize: 12)),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close', style: TextStyle(color: Colors.grey)),
+          ),
+          if (isWeb)
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text('🔄 Refresh browser to update!')),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green, foregroundColor: Colors.white),
+              child: const Text('Refresh Now'),
+            ),
+          if (!isWeb && apkUrl.isNotEmpty)
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                final url = Uri.parse(apkUrl);
+                if (await canLaunchUrl(url)) {
+                  await launchUrl(url);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.black),
+              child: const Text('Download APK'),
+            ),
         ],
       ),
     );
