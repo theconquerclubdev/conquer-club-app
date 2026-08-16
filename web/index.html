@@ -41,6 +41,17 @@
         window.dispatchEvent(new Event('resize'));
       }
     });
+
+    // DISABLE SERVICE WORKER - forces fresh load every time
+    // This prevents caching issues when deploying updates
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for (let registration of registrations) {
+          registration.unregister();
+          console.log('Service worker unregistered');
+        }
+      });
+    }
   </script>
 </head>
 <body>

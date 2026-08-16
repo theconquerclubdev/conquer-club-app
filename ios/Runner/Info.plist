@@ -49,5 +49,10 @@
 	<string>Conquer Club uses motion data to count your daily steps.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Conquer Club reads your step count from Health to show accurate daily totals.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>instagram-stories</string>
+		<string>snapchat</string>
+	</array>
 </dict>
 </plist>

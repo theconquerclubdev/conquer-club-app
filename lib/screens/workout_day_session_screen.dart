@@ -321,7 +321,7 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(const SnackBar(content: Text('Failed to update set')));
+        ).showSnackBar(SnackBar(content: Text('Failed to update set: $e')));
       }
     }
   }

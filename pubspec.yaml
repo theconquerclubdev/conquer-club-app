@@ -36,6 +36,8 @@ dependencies:
   health: ^11.1.1
 
   # Image and file handling (for progress photos)
+  http: ^1.2.0
+  path_provider: ^2.1.5
   image_picker: ^1.1.2
   flutter_image_compress: ^2.4.0
   cached_network_image: ^3.4.1

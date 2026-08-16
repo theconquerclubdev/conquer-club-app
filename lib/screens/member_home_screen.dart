@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:pedometer/pedometer.dart';
 import 'package:health/health.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -81,9 +82,14 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   bool _measurementsUpdatedToday = false;
   Map<String, bool> _photoStatus = {'front': false, 'back': false};
 
-  // Update checker
+  // Update checker - auto-generated from build time
   bool _isCheckingUpdate = false;
-  String _currentVersion = '1.0.0';
+  String get _currentVersion {
+    // Read from build environment variable
+    const version = String.fromEnvironment('BUILD_VERSION');
+    // If not set during build, use a fallback
+    return version.isNotEmpty ? version : '1.0.0';
+  }
 
   String get firstName {
     final trimmed = fullName.trim();
@@ -363,7 +369,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final now = DateTime.now();
       final todayStr =
           '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-      final startOfDay = DateTime(now.year, now.month, now.day);
+      final startOfDay = DateTime(now.year, now.month, now.day).toUtc();
 
       // Check if workout completed today
       final session = await Supabase.instance.client
@@ -1686,7 +1692,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     setState(() => _isCheckingUpdate = true);
 
     try {
-      final url = Uri.parse('https://conquer-club-app.pages.dev/version.json');
+      final url =
+          Uri.parse('https://main.conquer-club-app.pages.dev/version.json');
       final response = await http.get(url);
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
@@ -1712,7 +1719,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   void _showUpdateDialog(String version, String apkUrl, String changelog) {
-    final isWeb = !Platform.isAndroid && !Platform.isIOS;
+    final isWeb = kIsWeb;
 
     showDialog(
       context: context,
