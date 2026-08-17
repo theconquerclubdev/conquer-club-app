@@ -1,11 +1,7 @@
-import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import 'package:share_plus/share_plus.dart';
@@ -57,39 +53,11 @@ class StreaksTab extends StatefulWidget {
 }
 
 class _StreaksTabState extends State<StreaksTab> {
+  final GlobalKey _shareImageKey = GlobalKey();
   List<StreakModel> _streaks = [];
   Map<String, dynamic> _stats = {};
   bool _isLoading = true;
   String _filter = 'all'; // all, streak, missed
-
-  // Used to capture the composited share image (background + overlay text)
-  final GlobalKey _shareImageKey = GlobalKey();
-
-  // Native channel: opens directly into the Instagram Stories editor or
-  // Snapchat's send flow with the image pre-loaded, instead of the
-  // generic OS share sheet. See MainActivity.kt / AppDelegate.swift.
-  static const MethodChannel _socialShareChannel = MethodChannel(
-    'com.conquerclub.app/social_share',
-  );
-
-  static const String _fallbackQuote =
-      'Consistency. Discipline. Results. Keep conquering.';
-
-  // Fetches today's motivational quote from Supabase based on the
-  // member's current streak day (day 1-100, cycling after day 100).
-  Future<String> _fetchDailyQuote(int streakDay) async {
-    final dayNumber = ((streakDay - 1) % 100) + 1;
-    try {
-      final row = await Supabase.instance.client
-          .from('daily_quotes')
-          .select('quote')
-          .eq('day_number', dayNumber)
-          .maybeSingle();
-      return (row?['quote'] as String?) ?? _fallbackQuote;
-    } catch (e) {
-      return _fallbackQuote;
-    }
-  }
 
   @override
   void initState() {
@@ -106,7 +74,7 @@ class _StreaksTabState extends State<StreaksTab> {
       final isSunday = today.weekday == DateTime.sunday;
 
       // 1. Update today's streak record
-      final startOfDay = DateTime(today.year, today.month, today.day).toUtc();
+      final startOfDay = DateTime(today.year, today.month, today.day);
 
       // Check workout completion (>= 45 minutes)
       final workoutSession = await Supabase.instance.client
@@ -212,7 +180,7 @@ class _StreaksTabState extends State<StreaksTab> {
           currentStreak++;
           currentStreakStart ??= streak.date;
         } else {
-          break;
+          if (currentStreak > 0) break;
         }
       }
 
@@ -271,7 +239,7 @@ class _StreaksTabState extends State<StreaksTab> {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => Dialog(
+      builder: (context) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.all(16),
         child: Container(
@@ -331,7 +299,10 @@ class _StreaksTabState extends State<StreaksTab> {
               const SizedBox(height: 20),
 
               // Divider
-              Container(height: 1, color: Colors.white.withOpacity(0.1)),
+              Container(
+                height: 1,
+                color: Colors.white.withOpacity(0.1),
+              ),
 
               const SizedBox(height: 20),
 
@@ -349,16 +320,12 @@ class _StreaksTabState extends State<StreaksTab> {
 
               // Tagline
               Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
                   color: AppColors.gold.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: AppColors.gold.withOpacity(0.2),
-                  ),
+                  border: Border.all(color: AppColors.gold.withOpacity(0.2)),
                 ),
                 child: const Text(
                   'CONSISTENCY. DISCIPLINE. RESULTS.',
@@ -391,7 +358,7 @@ class _StreaksTabState extends State<StreaksTab> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () => Navigator.pop(dialogContext),
+                      onPressed: () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
                         side: BorderSide(color: Colors.grey.shade700),
                         foregroundColor: Colors.grey,
@@ -407,7 +374,7 @@ class _StreaksTabState extends State<StreaksTab> {
                   Expanded(
                     child: ElevatedButton(
                       onPressed: () {
-                        Navigator.pop(dialogContext);
+                        Navigator.pop(context);
                         _postShare(context);
                       },
                       style: ElevatedButton.styleFrom(
@@ -446,7 +413,13 @@ class _StreaksTabState extends State<StreaksTab> {
             fontWeight: FontWeight.bold,
           ),
         ),
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.grey,
+            fontSize: 10,
+          ),
+        ),
       ],
     );
   }
@@ -479,7 +452,7 @@ THE CONQUER CLUB
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => Container(
+      builder: (context) => Container(
         decoration: const BoxDecoration(
           color: Color(0xFF1a1a1a),
           borderRadius: BorderRadius.only(
@@ -514,7 +487,7 @@ THE CONQUER CLUB
               title: 'Instagram Story',
               subtitle: 'Share as a story with background image',
               onTap: () {
-                Navigator.pop(sheetContext);
+                Navigator.pop(context);
                 _shareWithImage(context, 'instagram_story', shareText);
               },
             ),
@@ -524,7 +497,7 @@ THE CONQUER CLUB
               title: 'Instagram Post',
               subtitle: 'Share as a feed post',
               onTap: () {
-                Navigator.pop(sheetContext);
+                Navigator.pop(context);
                 _shareWithImage(context, 'instagram_post', shareText);
               },
             ),
@@ -534,13 +507,13 @@ THE CONQUER CLUB
               title: 'Snapchat',
               subtitle: 'Send as a snap',
               onTap: () {
-                Navigator.pop(sheetContext);
+                Navigator.pop(context);
                 _shareWithImage(context, 'snapchat', shareText);
               },
             ),
             const SizedBox(height: 8),
             TextButton(
-              onPressed: () => Navigator.pop(sheetContext),
+              onPressed: () => Navigator.pop(context),
               child: const Text(
                 'Cancel',
                 style: TextStyle(color: Colors.grey),
@@ -577,7 +550,10 @@ THE CONQUER CLUB
       ),
       subtitle: Text(
         subtitle,
-        style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+        style: TextStyle(
+          color: Colors.grey.shade500,
+          fontSize: 12,
+        ),
       ),
       trailing: const Icon(
         Icons.arrow_forward_ios,
@@ -595,79 +571,25 @@ THE CONQUER CLUB
   ) async {
     final currentStreak = _stats['currentStreak'] ?? 0;
     final currentStreakStart = _stats['currentStreakStart'] as DateTime?;
-    final highestStreak = _stats['highestStreak'] ?? 0;
-    final streakRate = _stats['streakRate'] ?? 0;
-    final totalStreaks = _stats['totalStreaks'] ?? 0;
 
-    // Show loading
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Preparing for $platform...'),
-        backgroundColor: AppColors.gold,
-      ),
+    // Preview is built entirely on-device (black background, no network
+    // image, no database call), so it shows instantly.
+    _showImagePreview(
+      context,
+      currentStreak,
+      currentStreakStart,
+      platform,
+      shareText,
     );
-
-    try {
-      // Background image from Supabase storage (public bucket: streak_share)
-      final String imageUrl =
-          'https://dafbinwvwxuekdomdmro.supabase.co/storage/v1/object/public/streak_share/background.jpg';
-
-      // Fetch the motivational quote for the current streak day from Supabase
-      final dayNumber = currentStreak > 0 ? currentStreak : 1;
-      final quote = await _fetchDailyQuote(dayNumber);
-
-      if (!context.mounted) return;
-
-      // Force full decode before showing — avoids RepaintBoundary
-      // capturing/painting a partial/stale frame of the network image.
-      await precacheImage(NetworkImage(imageUrl), context);
-
-      if (!context.mounted) return;
-
-      // Show preview with image
-      _showImagePreview(
-        context,
-        imageUrl,
-        currentStreak,
-        currentStreakStart,
-        highestStreak,
-        streakRate,
-        totalStreaks,
-        platform,
-        shareText,
-        quote,
-      );
-    } catch (e) {
-      // Fallback to text share
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Unable to load image. Sharing text instead.'),
-          backgroundColor: Colors.orange,
-        ),
-      );
-      // Share text directly
-      await Share.share(shareText);
-    }
   }
 
   void _showImagePreview(
     BuildContext context,
-    String imageUrl,
     int currentStreak,
     DateTime? currentStreakStart,
-    int highestStreak,
-    int streakRate,
-    int totalStreaks,
     String platform,
     String shareText,
-    String quote,
   ) {
-    final int dayNumber =
-        currentStreak > 0 ? (((currentStreak - 1) % 100) + 1) : 1;
-    final String todayStr = DateFormat(
-      'EEEE, MMM d, yyyy',
-    ).format(DateTime.now());
-
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -675,324 +597,373 @@ THE CONQUER CLUB
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.all(16),
         child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 400, maxHeight: 640),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // The composited card below is exactly what gets captured and
-              // shared as an image, so nothing outside RepaintBoundary
-              // (buttons, platform badge) ends up in the shared file.
-              Flexible(
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(20),
-                  child: RepaintBoundary(
-                    key: _shareImageKey,
-                    child: AspectRatio(
-                      // Matches the exact 1024x1536 background image so the
-                      // fractional frame coordinates below line up with the
-                      // yellow box printed on the image.
-                      aspectRatio: 1024 / 1536,
+          constraints: BoxConstraints(
+            maxWidth: 340,
+            maxHeight: MediaQuery.of(context).size.height - 32,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RepaintBoundary(
+                  key: _shareImageKey,
+                  child: AspectRatio(
+                    aspectRatio: platform == 'instagram_post' ? 1 : 9 / 16,
+                    child: Container(
+                      color: Colors.black,
+                      padding: platform == 'instagram_post'
+                          ? const EdgeInsets.all(24)
+                          : const EdgeInsets.all(24),
                       child: Stack(
-                        fit: StackFit.expand,
                         children: [
-                          Image.network(
-                            imageUrl,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) =>
-                                Container(color: Colors.black),
+                          Positioned.fill(
+                            child: CustomPaint(
+                              painter: _ConquerFramePainter(),
+                            ),
                           ),
-                          LayoutBuilder(
-                            builder: (context, constraints) {
-                              final w = constraints.maxWidth;
-                              final h = constraints.maxHeight;
-                              // Measured empty interior of the yellow frame
-                              // on background.jpg, as fractions of the
-                              // full 1024x1536 image. Top pushed down to
-                              // clear "BY ABHISHEK MOHITE" baked into image.
-                              return Positioned(
-                                left: w * 0.127,
-                                top: h * 0.306,
-                                width: w * 0.718,
-                                height: h * 0.488,
-                                child: Container(
-                                  color: Colors.red.withOpacity(
-                                    0.3,
-                                  ), // TEMP DEBUG — remove after test
-                                  child: _buildFrameContent(
-                                    currentStreak: currentStreak,
-                                    currentStreakStart: currentStreakStart,
-                                    todayStr: todayStr,
-                                    dayNumber: dayNumber,
-                                    quote: quote,
+                          if (platform == 'instagram_post')
+                            Positioned.fill(
+                              child: Stack(
+                                children: [
+                                  const Positioned(
+                                    top: 72,
+                                    left: 0,
+                                    right: 0,
+                                    child: Text(
+                                      'THE',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 2,
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
-                          ),
+                                  const Positioned(
+                                    top: 114,
+                                    left: 0,
+                                    right: 0,
+                                    child: Text(
+                                      'CONQUER',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: AppColors.gold,
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 2,
+                                      ),
+                                    ),
+                                  ),
+                                  const Positioned(
+                                    top: 156,
+                                    left: 0,
+                                    right: 0,
+                                    child: Text(
+                                      'CLUB',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 2,
+                                      ),
+                                    ),
+                                  ),
+                                  const Positioned(
+                                    top: 202,
+                                    left: 0,
+                                    right: 0,
+                                    child: Text(
+                                      'BY ABHISHEK MOHITE',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white38,
+                                        fontSize: 12,
+                                        letterSpacing: 1,
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    left: 12,
+                                    right: 12,
+                                    bottom: 38,
+                                    child: RichText(
+                                      textAlign: TextAlign.center,
+                                      text: const TextSpan(
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        children: [
+                                          TextSpan(
+                                            text: 'CONSISTENCY. ',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                          TextSpan(
+                                            text: 'DISCIPLINE. ',
+                                            style: TextStyle(
+                                              color: AppColors.gold,
+                                            ),
+                                          ),
+                                          TextSpan(
+                                            text: 'RESULT.',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          else
+                            Positioned.fill(
+                              child: Stack(
+                                children: [
+                                  const Positioned(
+                                    top: 72,
+                                    left: 0,
+                                    right: 0,
+                                    child: Text(
+                                      'THE',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 2,
+                                      ),
+                                    ),
+                                  ),
+                                  const Positioned(
+                                    top: 114,
+                                    left: 0,
+                                    right: 0,
+                                    child: Text(
+                                      'CONQUER',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: AppColors.gold,
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 2,
+                                      ),
+                                    ),
+                                  ),
+                                  const Positioned(
+                                    top: 156,
+                                    left: 0,
+                                    right: 0,
+                                    child: Text(
+                                      'CLUB',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 26,
+                                        fontWeight: FontWeight.bold,
+                                        letterSpacing: 2,
+                                      ),
+                                    ),
+                                  ),
+                                  const Positioned(
+                                    top: 202,
+                                    left: 0,
+                                    right: 0,
+                                    child: Text(
+                                      'BY ABHISHEK MOHITE',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Colors.white38,
+                                        fontSize: 12,
+                                        letterSpacing: 1,
+                                      ),
+                                    ),
+                                  ),
+                                  Positioned(
+                                    left: 12,
+                                    right: 12,
+                                    bottom: 38,
+                                    child: RichText(
+                                      textAlign: TextAlign.center,
+                                      text: const TextSpan(
+                                        style: TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                        children: [
+                                          TextSpan(
+                                            text: 'CONSISTENCY. ',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                          TextSpan(
+                                            text: 'DISCIPLINE. ',
+                                            style: TextStyle(
+                                              color: AppColors.gold,
+                                            ),
+                                          ),
+                                          TextSpan(
+                                            text: 'RESULT.',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                         ],
                       ),
                     ),
                   ),
                 ),
-              ),
-
-              const SizedBox(height: 14),
-
-              // Platform badge
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 6,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.6),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.white.withOpacity(0.1)),
-                ),
-                child: Text(
-                  'Sharing to: $platform',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.8),
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // Action buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(
-                          color: Colors.white.withOpacity(0.4),
-                          width: 1.5,
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                          side:
+                              BorderSide(color: Colors.white.withOpacity(0.3)),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        backgroundColor: Colors.black.withOpacity(0.3),
+                        child: const Text('Cancel'),
                       ),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () {
+                          _captureAndShare(context, platform, shareText);
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppColors.gold,
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Share Now',
+                          style: TextStyle(fontWeight: FontWeight.bold),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () =>
-                          _confirmShare(context, platform, shareText),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.gold,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 4,
-                      ),
-                      child: const Text(
-                        'Share Now',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  // Everything the member's streak card shows, laid out to fit entirely
-  // inside the yellow frame printed on background.jpg.
-  Widget _buildFrameContent({
-    required int currentStreak,
-    required DateTime? currentStreakStart,
-    required String todayStr,
-    required int dayNumber,
-    required String quote,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        crossAxisAlignment: CrossAxisAlignment.center,
-        mainAxisSize: MainAxisSize.max,
-        children: [
-          const Text('🔥', style: TextStyle(fontSize: 40)),
-          const SizedBox(height: 4),
-          Text(
-            currentStreak > 0 ? '$currentStreak' : '0',
-            style: const TextStyle(
-              color: AppColors.gold,
-              fontSize: 56,
-              fontWeight: FontWeight.w900,
-              height: 1.0,
-              shadows: [
-                Shadow(
-                  offset: Offset(0, 3),
-                  blurRadius: 8,
-                  color: Colors.black,
-                ),
-                Shadow(
-                  offset: Offset(0, 6),
-                  blurRadius: 14,
-                  color: Colors.black54,
-                ),
-              ],
-            ),
-          ),
-          const Text(
-            'DAY STREAK',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 3,
-              shadows: [
-                Shadow(
-                  offset: Offset(0, 2),
-                  blurRadius: 6,
-                  color: Colors.black,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 14),
-          if (currentStreakStart != null && currentStreak > 0)
-            Text(
-              'Since ${DateFormat('MMM d, yyyy').format(currentStreakStart)}',
-              style: const TextStyle(
-                color: Colors.white70,
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                shadows: [
-                  Shadow(
-                    offset: Offset(0, 1),
-                    blurRadius: 3,
-                    color: Colors.black,
-                  ),
-                ],
-              ),
-            ),
-          Text(
-            todayStr,
-            style: const TextStyle(
-              color: Colors.white70,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              shadows: [
-                Shadow(
-                  offset: Offset(0, 1),
-                  blurRadius: 3,
-                  color: Colors.black,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          Container(
-            width: 50,
-            height: 2,
-            color: AppColors.gold.withOpacity(0.8),
-          ),
-          const SizedBox(height: 18),
-          Text(
-            'DAY $dayNumber OF 100',
-            style: const TextStyle(
-              color: AppColors.gold,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 2,
-              shadows: [
-                Shadow(
-                  offset: Offset(0, 1),
-                  blurRadius: 3,
-                  color: Colors.black,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 10),
-          Flexible(
-            child: Text(
-              '"$quote"',
-              textAlign: TextAlign.center,
-              maxLines: 6,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: quote.length <= 45
-                    ? 17
-                    : quote.length <= 75
-                        ? 15
-                        : quote.length <= 105
-                            ? 13
-                            : 11.5,
-                fontStyle: FontStyle.italic,
-                fontWeight: FontWeight.w500,
-                height: 1.35,
-                shadows: const [
-                  Shadow(
-                    offset: Offset(0, 2),
-                    blurRadius: 6,
-                    color: Colors.black,
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _confirmShare(
+  Future<void> _captureAndShare(
     BuildContext context,
     String platform,
     String shareText,
   ) async {
-    // Capture the composited image WHILE the preview dialog is still
-    // mounted — the RepaintBoundary is disposed as soon as we pop it.
-    Uint8List? pngBytes;
     try {
-      final boundary = _shareImageKey.currentContext?.findRenderObject()
-          as RenderRepaintBoundary?;
-      if (boundary != null) {
-        final image = await boundary.toImage(pixelRatio: 3.0);
-        final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-        pngBytes = byteData?.buffer.asUint8List();
-      }
+      final boundary = _shareImageKey.currentContext!.findRenderObject()
+          as RenderRepaintBoundary;
+      final image = await boundary.toImage(pixelRatio: 3.0);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      final pngBytes = byteData!.buffer.asUint8List();
+
+      if (!context.mounted) return;
+      Navigator.pop(context);
+
+      final xFile = XFile.fromData(
+        pngBytes,
+        mimeType: 'image/png',
+        name: 'conquer_club_streak.png',
+      );
+
+      await Share.shareXFiles(
+        [xFile],
+        text: shareText,
+        subject: 'My Conquer Club Streak',
+      );
     } catch (e) {
-      debugPrint('Failed to capture streak image: $e');
+      if (!context.mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error sharing: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
+  }
 
-    Navigator.pop(context); // close the preview dialog
+  double _calculateQuoteFontSize(String quote) {
+    final length = quote.length;
+    if (length <= 40) return 18;
+    if (length <= 70) return 16;
+    if (length <= 100) return 14;
+    if (length <= 140) return 12;
+    return 10;
+  }
 
-    if (pngBytes == null) {
-      // Couldn't capture the image at all — fall back to text-only share.
-      await Share.share(shareText, subject: 'My Conquer Club Streak');
-      return;
-    }
+  Widget _imagePreviewStat(String icon, String value, String label) {
+    return Column(
+      children: [
+        Text(icon, style: const TextStyle(fontSize: 22)),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            shadows: [
+              Shadow(
+                offset: Offset(0, 1),
+                blurRadius: 3,
+                color: Colors.black,
+              ),
+            ],
+          ),
+        ),
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white70,
+            fontSize: 10,
+            shadows: [
+              const Shadow(
+                offset: Offset(0, 1),
+                blurRadius: 3,
+                color: Colors.black,
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 
+  void _confirmShare(BuildContext context, String platform, String shareText) {
+    // Close any open dialogs
+    Navigator.pop(context);
+
+    // Show sharing progress
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('📤 Sharing to $platform...'),
@@ -1001,98 +972,28 @@ THE CONQUER CLUB
       ),
     );
 
-    try {
-      final tempDir = await getTemporaryDirectory();
-      final file = File(
-        '${tempDir.path}/conquer_club_streak_${DateTime.now().millisecondsSinceEpoch}.png',
-      );
-      await file.writeAsBytes(pngBytes);
-
-      bool openedNatively = false;
-
-      if (platform == 'instagram_story') {
-        openedNatively = await _shareToInstagramStoryNative(file.path);
-      } else if (platform == 'snapchat') {
-        openedNatively = await _shareToSnapchatNative(file.path);
-      }
-
-      if (!openedNatively) {
-        // Native deep-link into the app wasn't available (app not
-        // installed, iOS Snapchat has no such API, or the platform
-        // channel isn't set up) — fall back to the generic OS share
-        // sheet. Instagram/Snapchat only consume the media itself, so
-        // for these two we share the image alone (no caption text),
-        // otherwise both apps tend to surface the text and drop the
-        // image entirely.
-        final bool isStoryPlatform =
-            platform == 'instagram_story' || platform == 'snapchat';
-        if (isStoryPlatform) {
-          await Share.shareXFiles([XFile(file.path)]);
-        } else {
-          await Share.shareXFiles(
-            [XFile(file.path)],
-            text: shareText,
-            subject: 'My Conquer Club Streak',
-          );
-        }
-      }
-
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('✅ Shared successfully!'),
-          backgroundColor: Colors.green,
-          duration: Duration(seconds: 2),
-        ),
-      );
-    } catch (e) {
-      if (!context.mounted) return;
+    // Share the text content
+    // For Instagram/Snapchat, the user can choose the app from the share sheet
+    Share.share(
+      shareText,
+      subject: 'My Conquer Club Streak',
+    ).then((result) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('❌ Error sharing: $e'),
+          content: Text('✅ Shared successfully!'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }).catchError((error) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error sharing: $error'),
           backgroundColor: Colors.red,
           duration: const Duration(seconds: 2),
         ),
       );
-    }
-  }
-
-  // Returns true if Instagram's Story editor was actually opened with the
-  // image loaded. Returns false (never throws) if Instagram isn't
-  // installed or the native channel isn't wired up yet, so the caller can
-  // fall back to the generic share sheet.
-  Future<bool> _shareToInstagramStoryNative(String imagePath) async {
-    try {
-      final result = await _socialShareChannel.invokeMethod<bool>(
-        'shareToInstagramStory',
-        {'imagePath': imagePath},
-      );
-      return result ?? false;
-    } on MissingPluginException {
-      return false; // native side not implemented for this platform yet
-    } catch (e) {
-      debugPrint('Instagram native share failed: $e');
-      return false;
-    }
-  }
-
-  // Returns true if Snapchat was actually opened with the image loaded
-  // (Android only — iOS has no non-SDK way to do this, see
-  // AppDelegate.swift). Returns false otherwise so the caller falls back
-  // to the generic share sheet.
-  Future<bool> _shareToSnapchatNative(String imagePath) async {
-    try {
-      final result = await _socialShareChannel.invokeMethod<bool>(
-        'shareToSnapchat',
-        {'imagePath': imagePath},
-      );
-      return result ?? false;
-    } on MissingPluginException {
-      return false;
-    } catch (e) {
-      debugPrint('Snapchat native share failed: $e');
-      return false;
-    }
+    });
   }
 
   @override
@@ -1108,11 +1009,17 @@ THE CONQUER CLUB
         ),
         title: const Text(
           'My Streaks',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
         ),
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
-          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadData),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _loadData,
+          ),
         ],
       ),
       body: _isLoading
@@ -1126,15 +1033,15 @@ THE CONQUER CLUB
               child: CustomScrollView(
                 slivers: [
                   // Stats Banner
-                  SliverToBoxAdapter(child: _buildStatsBanner()),
+                  SliverToBoxAdapter(
+                    child: _buildStatsBanner(),
+                  ),
 
                   // Filter Tabs
                   SliverToBoxAdapter(
                     child: Container(
                       margin: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
+                          horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
                         color: AppColors.cardDark,
                         borderRadius: BorderRadius.circular(10),
@@ -1255,7 +1162,10 @@ THE CONQUER CLUB
                   if (currentStreakStart != null)
                     Text(
                       'Since ${DateFormat('MMM d, yyyy').format(currentStreakStart)}',
-                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                      style: const TextStyle(
+                        color: Colors.grey,
+                        fontSize: 12,
+                      ),
                     ),
                 ],
               ),
@@ -1268,9 +1178,21 @@ THE CONQUER CLUB
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _statItem('🏆', '$highestStreak', 'Best Streak'),
-              _statItem('📊', '$streakRate%', 'Success Rate'),
-              _statItem('✅', '$totalStreaks', 'Total Streaks'),
+              _statItem(
+                '🏆',
+                '$highestStreak',
+                'Best Streak',
+              ),
+              _statItem(
+                '📊',
+                '$streakRate%',
+                'Success Rate',
+              ),
+              _statItem(
+                '✅',
+                '$totalStreaks',
+                'Total Streaks',
+              ),
             ],
           ),
 
@@ -1284,7 +1206,10 @@ THE CONQUER CLUB
               icon: const Icon(Icons.share, size: 18),
               label: const Text(
                 'Share Your Streak',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.gold,
@@ -1314,7 +1239,13 @@ THE CONQUER CLUB
             fontWeight: FontWeight.bold,
           ),
         ),
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 10)),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.grey,
+            fontSize: 10,
+          ),
+        ),
       ],
     );
   }
@@ -1450,8 +1381,14 @@ class _StreakCard extends StatelessWidget {
                 streak.isWorkoutCompleted,
               ),
               if (isSunday) ...[
-                _detailChip('📸 Photos', streak.isPhotosUploaded),
-                _detailChip('📏 Measurements', streak.isMeasurementsUpdated),
+                _detailChip(
+                  '📸 Photos',
+                  streak.isPhotosUploaded,
+                ),
+                _detailChip(
+                  '📏 Measurements',
+                  streak.isMeasurementsUpdated,
+                ),
               ],
             ],
           ),
@@ -1508,4 +1445,32 @@ class _StreakCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ConquerFramePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = AppColors.gold
+      ..strokeWidth = 4
+      ..style = PaintingStyle.stroke;
+
+    const sideInset = 8.0;
+
+    final topY = 56.0;
+    final bottomY = size.height - 16.0;
+
+    canvas.drawRect(
+      Rect.fromLTRB(
+        sideInset,
+        topY,
+        size.width - sideInset,
+        bottomY,
+      ),
+      paint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

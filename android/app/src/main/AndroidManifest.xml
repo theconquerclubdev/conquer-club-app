@@ -34,15 +34,6 @@
         <meta-data
             android:name="io.flutter.embedding.android.EnableImpeller"
             android:value="false" />
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.socialshare.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/social_share_file_paths" />
-        </provider>
     </application>
     <queries>
         <intent>
@@ -50,7 +41,5 @@
             <data android:mimeType="text/plain"/>
         </intent>
         <package android:name="com.google.android.apps.healthdata"/>
-        <package android:name="com.instagram.android"/>
-        <package android:name="com.snapchat.android"/>
     </queries>
 </manifest>
