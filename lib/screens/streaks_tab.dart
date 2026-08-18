@@ -590,6 +590,10 @@ THE CONQUER CLUB
     String platform,
     String shareText,
   ) {
+    // Make stats available to the image preview
+    final highestStreak = _stats['highestStreak'] ?? 0;
+    final streakRate = _stats['streakRate'] ?? 0;
+    final totalStreaks = _stats['totalStreaks'] ?? 0;
     showDialog(
       context: context,
       barrierDismissible: true,
@@ -611,113 +615,73 @@ THE CONQUER CLUB
                     aspectRatio: platform == 'instagram_post' ? 1 : 9 / 16,
                     child: Container(
                       color: Colors.black,
-                      padding: platform == 'instagram_post'
-                          ? const EdgeInsets.all(24)
-                          : const EdgeInsets.all(24),
                       child: Stack(
+                        fit: StackFit.expand,
                         children: [
-                          Positioned.fill(
-                            child: CustomPaint(
-                              painter: _ConquerFramePainter(),
-                            ),
-                          ),
-                          if (platform == 'instagram_post')
-                            Positioned.fill(
-                              child: Stack(
+                          if (platform != 'instagram_post')
+                            Image.asset(
+                              'assets/images/reel_background.png',
+                              fit: BoxFit.fill,
+                            )
+                          else
+                            const ColoredBox(color: Colors.black),
+                          if (platform != 'instagram_post')
+                            Positioned(
+                              top: 0,
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              child: Column(
                                 children: [
-                                  const Positioned(
-                                    top: 72,
-                                    left: 0,
-                                    right: 0,
-                                    child: Text(
-                                      'THE',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 26,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 2,
-                                      ),
+                                  const Spacer(flex: 4),
+                                  Text(
+                                    currentStreak > 0
+                                        ? '$currentStreak DAY${currentStreak > 1 ? 'S' : ''}'
+                                        : 'NO ACTIVE STREAK',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 32,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1.5,
                                     ),
                                   ),
-                                  const Positioned(
-                                    top: 114,
-                                    left: 0,
-                                    right: 0,
-                                    child: Text(
-                                      'CONQUER',
+                                  if (currentStreakStart != null &&
+                                      currentStreak > 0) ...[
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Since ${DateFormat('MMM d, yyyy').format(currentStreakStart)}',
                                       textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: AppColors.gold,
-                                        fontSize: 26,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 2,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 14,
                                       ),
                                     ),
-                                  ),
-                                  const Positioned(
-                                    top: 156,
-                                    left: 0,
-                                    right: 0,
-                                    child: Text(
-                                      'CLUB',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 26,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 2,
+                                  ],
+                                  const SizedBox(height: 16),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      _imagePreviewStat(
+                                        '🏆',
+                                        '$highestStreak',
+                                        'Best Streak',
                                       ),
-                                    ),
-                                  ),
-                                  const Positioned(
-                                    top: 202,
-                                    left: 0,
-                                    right: 0,
-                                    child: Text(
-                                      'BY ABHISHEK MOHITE',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: Colors.white38,
-                                        fontSize: 12,
-                                        letterSpacing: 1,
+                                      const SizedBox(width: 28),
+                                      _imagePreviewStat(
+                                        '📊',
+                                        '$streakRate%',
+                                        'Success Rate',
                                       ),
-                                    ),
-                                  ),
-                                  Positioned(
-                                    left: 12,
-                                    right: 12,
-                                    bottom: 38,
-                                    child: RichText(
-                                      textAlign: TextAlign.center,
-                                      text: const TextSpan(
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                        children: [
-                                          TextSpan(
-                                            text: 'CONSISTENCY. ',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                          TextSpan(
-                                            text: 'DISCIPLINE. ',
-                                            style: TextStyle(
-                                              color: AppColors.gold,
-                                            ),
-                                          ),
-                                          TextSpan(
-                                            text: 'RESULT.',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                        ],
+                                      const SizedBox(width: 28),
+                                      _imagePreviewStat(
+                                        '✅',
+                                        '$totalStreaks',
+                                        'Total Streaks',
                                       ),
-                                    ),
+                                    ],
                                   ),
+                                  const Spacer(flex: 5),
                                 ],
                               ),
                             )
@@ -726,7 +690,7 @@ THE CONQUER CLUB
                               child: Stack(
                                 children: [
                                   const Positioned(
-                                    top: 72,
+                                    top: 16,
                                     left: 0,
                                     right: 0,
                                     child: Text(
@@ -734,29 +698,40 @@ THE CONQUER CLUB
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
                                         color: Colors.white,
-                                        fontSize: 26,
-                                        fontWeight: FontWeight.bold,
+                                        fontSize: 25,
+                                        fontWeight: FontWeight.normal,
                                         letterSpacing: 2,
                                       ),
                                     ),
                                   ),
                                   const Positioned(
-                                    top: 114,
+                                    top: 50,
                                     left: 0,
                                     right: 0,
-                                    child: Text(
-                                      'CONQUER',
-                                      textAlign: TextAlign.center,
-                                      style: TextStyle(
-                                        color: AppColors.gold,
-                                        fontSize: 26,
-                                        fontWeight: FontWeight.bold,
-                                        letterSpacing: 2,
+                                    child: Center(
+                                      child: ColoredBox(
+                                        color: Colors.black,
+                                        child: Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 8,
+                                            vertical: 12,
+                                          ),
+                                          child: Text(
+                                            'CONQUER',
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              color: AppColors.gold,
+                                              fontSize: 25,
+                                              fontWeight: FontWeight.normal,
+                                              letterSpacing: 2,
+                                            ),
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
                                   const Positioned(
-                                    top: 156,
+                                    top: 106,
                                     left: 0,
                                     right: 0,
                                     child: Text(
@@ -764,58 +739,79 @@ THE CONQUER CLUB
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
                                         color: Colors.white,
-                                        fontSize: 26,
-                                        fontWeight: FontWeight.bold,
+                                        fontSize: 25,
+                                        fontWeight: FontWeight.normal,
                                         letterSpacing: 2,
                                       ),
                                     ),
                                   ),
                                   const Positioned(
-                                    top: 202,
+                                    top: 135,
                                     left: 0,
                                     right: 0,
                                     child: Text(
                                       'BY ABHISHEK MOHITE',
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
-                                        color: Colors.white38,
-                                        fontSize: 12,
+                                        color:
+                                            Color.fromRGBO(255, 255, 255, 0.7),
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.bold,
                                         letterSpacing: 1,
                                       ),
                                     ),
                                   ),
                                   Positioned(
+                                    top: 170,
                                     left: 12,
                                     right: 12,
-                                    bottom: 38,
-                                    child: RichText(
-                                      textAlign: TextAlign.center,
-                                      text: const TextSpan(
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.bold,
+                                    child: Column(
+                                      children: [
+                                        Text(
+                                          currentStreak > 0
+                                              ? '${currentStreak} DAY${currentStreak > 1 ? 'S' : ''}'
+                                              : 'NO ACTIVE STREAK',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 32,
+                                            fontWeight: FontWeight.bold,
+                                            letterSpacing: 1.5,
+                                          ),
                                         ),
-                                        children: [
-                                          TextSpan(
-                                            text: 'CONSISTENCY. ',
-                                            style: TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          ),
-                                          TextSpan(
-                                            text: 'DISCIPLINE. ',
-                                            style: TextStyle(
-                                              color: AppColors.gold,
-                                            ),
-                                          ),
-                                          TextSpan(
-                                            text: 'RESULT.',
-                                            style: TextStyle(
-                                              color: Colors.white,
+                                        if (currentStreakStart != null &&
+                                            currentStreak > 0) ...[
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            'Since ${DateFormat('MMM d, yyyy').format(currentStreakStart)}',
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 14,
                                             ),
                                           ),
                                         ],
-                                      ),
+                                        const SizedBox(height: 16),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceAround,
+                                          children: [
+                                            _imagePreviewStat(
+                                              '🏆',
+                                              '$highestStreak',
+                                              'Best Streak',
+                                            ),
+                                            _imagePreviewStat(
+                                              '📊',
+                                              '$streakRate%',
+                                              'Success Rate',
+                                            ),
+                                            _imagePreviewStat(
+                                              '✅',
+                                              '$totalStreaks',
+                                              'Total Streaks',
+                                            ),
+                                          ],
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
@@ -826,7 +822,8 @@ THE CONQUER CLUB
                     ),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
+                const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
@@ -924,13 +921,13 @@ THE CONQUER CLUB
   Widget _imagePreviewStat(String icon, String value, String label) {
     return Column(
       children: [
-        Text(icon, style: const TextStyle(fontSize: 22)),
+        Text(icon, style: const TextStyle(fontSize: 18)),
         const SizedBox(height: 2),
         Text(
           value,
           style: const TextStyle(
             color: Colors.white,
-            fontSize: 18,
+            fontSize: 16,
             fontWeight: FontWeight.bold,
             shadows: [
               Shadow(
@@ -945,7 +942,7 @@ THE CONQUER CLUB
           label,
           style: TextStyle(
             color: Colors.white70,
-            fontSize: 10,
+            fontSize: 9,
             shadows: [
               const Shadow(
                 offset: Offset(0, 1),
@@ -1452,13 +1449,13 @@ class _ConquerFramePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = AppColors.gold
-      ..strokeWidth = 4
+      ..strokeWidth = 5
       ..style = PaintingStyle.stroke;
 
-    const sideInset = 8.0;
+    const sideInset = 36.0;
 
-    final topY = 56.0;
-    final bottomY = size.height - 16.0;
+    final topY = 176.0;
+    final bottomY = size.height - 121.0;
 
     canvas.drawRect(
       Rect.fromLTRB(
