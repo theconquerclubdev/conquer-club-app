@@ -575,6 +575,14 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
     );
   }
 
+  Widget _verticalDivider() {
+    return Container(
+      width: 1,
+      height: double.infinity,
+      color: Colors.grey.shade300,
+    );
+  }
+
   Widget _buildTableWithWatermark(Map<String, double> t, double fontSize) {
     final List<Widget> tableRows = [];
 
@@ -599,10 +607,15 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
         color: Colors.white,
         child: Row(children: [
           _foodCell('Food', bold: true, fontSize: fontSize),
+          _verticalDivider(),
           _numCell('Qty', _wQty, bold: true, fontSize: fontSize),
+          _verticalDivider(),
           _numCell('Cal', _wCal, bold: true, fontSize: fontSize),
+          _verticalDivider(),
           _numCell('Prot', _wMacro, bold: true, fontSize: fontSize),
+          _verticalDivider(),
           _numCell('Carb', _wMacro, bold: true, fontSize: fontSize),
+          _verticalDivider(),
           _numCell('Fat', _wMacro, bold: true, fontSize: fontSize),
         ]),
       ),
@@ -617,14 +630,28 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
       tableRows.add(
         row(
           color: Colors.white,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
-            child: Text(section,
-                style: TextStyle(
-                    color: Colors.black,
-                    fontWeight: FontWeight.bold,
-                    fontSize: fontSize + 1.5)),
-          ),
+          child: Row(children: [
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                child: Text(section,
+                    style: TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontSize: fontSize + 1.5)),
+              ),
+            ),
+            _verticalDivider(),
+            SizedBox(width: _wQty, child: const SizedBox()),
+            _verticalDivider(),
+            SizedBox(width: _wCal, child: const SizedBox()),
+            _verticalDivider(),
+            SizedBox(width: _wMacro, child: const SizedBox()),
+            _verticalDivider(),
+            SizedBox(width: _wMacro, child: const SizedBox()),
+            _verticalDivider(),
+            SizedBox(width: _wMacro, child: const SizedBox()),
+          ]),
         ),
       );
 
@@ -636,16 +663,21 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _foodCell(_compactFoodName(item.name), fontSize: fontSize),
+                _verticalDivider(),
                 _numCell(
                     '${item.quantity.toStringAsFixed(item.quantity.truncateToDouble() == item.quantity ? 0 : 1)}${item.unit}',
                     _wQty,
                     fontSize: fontSize),
+                _verticalDivider(),
                 _numCell(item.calories.toStringAsFixed(1), _wCal,
                     fontSize: fontSize),
+                _verticalDivider(),
                 _numCell('${item.protein.toStringAsFixed(1)}g', _wMacro,
                     fontSize: fontSize),
+                _verticalDivider(),
                 _numCell('${item.carbs.toStringAsFixed(1)}g', _wMacro,
                     fontSize: fontSize),
+                _verticalDivider(),
                 _numCell('${item.fats.toStringAsFixed(1)}g', _wMacro,
                     fontSize: fontSize),
               ],
@@ -662,13 +694,18 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
         color: Colors.white,
         child: Row(children: [
           _foodCell('Total', bold: true, fontSize: fontSize),
+          _verticalDivider(),
           _numCell('', _wQty, fontSize: fontSize),
+          _verticalDivider(),
           _numCell(t['calories']!.toStringAsFixed(1), _wCal,
               bold: true, fontSize: fontSize),
+          _verticalDivider(),
           _numCell('${t['protein']!.toStringAsFixed(1)}g', _wMacro,
               bold: true, fontSize: fontSize),
+          _verticalDivider(),
           _numCell('${t['carbs']!.toStringAsFixed(1)}g', _wMacro,
               bold: true, fontSize: fontSize),
+          _verticalDivider(),
           _numCell('${t['fats']!.toStringAsFixed(1)}g', _wMacro,
               bold: true, fontSize: fontSize),
         ]),

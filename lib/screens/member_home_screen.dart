@@ -342,11 +342,25 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           .order('date', ascending: false);
 
       int streak = 0;
+      bool streakActive = false;
+
       for (final record in response) {
-        if (record['is_streak_met'] == true) {
-          streak++;
+        if (!streakActive) {
+          // First record (today) must be a success for streak to exist
+          if (record['is_streak_met'] == true) {
+            streakActive = true;
+            streak = 1;
+          } else {
+            // Today failed, no active streak
+            break;
+          }
         } else {
-          break;
+          // We're in an active streak, count consecutive successes
+          if (record['is_streak_met'] == true) {
+            streak++;
+          } else {
+            break; // Streak broken
+          }
         }
       }
 
@@ -631,6 +645,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   void _openMeasurements() {
+    print('📏 Opening Measurements from Sunday task');
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const MeasurementsScreen()),

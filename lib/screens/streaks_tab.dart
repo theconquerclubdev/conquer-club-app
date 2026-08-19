@@ -171,16 +171,29 @@ class _StreaksTabState extends State<StreaksTab> {
       int totalStreaks = 0;
       int totalDays = 0;
       DateTime? currentStreakStart;
+      bool streakActive = false;
 
       for (var record in response) {
         final streak = StreakModel.fromJson(record);
         history.add(streak);
 
-        if (streak.isStreakMet) {
-          currentStreak++;
-          currentStreakStart ??= streak.date;
+        if (!streakActive) {
+          // First record (today) must be a success for streak to exist
+          if (streak.isStreakMet) {
+            streakActive = true;
+            currentStreak = 1;
+            currentStreakStart = streak.date;
+          } else {
+            // Today failed, no active streak
+            break;
+          }
         } else {
-          if (currentStreak > 0) break;
+          // We're in an active streak, count consecutive successes
+          if (streak.isStreakMet) {
+            currentStreak++;
+          } else {
+            break; // Streak broken
+          }
         }
       }
 
@@ -222,182 +235,15 @@ class _StreaksTabState extends State<StreaksTab> {
   }
 
   List<StreakModel> get _filteredStreaks {
-    if (_filter == 'all') return _streaks;
+    if (_filter == 'all') return _streaks.take(5).toList();
     if (_filter == 'streak') {
-      return _streaks.where((s) => s.isStreakMet).toList();
+      return _streaks.where((s) => s.isStreakMet).take(5).toList();
     }
-    return _streaks.where((s) => !s.isStreakMet).toList();
+    return _streaks.where((s) => !s.isStreakMet).take(5).toList();
   }
 
   void _shareStreak(BuildContext context) {
-    final currentStreak = _stats['currentStreak'] ?? 0;
-    final currentStreakStart = _stats['currentStreakStart'] as DateTime?;
-    final highestStreak = _stats['highestStreak'] ?? 0;
-    final streakRate = _stats['streakRate'] ?? 0;
-    final totalStreaks = _stats['totalStreaks'] ?? 0;
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: const EdgeInsets.all(16),
-        child: Container(
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF1a1a1a), Color(0xFF0d0d0d)],
-            ),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppColors.gold.withOpacity(0.3)),
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.gold.withOpacity(0.1),
-                blurRadius: 20,
-                spreadRadius: 5,
-              ),
-            ],
-          ),
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Header
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Text('🔥', style: TextStyle(fontSize: 32)),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        currentStreak > 0
-                            ? '$currentStreak DAYS'
-                            : 'NO ACTIVE STREAK',
-                        style: const TextStyle(
-                          color: AppColors.gold,
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 1.2,
-                        ),
-                      ),
-                      if (currentStreakStart != null && currentStreak > 0)
-                        Text(
-                          'Started: ${DateFormat('MMM d, yyyy').format(currentStreakStart)}',
-                          style: const TextStyle(
-                            color: Colors.grey,
-                            fontSize: 12,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 20),
-
-              // Divider
-              Container(
-                height: 1,
-                color: Colors.white.withOpacity(0.1),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Stats Grid
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceAround,
-                children: [
-                  _shareStatItem('🏆', '$highestStreak', 'Best Streak'),
-                  _shareStatItem('📊', '$streakRate%', 'Success Rate'),
-                  _shareStatItem('✅', '$totalStreaks', 'Total Streaks'),
-                ],
-              ),
-
-              const SizedBox(height: 20),
-
-              // Tagline
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: AppColors.gold.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.gold.withOpacity(0.2)),
-                ),
-                child: const Text(
-                  'CONSISTENCY. DISCIPLINE. RESULTS.',
-                  style: TextStyle(
-                    color: AppColors.gold,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 12),
-
-              // Gym Name
-              const Text(
-                'THE CONQUER CLUB',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.5,
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              // Action Buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        side: BorderSide(color: Colors.grey.shade700),
-                        foregroundColor: Colors.grey,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        _postShare(context);
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.gold,
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: const Text(
-                        'Post',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    _postShare(context);
   }
 
   Widget _shareStatItem(String icon, String value, String label) {
@@ -636,12 +482,12 @@ THE CONQUER CLUB
                                   const Spacer(flex: 4),
                                   Text(
                                     currentStreak > 0
-                                        ? '$currentStreak DAY${currentStreak > 1 ? 'S' : ''}'
-                                        : 'NO ACTIVE STREAK',
+                                        ? '🔥 $currentStreak DAY${currentStreak > 1 ? 'S' : ''}'
+                                        : '🔥 NO STREAK',
                                     textAlign: TextAlign.center,
                                     style: const TextStyle(
                                       color: Colors.white,
-                                      fontSize: 32,
+                                      fontSize: 28,
                                       fontWeight: FontWeight.bold,
                                       letterSpacing: 1.5,
                                     ),
@@ -650,7 +496,17 @@ THE CONQUER CLUB
                                       currentStreak > 0) ...[
                                     const SizedBox(height: 8),
                                     Text(
-                                      'Since ${DateFormat('MMM d, yyyy').format(currentStreakStart)}',
+                                      DateFormat('d-MMM-yyyy')
+                                          .format(DateTime.now()),
+                                      textAlign: TextAlign.center,
+                                      style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 14,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      DateFormat('EEEE').format(DateTime.now()),
                                       textAlign: TextAlign.center,
                                       style: const TextStyle(
                                         color: Colors.white70,
@@ -659,28 +515,7 @@ THE CONQUER CLUB
                                     ),
                                   ],
                                   const SizedBox(height: 16),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      _imagePreviewStat(
-                                        '🏆',
-                                        '$highestStreak',
-                                        'Best Streak',
-                                      ),
-                                      const SizedBox(width: 28),
-                                      _imagePreviewStat(
-                                        '📊',
-                                        '$streakRate%',
-                                        'Success Rate',
-                                      ),
-                                      const SizedBox(width: 28),
-                                      _imagePreviewStat(
-                                        '✅',
-                                        '$totalStreaks',
-                                        'Total Streaks',
-                                      ),
-                                    ],
-                                  ),
+                                  const SizedBox(height: 16),
                                   const Spacer(flex: 5),
                                 ],
                               ),
@@ -769,11 +604,11 @@ THE CONQUER CLUB
                                       children: [
                                         Text(
                                           currentStreak > 0
-                                              ? '${currentStreak} DAY${currentStreak > 1 ? 'S' : ''}'
-                                              : 'NO ACTIVE STREAK',
+                                              ? '🔥 ${currentStreak} DAY${currentStreak > 1 ? 'S' : ''}'
+                                              : '🔥 NO STREAK',
                                           style: const TextStyle(
                                             color: Colors.white,
-                                            fontSize: 32,
+                                            fontSize: 28,
                                             fontWeight: FontWeight.bold,
                                             letterSpacing: 1.5,
                                           ),
@@ -782,7 +617,17 @@ THE CONQUER CLUB
                                             currentStreak > 0) ...[
                                           const SizedBox(height: 8),
                                           Text(
-                                            'Since ${DateFormat('MMM d, yyyy').format(currentStreakStart)}',
+                                            DateFormat('d-MMM-yyyy')
+                                                .format(DateTime.now()),
+                                            style: const TextStyle(
+                                              color: Colors.white70,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            DateFormat('EEEE')
+                                                .format(DateTime.now()),
                                             style: const TextStyle(
                                               color: Colors.white70,
                                               fontSize: 14,
@@ -790,27 +635,7 @@ THE CONQUER CLUB
                                           ),
                                         ],
                                         const SizedBox(height: 16),
-                                        Row(
-                                          mainAxisAlignment:
-                                              MainAxisAlignment.spaceAround,
-                                          children: [
-                                            _imagePreviewStat(
-                                              '🏆',
-                                              '$highestStreak',
-                                              'Best Streak',
-                                            ),
-                                            _imagePreviewStat(
-                                              '📊',
-                                              '$streakRate%',
-                                              'Success Rate',
-                                            ),
-                                            _imagePreviewStat(
-                                              '✅',
-                                              '$totalStreaks',
-                                              'Total Streaks',
-                                            ),
-                                          ],
-                                        ),
+                                        const SizedBox(height: 16),
                                       ],
                                     ),
                                   ),
@@ -1047,7 +872,7 @@ THE CONQUER CLUB
                         children: [
                           _buildFilterChip('All', 'all'),
                           _buildFilterChip('🔥 Streaks', 'streak'),
-                          _buildFilterChip('❌ Missed', 'missed'),
+                          _buildFilterChip('⏳ Pending', 'missed'),
                         ],
                       ),
                     ),
@@ -1149,7 +974,7 @@ THE CONQUER CLUB
                   Text(
                     currentStreak > 0
                         ? '$currentStreak Day Streak'
-                        : 'No Active Streak',
+                        : '0 Day Streak',
                     style: TextStyle(
                       color: currentStreak > 0 ? AppColors.gold : Colors.grey,
                       fontSize: 20,
@@ -1308,7 +1133,13 @@ class _StreakCard extends StatelessWidget {
                 width: 8,
                 height: 8,
                 decoration: BoxDecoration(
-                  color: isSuccess ? Colors.green : Colors.red,
+                  color: isSuccess
+                      ? Colors.green
+                      : (streak.date ==
+                              DateTime(DateTime.now().year,
+                                  DateTime.now().month, DateTime.now().day)
+                          ? Colors.orange
+                          : Colors.red),
                   shape: BoxShape.circle,
                 ),
               ),
@@ -1351,13 +1182,29 @@ class _StreakCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isSuccess
                       ? Colors.green.withOpacity(0.15)
-                      : Colors.red.withOpacity(0.15),
+                      : (streak.date ==
+                              DateTime(DateTime.now().year,
+                                  DateTime.now().month, DateTime.now().day)
+                          ? Colors.orange.withOpacity(0.15)
+                          : Colors.red.withOpacity(0.15)),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
-                  isSuccess ? '✅ Streak!' : '❌ Missed',
+                  isSuccess
+                      ? '✅ Streak!'
+                      : (streak.date ==
+                              DateTime(DateTime.now().year,
+                                  DateTime.now().month, DateTime.now().day)
+                          ? '⏳ Pending'
+                          : '❌ Missed'),
                   style: TextStyle(
-                    color: isSuccess ? Colors.green : Colors.red,
+                    color: isSuccess
+                        ? Colors.green
+                        : (streak.date ==
+                                DateTime(DateTime.now().year,
+                                    DateTime.now().month, DateTime.now().day)
+                            ? Colors.orange
+                            : Colors.red),
                     fontSize: 11,
                     fontWeight: FontWeight.bold,
                   ),
@@ -1373,10 +1220,11 @@ class _StreakCard extends StatelessWidget {
             spacing: 6,
             runSpacing: 6,
             children: [
-              _detailChip(
-                '🏋️ ${streak.workoutMinutes} min',
-                streak.isWorkoutCompleted,
-              ),
+              if (!isSunday)
+                _detailChip(
+                  '🏋️ ${streak.workoutMinutes} min',
+                  streak.isWorkoutCompleted,
+                ),
               if (isSunday) ...[
                 _detailChip(
                   '📸 Photos',
