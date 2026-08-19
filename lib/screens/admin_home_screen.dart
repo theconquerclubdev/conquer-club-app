@@ -170,7 +170,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
 
       final payments = await Supabase.instance.client
           .from('payments')
-          .select('amount, category_id, categories(name)')
+          .select('amount, member_id, profiles(category_id, categories(name))')
           .eq('status', 'completed');
 
       double total = 0;
@@ -178,7 +178,8 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
       for (final p in payments) {
         final amount = (p['amount'] as num?)?.toDouble() ?? 0;
         total += amount;
-        final catName = p['categories']?['name'] as String? ?? 'Uncategorized';
+        final catName =
+            p['profiles']?['categories']?['name'] as String? ?? 'Uncategorized';
         catRev[catName] = (catRev[catName] ?? 0) + amount;
       }
 
@@ -923,146 +924,162 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
                             color: AppColors.cardDark,
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      m['full_name'] ?? 'Unknown',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                    Text(
-                                      m['email'] ?? '',
-                                      style: const TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                    Row(
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: SizedBox(
+                              width: 700,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        if (m['membership_end_date'] != null)
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 8,
-                                              vertical: 2,
-                                            ),
-                                            decoration: BoxDecoration(
-                                              color: daysLeft >= 0
-                                                  ? Colors.green
-                                                      .withOpacity(0.2)
-                                                  : Colors.red.withOpacity(0.2),
-                                              borderRadius:
-                                                  BorderRadius.circular(8),
-                                            ),
-                                            child: Text(
-                                              daysLeft >= 0
-                                                  ? '$daysLeft days left'
-                                                  : 'Expired',
-                                              style: TextStyle(
-                                                color: daysLeft >= 0
-                                                    ? Colors.green
-                                                    : Colors.red,
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.bold,
+                                        Text(
+                                          m['full_name'] ?? 'Unknown',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        Text(
+                                          m['email'] ?? '',
+                                          style: const TextStyle(
+                                            color: Colors.grey,
+                                            fontSize: 12,
+                                          ),
+                                        ),
+                                        Row(
+                                          children: [
+                                            if (m['membership_end_date'] !=
+                                                null)
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 8,
+                                                  vertical: 2,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: daysLeft >= 0
+                                                      ? Colors.green
+                                                          .withOpacity(0.2)
+                                                      : Colors.red
+                                                          .withOpacity(0.2),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: Text(
+                                                  daysLeft >= 0
+                                                      ? '$daysLeft days left'
+                                                      : 'Expired',
+                                                  style: TextStyle(
+                                                    color: daysLeft >= 0
+                                                        ? Colors.green
+                                                        : Colors.red,
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                            const SizedBox(width: 8),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 8,
+                                                vertical: 2,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: isActive
+                                                    ? Colors.blue
+                                                        .withOpacity(0.2)
+                                                    : Colors.grey
+                                                        .withOpacity(0.2),
+                                                borderRadius:
+                                                    BorderRadius.circular(8),
+                                              ),
+                                              child: Text(
+                                                isActive
+                                                    ? 'Active'
+                                                    : 'Inactive',
+                                                style: TextStyle(
+                                                  color: isActive
+                                                      ? Colors.blue
+                                                      : Colors.grey,
+                                                  fontSize: 10,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                        const SizedBox(width: 8),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: isActive
-                                                ? Colors.blue.withOpacity(0.2)
-                                                : Colors.grey.withOpacity(0.2),
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                          ),
-                                          child: Text(
-                                            isActive ? 'Active' : 'Inactive',
-                                            style: TextStyle(
-                                              color: isActive
-                                                  ? Colors.blue
-                                                  : Colors.grey,
-                                              fontSize: 10,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
+                                          ],
                                         ),
                                       ],
                                     ),
-                                  ],
-                                ),
-                              ),
-                              IconButton(
-                                icon: const Icon(
-                                  Icons.payment,
-                                  color: AppColors.gold,
-                                ),
-                                onPressed: () => _showPaymentSheet(m),
-                                tooltip: 'Payment',
-                              ),
-                              DropdownButton<String>(
-                                value: m['assigned_coach_id'] as String?,
-                                dropdownColor: AppColors.cardDark,
-                                hint: const Text(
-                                  'Coach',
-                                  style: TextStyle(color: Colors.grey),
-                                ),
-                                style: const TextStyle(color: Colors.white),
-                                items: [
-                                  const DropdownMenuItem(
-                                    value: null,
-                                    child: Text('None'),
                                   ),
-                                  ...coaches.map((c) => DropdownMenuItem(
-                                        value: c['id'],
-                                        child:
-                                            Text(c['full_name'] ?? c['email']),
-                                      )),
-                                ],
-                                onChanged: (val) => _assignCoach(m['id'], val),
-                              ),
-                              DropdownButton<String>(
-                                value: m['category_id'] as String?,
-                                dropdownColor: AppColors.cardDark,
-                                hint: const Text(
-                                  'Category',
-                                  style: TextStyle(color: Colors.grey),
-                                ),
-                                style: const TextStyle(color: Colors.white),
-                                items: [
-                                  const DropdownMenuItem(
-                                    value: null,
-                                    child: Text('None'),
+                                  IconButton(
+                                    icon: const Icon(
+                                      Icons.payment,
+                                      color: AppColors.gold,
+                                    ),
+                                    onPressed: () => _showPaymentSheet(m),
+                                    tooltip: 'Payment',
                                   ),
-                                  ...categories.map((c) => DropdownMenuItem(
-                                        value: c['id'],
-                                        child: Text(c['name']),
-                                      )),
+                                  DropdownButton<String>(
+                                    value: m['assigned_coach_id'] as String?,
+                                    dropdownColor: AppColors.cardDark,
+                                    hint: const Text(
+                                      'Coach',
+                                      style: TextStyle(color: Colors.grey),
+                                    ),
+                                    style: const TextStyle(color: Colors.white),
+                                    items: [
+                                      const DropdownMenuItem(
+                                        value: null,
+                                        child: Text('None'),
+                                      ),
+                                      ...coaches.map((c) => DropdownMenuItem(
+                                            value: c['id'],
+                                            child: Text(
+                                                c['full_name'] ?? c['email']),
+                                          )),
+                                    ],
+                                    onChanged: (val) =>
+                                        _assignCoach(m['id'], val),
+                                  ),
+                                  DropdownButton<String>(
+                                    value: m['category_id'] as String?,
+                                    dropdownColor: AppColors.cardDark,
+                                    hint: const Text(
+                                      'Category',
+                                      style: TextStyle(color: Colors.grey),
+                                    ),
+                                    style: const TextStyle(color: Colors.white),
+                                    items: [
+                                      const DropdownMenuItem(
+                                        value: null,
+                                        child: Text('None'),
+                                      ),
+                                      ...categories.map((c) => DropdownMenuItem(
+                                            value: c['id'],
+                                            child: Text(c['name']),
+                                          )),
+                                    ],
+                                    onChanged: (val) =>
+                                        _assignCategory(m['id'], val),
+                                  ),
+                                  Switch(
+                                    value: isActive,
+                                    activeColor: AppColors.gold,
+                                    onChanged: (_) async {
+                                      await Supabase.instance.client
+                                          .from('profiles')
+                                          .update({'is_active': !isActive}).eq(
+                                              'id', m['id']);
+                                      _loadData();
+                                    },
+                                  ),
                                 ],
-                                onChanged: (val) =>
-                                    _assignCategory(m['id'], val),
                               ),
-                              Switch(
-                                value: isActive,
-                                activeColor: AppColors.gold,
-                                onChanged: (_) async {
-                                  await Supabase.instance.client
-                                      .from('profiles')
-                                      .update({'is_active': !isActive}).eq(
-                                          'id', m['id']);
-                                  _loadData();
-                                },
-                              ),
-                            ],
+                            ),
                           ),
                         );
                       },

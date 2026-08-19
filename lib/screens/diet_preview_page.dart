@@ -36,12 +36,18 @@ class DietFoodItem {
   double get fats => baseFats * factor;
 }
 
-const kDietSections = ['Breakfast', 'Lunch', 'Dinner', 'Snacks'];
+const kDietSections = ['Breakfast', 'Lunch', 'Snacks', 'Dinner'];
 
 // Column widths
 const double _wQty = 36;
 const double _wCal = 34;
 const double _wMacro = 32;
+
+// PDF Constants
+const double _pdfFontSize = 9.0;
+const double _pdfHeaderFontSize = 11.0;
+const double _pdfTitleFontSize = 16.0;
+const double _pdfSubtitleFontSize = 10.0;
 
 class DietPreviewPage extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -210,11 +216,16 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
     // Header row
     allRows.add(
       pw.TableRow(
-        decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        decoration: const pw.BoxDecoration(
+          color: PdfColors.grey300,
+          border: pw.Border(
+            bottom: pw.BorderSide(color: PdfColors.black, width: 0.5),
+          ),
+        ),
         children: [
           pw.Padding(
             padding: pad,
-            child: pw.Text('Food',
+            child: pw.Text('Food Item',
                 style: headerStyle, textAlign: pw.TextAlign.left),
           ),
           pw.Padding(
@@ -229,17 +240,17 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
           ),
           pw.Padding(
             padding: pad,
-            child: pw.Text('Prot',
+            child: pw.Text('Protein',
                 style: headerStyle, textAlign: pw.TextAlign.right),
           ),
           pw.Padding(
             padding: pad,
-            child: pw.Text('Carb',
+            child: pw.Text('Carbs',
                 style: headerStyle, textAlign: pw.TextAlign.right),
           ),
           pw.Padding(
             padding: pad,
-            child: pw.Text('Fat',
+            child: pw.Text('Fats',
                 style: headerStyle, textAlign: pw.TextAlign.right),
           ),
         ],
@@ -254,16 +265,24 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
       // Section header
       allRows.add(
         pw.TableRow(
-          decoration: const pw.BoxDecoration(color: PdfColors.grey100),
+          decoration: const pw.BoxDecoration(
+            color: PdfColors.grey200,
+            border: pw.Border(
+              bottom: pw.BorderSide(color: PdfColors.grey400, width: 0.5),
+            ),
+          ),
           children: [
             pw.Padding(
               padding:
-                  const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 3),
-              child: pw.Text(section,
-                  style: pw.TextStyle(
-                      fontSize: dynamicFontSize + 1,
-                      fontWeight: pw.FontWeight.bold,
-                      color: PdfColors.black)),
+                  const pw.EdgeInsets.symmetric(vertical: 6, horizontal: 3),
+              child: pw.Text(
+                section,
+                style: pw.TextStyle(
+                  fontSize: dynamicFontSize + 2,
+                  fontWeight: pw.FontWeight.bold,
+                  color: PdfColors.black,
+                ),
+              ),
             ),
             pw.SizedBox(),
             pw.SizedBox(),
@@ -280,6 +299,11 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
             '${item.quantity.toStringAsFixed(item.quantity.truncateToDouble() == item.quantity ? 0 : 1)}${item.unit}';
         allRows.add(
           pw.TableRow(
+            decoration: pw.BoxDecoration(
+              border: pw.Border(
+                bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.3),
+              ),
+            ),
             children: [
               pw.Padding(
                 padding: pad,
@@ -319,11 +343,16 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
     // Total row at the bottom
     allRows.add(
       pw.TableRow(
-        decoration: const pw.BoxDecoration(color: PdfColors.grey300),
+        decoration: const pw.BoxDecoration(
+          color: PdfColors.grey300,
+          border: pw.Border(
+            top: pw.BorderSide(color: PdfColors.black, width: 0.5),
+          ),
+        ),
         children: [
           pw.Padding(
             padding: pad,
-            child: pw.Text('Total',
+            child: pw.Text('TOTAL',
                 style: headerStyle, textAlign: pw.TextAlign.left),
           ),
           pw.Padding(
@@ -338,17 +367,17 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
           pw.Padding(
             padding: pad,
             child: pw.Text('${t['protein']!.toStringAsFixed(1)}g',
-                style: headerStyle, textAlign: pw.TextAlign.right),
+                style: cellStyle, textAlign: pw.TextAlign.right),
           ),
           pw.Padding(
             padding: pad,
             child: pw.Text('${t['carbs']!.toStringAsFixed(1)}g',
-                style: headerStyle, textAlign: pw.TextAlign.right),
+                style: cellStyle, textAlign: pw.TextAlign.right),
           ),
           pw.Padding(
             padding: pad,
             child: pw.Text('${t['fats']!.toStringAsFixed(1)}g',
-                style: headerStyle, textAlign: pw.TextAlign.right),
+                style: cellStyle, textAlign: pw.TextAlign.right),
           ),
         ],
       ),
@@ -365,8 +394,16 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
 
     pw.Widget tableWidget = pw.Table(
       columnWidths: columnWidths,
-      border: pw.TableBorder.symmetric(
-          inside: const pw.BorderSide(color: PdfColors.grey300, width: 0.5)),
+      border: pw.TableBorder(
+        left: const pw.BorderSide(color: PdfColors.grey400, width: 0.5),
+        right: const pw.BorderSide(color: PdfColors.grey400, width: 0.5),
+        top: const pw.BorderSide(color: PdfColors.grey400, width: 0.5),
+        bottom: const pw.BorderSide(color: PdfColors.grey400, width: 0.5),
+        horizontalInside:
+            const pw.BorderSide(color: PdfColors.grey300, width: 0.3),
+        verticalInside:
+            const pw.BorderSide(color: PdfColors.grey300, width: 0.3),
+      ),
       children: allRows,
     );
 
@@ -386,18 +423,49 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
           pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.Text('$memberName - ${widget.dietType}',
-                  style: pw.TextStyle(
-                      fontSize: 16, fontWeight: pw.FontWeight.bold)),
-              pw.SizedBox(height: 4),
-              pw.Text(
-                'Weight: ${widget.member['weight_kg'] ?? '-'} kg   Height: ${widget.member['height_cm'] ?? '-'} cms',
-                style: const pw.TextStyle(fontSize: 10),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    '$memberName',
+                    style: pw.TextStyle(
+                      fontSize: _pdfTitleFontSize,
+                      fontWeight: pw.FontWeight.bold,
+                    ),
+                  ),
+                  pw.Text(
+                    widget.dietType,
+                    style: pw.TextStyle(
+                      fontSize: _pdfTitleFontSize - 2,
+                      fontWeight: pw.FontWeight.bold,
+                      color: PdfColors.grey600,
+                    ),
+                  ),
+                ],
               ),
-              pw.Text('Coach: $coachName',
-                  style: const pw.TextStyle(fontSize: 10)),
-              pw.Text('Date: $currentDate',
-                  style: const pw.TextStyle(fontSize: 10)),
+              pw.SizedBox(height: 2),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text(
+                    'Weight: ${widget.member['weight_kg'] ?? '-'} kg',
+                    style: const pw.TextStyle(fontSize: _pdfSubtitleFontSize),
+                  ),
+                  pw.Text(
+                    'Height: ${widget.member['height_cm'] ?? '-'} cm',
+                    style: const pw.TextStyle(fontSize: _pdfSubtitleFontSize),
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 2),
+              pw.Text(
+                'Coach: $coachName',
+                style: const pw.TextStyle(fontSize: _pdfSubtitleFontSize),
+              ),
+              pw.Text(
+                'Date: $currentDate',
+                style: const pw.TextStyle(fontSize: _pdfSubtitleFontSize),
+              ),
               pw.SizedBox(height: 8),
               pw.Container(
                 child: pw.Stack(
@@ -417,10 +485,10 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
                               child: pw.Text(
                                 'THE CONQUER CLUB',
                                 style: pw.TextStyle(
-                                  fontSize: 30,
+                                  fontSize: 36,
                                   fontWeight: pw.FontWeight.bold,
                                   color: PdfColors.grey,
-                                  letterSpacing: 4,
+                                  letterSpacing: 6,
                                 ),
                               ),
                             ),
@@ -578,7 +646,7 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
   Widget _verticalDivider() {
     return Container(
       width: 1,
-      height: double.infinity,
+      height: 20,
       color: Colors.grey.shade300,
     );
   }
@@ -670,16 +738,16 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
                     fontSize: fontSize),
                 _verticalDivider(),
                 _numCell(item.calories.toStringAsFixed(1), _wCal,
-                    fontSize: fontSize),
+                    bold: false, fontSize: fontSize),
                 _verticalDivider(),
-                _numCell('${item.protein.toStringAsFixed(1)}g', _wMacro,
-                    fontSize: fontSize),
+                _numCell(item.protein.toStringAsFixed(1), _wMacro,
+                    bold: false, fontSize: fontSize),
                 _verticalDivider(),
-                _numCell('${item.carbs.toStringAsFixed(1)}g', _wMacro,
-                    fontSize: fontSize),
+                _numCell(item.carbs.toStringAsFixed(1), _wMacro,
+                    bold: false, fontSize: fontSize),
                 _verticalDivider(),
-                _numCell('${item.fats.toStringAsFixed(1)}g', _wMacro,
-                    fontSize: fontSize),
+                _numCell(item.fats.toStringAsFixed(1), _wMacro,
+                    bold: false, fontSize: fontSize),
               ],
             ),
           ),
@@ -693,21 +761,19 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
       row(
         color: Colors.white,
         child: Row(children: [
-          _foodCell('Total', bold: true, fontSize: fontSize),
+          _foodCell('Total', fontSize: fontSize),
           _verticalDivider(),
           _numCell('', _wQty, fontSize: fontSize),
           _verticalDivider(),
           _numCell(t['calories']!.toStringAsFixed(1), _wCal,
-              bold: true, fontSize: fontSize),
+              fontSize: fontSize),
           _verticalDivider(),
-          _numCell('${t['protein']!.toStringAsFixed(1)}g', _wMacro,
-              bold: true, fontSize: fontSize),
+          _numCell(t['protein']!.toStringAsFixed(1), _wMacro,
+              fontSize: fontSize),
           _verticalDivider(),
-          _numCell('${t['carbs']!.toStringAsFixed(1)}g', _wMacro,
-              bold: true, fontSize: fontSize),
+          _numCell(t['carbs']!.toStringAsFixed(1), _wMacro, fontSize: fontSize),
           _verticalDivider(),
-          _numCell('${t['fats']!.toStringAsFixed(1)}g', _wMacro,
-              bold: true, fontSize: fontSize),
+          _numCell(t['fats']!.toStringAsFixed(1), _wMacro, fontSize: fontSize),
         ]),
       ),
     );
