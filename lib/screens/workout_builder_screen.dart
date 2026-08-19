@@ -670,7 +670,7 @@ class _ExercisePickerSheet extends StatefulWidget {
 
 class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
   String query = '';
-  final Set<String> _selectedIds = {};
+  final List<String> _selectedIds = [];
 
   @override
   Widget build(BuildContext context) {
@@ -852,8 +852,9 @@ class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
                     onPressed: _selectedIds.isEmpty
                         ? null
                         : () {
-                            final selectedExercises = widget.allExercises
-                                .where((e) => _selectedIds.contains(e['id']))
+                            final selectedExercises = _selectedIds
+                                .map((id) => widget.allExercises
+                                    .firstWhere((e) => e['id'] == id))
                                 .toList();
                             Navigator.pop(context, selectedExercises);
                           },
