@@ -91,6 +91,30 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (widget.coach['role'] == 'head_coach')
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.gold.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: AppColors.gold.withOpacity(0.4),
+                      ),
+                    ),
+                    child: Text(
+                      'HEAD COACH',
+                      style: TextStyle(
+                        color: AppColors.gold,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1,
+                      ),
+                    ),
+                  ),
                 Text(
                   'Email: ${widget.coach['email']}',
                   style: const TextStyle(color: Colors.white),

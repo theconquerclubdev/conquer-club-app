@@ -165,8 +165,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
       final coaches = await Supabase.instance.client
           .from('profiles')
           .select('id')
-          .eq('role', 'coach')
-          .eq('is_active', true);
+          .inFilter('role', ['coach', 'head_coach']).eq('is_active', true);
 
       final payments = await Supabase.instance.client
           .from('payments')
@@ -801,7 +800,7 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
       final coachesData = await Supabase.instance.client
           .from('profiles')
           .select('id, full_name, email')
-          .eq('role', 'coach')
+          .inFilter('role', ['coach', 'head_coach'])
           .eq('is_active', true)
           .order('full_name');
 
@@ -1130,9 +1129,8 @@ class _AdminCoachesTabState extends State<AdminCoachesTab> {
       final data = await Supabase.instance.client
           .from('profiles')
           .select(
-              'id, full_name, email, is_active, assigned_members:profiles!assigned_coach_id(count)')
-          .eq('role', 'coach')
-          .order('full_name');
+              'id, full_name, email, is_active, role, assigned_members:profiles!assigned_coach_id(count)')
+          .inFilter('role', ['coach', 'head_coach']).order('full_name');
 
       setState(() {
         coaches = List<Map<String, dynamic>>.from(data);
@@ -1369,12 +1367,44 @@ class _AdminCoachesTabState extends State<AdminCoachesTab> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(
-                                        c['full_name'] ?? 'Unknown',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            c['full_name'] ?? 'Unknown',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          if (c['role'] == 'head_coach') ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 6,
+                                                vertical: 2,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.gold
+                                                    .withOpacity(0.2),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                                border: Border.all(
+                                                  color: AppColors.gold
+                                                      .withOpacity(0.4),
+                                                ),
+                                              ),
+                                              child: Text(
+                                                'HEAD',
+                                                style: TextStyle(
+                                                  color: AppColors.gold,
+                                                  fontSize: 8,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
                                       ),
                                       Text(
                                         c['email'] ?? '',

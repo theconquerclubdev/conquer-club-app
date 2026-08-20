@@ -57,6 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
           nextScreen = const AdminHomeScreen();
           break;
         case 'coach':
+        case 'head_coach':
           nextScreen = const CoachHomeScreen();
           break;
         default:

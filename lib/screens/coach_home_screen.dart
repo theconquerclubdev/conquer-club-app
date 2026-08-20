@@ -104,16 +104,30 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
     if (!mounted) return;
     setState(() => isLoading = true);
     try {
-      final coachId = Supabase.instance.client.auth.currentUser!.id;
+      final currentUser = Supabase.instance.client.auth.currentUser!;
+
+      // Check if user is head_coach
+      final profile = await Supabase.instance.client
+          .from('profiles')
+          .select('role')
+          .eq('id', currentUser.id)
+          .maybeSingle();
+
+      final isHeadCoach = profile?['role'] == 'head_coach';
 
       // ✅ Load only needed columns (faster)
-      final data = await Supabase.instance.client
+      var query = Supabase.instance.client
           .from('profiles')
           .select(
               'id, full_name, email, is_active, goal, phone, membership_end_date, assigned_coach_id')
-          .eq('assigned_coach_id', coachId)
-          .eq('role', 'member')
-          .order('full_name');
+          .eq('role', 'member');
+
+      // If not head coach, filter by assigned_coach_id
+      if (!isHeadCoach) {
+        query = query.eq('assigned_coach_id', currentUser.id);
+      }
+
+      final data = await query.order('full_name');
 
       final membersWithInfo = <Map<String, dynamic>>[];
       final now = DateTime.now();
