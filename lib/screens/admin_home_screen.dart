@@ -124,109 +124,23 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
     if (!mounted) return;
     setState(() => isLoading = true);
     try {
-      final members = await Supabase.instance.client
-          .from('profiles')
-          .select('id, membership_end_date, category_id')
-          .eq('role', 'member');
-
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-
-      int active = 0;
-      int ended = 0;
-      int ending2Days = 0;
-      int endingThisMonth = 0;
-      int endingNextMonth = 0;
-
-      for (final m in members) {
-        final endDateStr = m['membership_end_date'] as String?;
-        if (endDateStr == null) {
-          active++;
-          continue;
-        }
-        final endDate = DateTime.parse(endDateStr);
-        final diff = endDate.difference(today).inDays;
-
-        if (endDate.isAfter(today)) {
-          active++;
-          if (diff <= 2) ending2Days++;
-          if (endDate.month == now.month && endDate.year == now.year) {
-            endingThisMonth++;
-          }
-          if (endDate.month == now.month + 1 ||
-              (endDate.month == 1 && now.month == 12)) {
-            endingNextMonth++;
-          }
-        } else {
-          ended++;
-        }
-      }
-
-      final coaches = await Supabase.instance.client
-          .from('profiles')
-          .select('id')
-          .inFilter('role', ['coach', 'head_coach']).eq('is_active', true);
-
-      final payments = await Supabase.instance.client
-          .from('payments')
-          .select('amount, member_id, profiles(category_id, categories(name))')
-          .eq('status', 'completed');
-
-      double total = 0;
-      final Map<String, double> catRev = {};
-      for (final p in payments) {
-        final amount = (p['amount'] as num?)?.toDouble() ?? 0;
-        total += amount;
-        final catName =
-            p['profiles']?['categories']?['name'] as String? ?? 'Uncategorized';
-        catRev[catName] = (catRev[catName] ?? 0) + amount;
-      }
-
-      final diets = await Supabase.instance.client
-          .from('diets')
-          .select('updated_at, member_id')
-          .order('updated_at', ascending: false);
-
-      final lastDietPerMember = <String, DateTime>{};
-      for (final d in diets) {
-        final memberId = d['member_id'] as String;
-        if (!lastDietPerMember.containsKey(memberId)) {
-          final date = DateTime.tryParse(d['updated_at'] as String);
-          if (date != null) {
-            lastDietPerMember[memberId] = date;
-          }
-        }
-      }
-
-      int todayChanges = 0;
-      int tomorrowChanges = 0;
-      int overdueChanges = 0;
-
-      for (final entry in lastDietPerMember.entries) {
-        final lastDate = entry.value;
-        final daysSince = today.difference(lastDate).inDays;
-        if (daysSince >= 7) {
-          overdueChanges++;
-        } else if (daysSince == 6) {
-          tomorrowChanges++;
-        } else if (daysSince == 5) {
-          todayChanges++;
-        }
-      }
+      // ✅ SINGLE RPC CALL — replaces 4 separate queries!
+      final result = await Supabase.instance.client.rpc('get_dashboard_stats');
 
       if (mounted) {
         setState(() {
-          activeMembers = active;
-          activeCoaches = coaches.length;
-          totalRevenue = total;
-          categoryRevenue = catRev;
-          membersEnded = ended;
-          membersEndingIn2Days = ending2Days;
-          membersEndingThisMonth = endingThisMonth;
-          membersEndingNextMonth = endingNextMonth;
-          dietChangesToday = todayChanges;
-          dietChangesTomorrow = tomorrowChanges;
-          dietChangesOverdue = overdueChanges;
+          activeMembers = result['active_members'] ?? 0;
+          activeCoaches = result['active_coaches'] ?? 0;
+          totalRevenue = (result['total_revenue'] as num?)?.toDouble() ?? 0;
+          categoryRevenue =
+              Map<String, double>.from(result['category_revenue'] ?? {});
+          membersEnded = result['members_ended'] ?? 0;
+          membersEndingIn2Days = result['members_ending_2_days'] ?? 0;
+          membersEndingThisMonth = result['members_ending_this_month'] ?? 0;
+          membersEndingNextMonth = result['members_ending_next_month'] ?? 0;
+          dietChangesToday = result['diet_due_today'] ?? 0;
+          dietChangesTomorrow = result['diet_due_tomorrow'] ?? 0;
+          dietChangesOverdue = result['diet_overdue'] ?? 0;
           isLoading = false;
         });
       }

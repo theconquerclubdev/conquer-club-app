@@ -24,6 +24,13 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   List<Map<String, dynamic>> filteredMembers = [];
   bool isLoading = true;
 
+  // ✅ Pagination variables
+  bool isLoadingMore = false;
+  int currentPage = 0;
+  final int pageSize = 10;
+  bool hasMoreData = true;
+  final ScrollController _scrollController = ScrollController();
+
   // Dashboard Stats
   int activeCount = 0;
   int inactiveCount = 0;
@@ -100,9 +107,22 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   // ============================================================
   // ✅ OPTIMIZED: loadMembers with parallel queries for speed
   // ============================================================
-  Future<void> loadMembers() async {
+  Future<void> loadMembers({bool reset = true}) async {
     if (!mounted) return;
-    setState(() => isLoading = true);
+
+    if (reset) {
+      setState(() {
+        isLoading = true;
+        allMembers = [];
+        filteredMembers = [];
+        currentPage = 0;
+        hasMoreData = true;
+      });
+    } else {
+      if (isLoadingMore || !hasMoreData) return;
+      setState(() => isLoadingMore = true);
+    }
+
     try {
       final currentUser = Supabase.instance.client.auth.currentUser!;
 
@@ -115,19 +135,48 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
 
       final isHeadCoach = profile?['role'] == 'head_coach';
 
-      // ✅ Load only needed columns (faster)
-      var query = Supabase.instance.client
-          .from('profiles')
-          .select(
-              'id, full_name, email, is_active, goal, phone, membership_end_date, assigned_coach_id')
-          .eq('role', 'member');
+      // ✅ SINGLE RPC CALL with pagination
+      final offset = reset ? 0 : currentPage * pageSize;
 
-      // If not head coach, filter by assigned_coach_id
-      if (!isHeadCoach) {
-        query = query.eq('assigned_coach_id', currentUser.id);
+      // ✅ First get members with coach info (we need coach name for search)
+      final data = await Supabase.instance.client.rpc(
+        'get_members_with_latest_data',
+        params: {
+          'coach_id': isHeadCoach ? null : currentUser.id,
+          'is_head_coach': isHeadCoach,
+        },
+      );
+
+      // ✅ Apply pagination in Dart (temporary until we update RPC)
+      final allResults = List<Map<String, dynamic>>.from(data);
+
+      // ✅ Get coach names for all coaches in one query (not per member!)
+      final allCoachIds = allResults
+          .map((m) => m['assigned_coach_id'] as String?)
+          .where((id) => id != null)
+          .toSet()
+          .toList();
+
+      Map<String, String> coachNames = {};
+      if (allCoachIds.isNotEmpty) {
+        final coachData = await Supabase.instance.client
+            .from('profiles')
+            .select('id, full_name')
+            .inFilter('id', allCoachIds);
+
+        for (final coach in coachData) {
+          coachNames[coach['id']] = coach['full_name'] ?? 'Unknown Coach';
+        }
       }
 
-      final data = await query.order('full_name');
+      // ✅ Add coach_name to each member
+      for (final member in allResults) {
+        final coachId = member['assigned_coach_id'] as String?;
+        member['coach_name'] = coachId != null ? coachNames[coachId] : null;
+      }
+
+      final paginatedResults = allResults.skip(offset).take(pageSize).toList();
+      final hasMore = (offset + pageSize) < allResults.length;
 
       final membersWithInfo = <Map<String, dynamic>>[];
       final now = DateTime.now();
@@ -141,35 +190,11 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           expTomorrow = 0,
           expIn7Days = 0;
 
-      // ✅ Process members with parallel queries
-      for (final member in data) {
-        final memberId = member['id'];
-
-        // ✅ Get latest workout and diet in parallel
-        final results = await Future.wait([
-          Supabase.instance.client
-              .from('workout_sessions')
-              .select('ended_at')
-              .eq('member_id', memberId)
-              .eq('status', 'completed')
-              .order('ended_at', ascending: false)
-              .limit(1)
-              .maybeSingle(),
-          Supabase.instance.client
-              .from('diets')
-              .select('updated_at')
-              .eq('member_id', memberId)
-              .order('updated_at', ascending: false)
-              .limit(1)
-              .maybeSingle(),
-        ]);
-
-        final latestWorkout = results[0];
-        final latestDiet = results[1];
-        final hasWorkout = latestWorkout != null;
-        final hasDiet = latestDiet != null;
-
-        // ✅ Membership status
+      // ✅ Only process paginated results for display
+      // But count stats from ALL results for dashboard
+      for (final member in allResults) {
+        final hasWorkout = member['latest_workout'] != null;
+        final hasDiet = member['latest_diet'] != null;
         final endDateStr = member['membership_end_date'] as String?;
         int daysLeft = -999;
         bool membershipActive = false;
@@ -184,15 +209,13 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           }
         }
 
-        // ✅ Count stats
         if (membershipActive) {
           active++;
           if (!hasWorkout) noWorkout++;
           if (!hasDiet) noDiet++;
 
-          // Diet alerts
-          if (hasDiet && latestDiet!['updated_at'] != null) {
-            final dietDate = DateTime.parse(latestDiet['updated_at']);
+          if (hasDiet) {
+            final dietDate = DateTime.parse(member['latest_diet']);
             final daysSince = today.difference(dietDate).inDays;
             if (daysSince >= 7)
               overdue++;
@@ -201,7 +224,6 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
             else if (daysSince == 5) dueToday++;
           }
 
-          // Membership expiry alerts
           if (daysLeft == 0)
             expToday++;
           else if (daysLeft == 1)
@@ -214,13 +236,29 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           else if (daysLeft <= -7) expLastWeek++;
         }
 
-        // ✅ New member: Active + No Diet + No Workout
         if (membershipActive && !hasDiet && !hasWorkout) newMembers++;
+      }
+
+      // ✅ Process only paginated results for display
+      for (final member in paginatedResults) {
+        final hasWorkout = member['latest_workout'] != null;
+        final hasDiet = member['latest_diet'] != null;
+        final endDateStr = member['membership_end_date'] as String?;
+        int daysLeft = -999;
+        bool membershipActive = false;
+
+        if (endDateStr != null) {
+          try {
+            final endDate = DateTime.parse(endDateStr);
+            daysLeft = endDate.difference(today).inDays;
+            membershipActive = daysLeft >= 0;
+          } catch (_) {
+            membershipActive = false;
+          }
+        }
 
         membersWithInfo.add({
           ...member,
-          'latest_workout': latestWorkout,
-          'latest_diet': latestDiet,
           'has_workout': hasWorkout,
           'has_diet': hasDiet,
           'is_active': membershipActive,
@@ -231,9 +269,16 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
 
       if (mounted) {
         setState(() {
-          allMembers = membersWithInfo;
-          filteredMembers = membersWithInfo;
+          if (reset) {
+            allMembers = membersWithInfo;
+          } else {
+            allMembers.addAll(membersWithInfo);
+          }
+          filteredMembers = allMembers;
           isLoading = false;
+          isLoadingMore = false;
+          hasMoreData = hasMore;
+          if (hasMore) currentPage++;
 
           activeCount = active;
           inactiveCount = inactive;
@@ -255,7 +300,10 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
     } catch (e) {
       print('Error loading members: $e');
       if (mounted) {
-        setState(() => isLoading = false);
+        setState(() {
+          isLoading = false;
+          isLoadingMore = false;
+        });
       }
     }
   }
@@ -264,12 +312,14 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
     if (!mounted) return;
     var list = List<Map<String, dynamic>>.from(allMembers);
 
+    // ✅ Search: member name, email, OR coach name
     if (search.isNotEmpty) {
+      final q = search.toLowerCase();
       list = list.where((m) {
         final name = (m['full_name'] ?? '').toString().toLowerCase();
         final email = (m['email'] ?? '').toString().toLowerCase();
-        final q = search.toLowerCase();
-        return name.contains(q) || email.contains(q);
+        final coachName = (m['coach_name'] ?? '').toString().toLowerCase();
+        return name.contains(q) || email.contains(q) || coachName.contains(q);
       }).toList();
     }
 
@@ -315,13 +365,18 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           comparison = (a['full_name'] ?? '').compareTo(b['full_name'] ?? '');
           break;
         case 'last_workout':
-          final aDate = a['latest_workout']?['ended_at'] ?? '';
-          final bDate = b['latest_workout']?['ended_at'] ?? '';
+          final aDate = a['latest_workout'] ?? '';
+          final bDate = b['latest_workout'] ?? '';
           comparison = aDate.compareTo(bDate);
           break;
         case 'last_diet':
-          final aDate = a['latest_diet']?['updated_at'] ?? '';
-          final bDate = b['latest_diet']?['updated_at'] ?? '';
+          final aDate = a['latest_diet'] ?? '';
+          final bDate = b['latest_diet'] ?? '';
+          comparison = aDate.compareTo(bDate);
+          break;
+        case 'signup_date':
+          final aDate = a['created_at'] ?? '';
+          final bDate = b['created_at'] ?? '';
           comparison = aDate.compareTo(bDate);
           break;
         default:
@@ -881,31 +936,59 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                   ),
                 )
               : RefreshIndicator(
-                  onRefresh: loadMembers,
+                  onRefresh: () => loadMembers(reset: true),
                   color: AppColors.gold,
                   backgroundColor: AppColors.cardDark,
                   child: ListView.builder(
+                    controller: _scrollController,
                     padding: const EdgeInsets.fromLTRB(10, 4, 10, 10),
-                    itemCount: filteredMembers.length,
-                    itemBuilder: (context, index) => _MemberCard(
-                      member: filteredMembers[index],
-                      canEditDiet: canEditDiet,
-                      canEditWorkout: canEditWorkout,
-                      onTap: () async {
-                        await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => MemberProfileCoachViewScreen(
-                              member: filteredMembers[index],
-                              canEditDiet: canEditDiet,
-                              canEditWorkout: canEditWorkout,
-                            ),
+                    itemCount: filteredMembers.length + (hasMoreData ? 1 : 0),
+                    itemBuilder: (context, index) {
+                      // ✅ Load More button at the end
+                      if (index == filteredMembers.length) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Center(
+                            child: isLoadingMore
+                                ? const SizedBox(
+                                    height: 24,
+                                    width: 24,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppColors.gold,
+                                    ),
+                                  )
+                                : TextButton(
+                                    onPressed: () => loadMembers(reset: false),
+                                    child: const Text(
+                                      'Load More...',
+                                      style: TextStyle(color: Colors.grey),
+                                    ),
+                                  ),
                           ),
                         );
-                        loadMembers();
-                      },
-                      formatDate: formatDate,
-                    ),
+                      }
+
+                      return _MemberCard(
+                        member: filteredMembers[index],
+                        canEditDiet: canEditDiet,
+                        canEditWorkout: canEditWorkout,
+                        onTap: () async {
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => MemberProfileCoachViewScreen(
+                                member: filteredMembers[index],
+                                canEditDiet: canEditDiet,
+                                canEditWorkout: canEditWorkout,
+                              ),
+                            ),
+                          );
+                          loadMembers(reset: true);
+                        },
+                        formatDate: formatDate,
+                      );
+                    },
                   ),
                 ),
         ),
@@ -1089,9 +1172,8 @@ class _MemberCard extends StatelessWidget {
     // ✅ Diet status
     String dietStatus = '';
     Color dietColor = Colors.grey;
-    if (member['latest_diet'] != null &&
-        member['latest_diet']['updated_at'] != null) {
-      final dietDate = DateTime.parse(member['latest_diet']['updated_at']);
+    if (member['latest_diet'] != null) {
+      final dietDate = DateTime.parse(member['latest_diet']);
       final daysSince = DateTime.now().difference(dietDate).inDays;
       if (daysSince >= 7) {
         dietStatus = '⚠️ Diet Overdue';
@@ -1108,7 +1190,7 @@ class _MemberCard extends StatelessWidget {
       dietColor = Colors.grey;
     }
 
-    final lastWorkoutText = formatDate(member['latest_workout']?['ended_at']);
+    final lastWorkoutText = formatDate(member['latest_workout']);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
@@ -1232,6 +1314,16 @@ class _MemberCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1,
                       ),
+                      if (member['coach_name'] != null)
+                        Text(
+                          'Coach: ${member['coach_name']}',
+                          style: TextStyle(
+                            color: AppColors.gold.withOpacity(0.7),
+                            fontSize: isSmall ? 7 : 9,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
                       Text(
                         dietStatus,
                         style: TextStyle(
