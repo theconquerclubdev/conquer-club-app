@@ -106,6 +106,8 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
 
   bool get _isSunday => DateTime.now().weekday == DateTime.sunday;
 
+  bool _isLoadingPhotos = false;
+
   @override
   void initState() {
     super.initState();
@@ -113,6 +115,10 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
   }
 
   Future<void> _load() async {
+    // ✅ Guard against overlapping calls
+    if (_isLoadingPhotos) return;
+    _isLoadingPhotos = true;
+
     setState(() => _loading = true);
     try {
       final row = await Supabase.instance.client
@@ -160,6 +166,7 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
       print('Error loading progress photos: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
+      _isLoadingPhotos = false;
     }
   }
 

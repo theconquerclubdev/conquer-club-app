@@ -45,6 +45,8 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
     },
   ];
 
+  bool _isLoadingRecords = false;
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +54,10 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
   }
 
   Future<void> _loadData() async {
+    // ✅ Guard against overlapping calls
+    if (_isLoadingRecords) return;
+    _isLoadingRecords = true;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -59,23 +65,32 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
     try {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) {
-        setState(() {
-          _isLoading = false;
-          _errorMessage = 'Please login to view progress';
-        });
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _errorMessage = 'Please login to view progress';
+          });
+        }
+        _isLoadingRecords = false;
         return;
       }
       final records = await _getStrengthRecords(userId);
-      setState(() {
-        _strengthRecords = records;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _strengthRecords = records;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       print('Error loading strength records: $e');
-      setState(() {
-        _isLoading = false;
-        _errorMessage = e.toString();
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = e.toString();
+        });
+      }
+    } finally {
+      _isLoadingRecords = false;
     }
   }
 

@@ -37,6 +37,8 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
   bool isLoading = true;
   bool hasLoggedToday = false;
 
+  bool _isLoadingHistory = false;
+
   @override
   void initState() {
     super.initState();
@@ -81,6 +83,10 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
   }
 
   Future<void> loadHistory() async {
+    // ✅ Guard against overlapping calls
+    if (_isLoadingHistory) return;
+    _isLoadingHistory = true;
+
     setState(() => isLoading = true);
     final userId = Supabase.instance.client.auth.currentUser!.id;
     final data = await Supabase.instance.client
@@ -88,11 +94,14 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
         .select()
         .eq('member_id', userId)
         .order('recorded_at', ascending: true);
-    setState(() {
-      allHistory = List<Map<String, dynamic>>.from(data);
-      hasLoggedToday = _hasLoggedToday();
-      isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        allHistory = List<Map<String, dynamic>>.from(data);
+        hasLoggedToday = _hasLoggedToday();
+        isLoading = false;
+      });
+    }
+    _isLoadingHistory = false;
   }
 
   List<Map<String, dynamic>> get filteredByRange {

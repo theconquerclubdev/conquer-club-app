@@ -123,6 +123,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     super.dispose();
   }
 
+  DateTime? _lastResumeTime;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
@@ -131,8 +133,14 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       _stepSub?.cancel();
       _flushPendingStepSave();
     } else if (state == AppLifecycleState.resumed) {
-      _initStepTracker();
-      _loadTodayTaskStatus();
+      // ✅ Debounce resume: skip if called within 2 seconds of last resume
+      final now = DateTime.now();
+      if (_lastResumeTime == null ||
+          now.difference(_lastResumeTime!) >= const Duration(seconds: 2)) {
+        _lastResumeTime = now;
+        _initStepTracker();
+        _loadTodayTaskStatus();
+      }
     }
   }
 
@@ -377,7 +385,13 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   // ============================================================
   // TODAY'S TASK STATUS - Load data
   // ============================================================
+  bool _isLoadingTaskStatus = false;
+
   Future<void> _loadTodayTaskStatus() async {
+    // ✅ Guard against overlapping calls (fixes runaway loop)
+    if (_isLoadingTaskStatus) return;
+    _isLoadingTaskStatus = true;
+
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
       final now = DateTime.now();
@@ -432,14 +446,18 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         }
       }
 
-      setState(() {
-        _workoutCompletedToday = session != null;
-        _measurementsUpdatedToday = measurement != null;
-        _photoStatus['front'] = frontUploaded;
-        _photoStatus['back'] = backUploaded;
-      });
+      if (mounted) {
+        setState(() {
+          _workoutCompletedToday = session != null;
+          _measurementsUpdatedToday = measurement != null;
+          _photoStatus['front'] = frontUploaded;
+          _photoStatus['back'] = backUploaded;
+        });
+      }
     } catch (e) {
       print('Error loading task status: $e');
+    } finally {
+      _isLoadingTaskStatus = false;
     }
   }
 

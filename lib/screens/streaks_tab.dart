@@ -59,6 +59,8 @@ class _StreaksTabState extends State<StreaksTab> {
   bool _isLoading = true;
   String _filter = 'all'; // all, streak, missed
 
+  bool _isLoadingData = false;
+
   @override
   void initState() {
     super.initState();
@@ -66,6 +68,10 @@ class _StreaksTabState extends State<StreaksTab> {
   }
 
   Future<void> _loadData() async {
+    // ✅ Guard against overlapping calls
+    if (_isLoadingData) return;
+    _isLoadingData = true;
+
     setState(() => _isLoading = true);
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
@@ -216,21 +222,27 @@ class _StreaksTabState extends State<StreaksTab> {
       final streakRate =
           totalDays > 0 ? (totalStreaks / totalDays * 100).round() : 0;
 
-      setState(() {
-        _streaks = history;
-        _stats = {
-          'history': history,
-          'currentStreak': currentStreak,
-          'currentStreakStart': currentStreakStart,
-          'highestStreak': highestStreak,
-          'totalStreaks': totalStreaks,
-          'streakRate': streakRate,
-        };
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _streaks = history;
+          _stats = {
+            'history': history,
+            'currentStreak': currentStreak,
+            'currentStreakStart': currentStreakStart,
+            'highestStreak': highestStreak,
+            'totalStreaks': totalStreaks,
+            'streakRate': streakRate,
+          };
+          _isLoading = false;
+        });
+      }
     } catch (e) {
       print('Error loading streak data: $e');
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    } finally {
+      _isLoadingData = false;
     }
   }
 

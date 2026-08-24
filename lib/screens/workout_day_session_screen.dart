@@ -35,6 +35,8 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
   static DateTime? _persistentRunStartTime;
   static int _persistentBaseSeconds = 0;
 
+  bool _isLoadingWorkout = false;
+
   @override
   void initState() {
     super.initState();
@@ -97,6 +99,10 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
       totalSetsCount > 0 && completedSetsCount == totalSetsCount;
 
   Future<void> loadEverything() async {
+    // ✅ Guard against overlapping calls
+    if (_isLoadingWorkout) return;
+    _isLoadingWorkout = true;
+
     setState(() => isLoading = true);
     final memberId = Supabase.instance.client.auth.currentUser!.id;
 
@@ -191,15 +197,21 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
         }
       }
 
-      setState(() {
-        exercises = loadedExercises;
-        isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          exercises = loadedExercises;
+          isLoading = false;
+        });
+      }
 
       if (sessionStatus == 'in_progress') startTicking();
     } catch (e) {
       debugPrint('Error loading workout: $e');
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    } finally {
+      _isLoadingWorkout = false;
     }
   }
 
