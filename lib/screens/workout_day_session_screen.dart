@@ -30,6 +30,10 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
 
   final Stopwatch stopwatch = Stopwatch();
   Timer? tickTimer;
+  DateTime? runStartTime;
+  static String? _persistentSessionId;
+  static DateTime? _persistentRunStartTime;
+  static int _persistentBaseSeconds = 0;
 
   @override
   void initState() {
@@ -41,8 +45,16 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    if (sessionStatus == 'in_progress' &&
+        stopwatch.isRunning &&
+        sessionId != null) {
+      Supabase.instance.client
+          .from('workout_sessions')
+          .update({'elapsed_seconds': currentTotalSeconds})
+          .eq('id', sessionId!)
+          .catchError((_) {});
+    }
     tickTimer?.cancel();
-    stopwatch.stop();
     super.dispose();
   }
 
@@ -50,14 +62,24 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       setState(() {});
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      if (sessionStatus == 'in_progress' &&
+          stopwatch.isRunning &&
+          sessionId != null) {
+        Supabase.instance.client
+            .from('workout_sessions')
+            .update({'elapsed_seconds': currentTotalSeconds})
+            .eq('id', sessionId!)
+            .catchError((_) {});
+      }
     }
   }
 
   @override
   void deactivate() {
-    if (sessionStatus == 'in_progress' && stopwatch.isRunning) {
-      pauseWorkout();
-    }
+    // ✅ Timer keeps running even when phone is locked
+    // Do NOT pause workout here - the workout timer should continue
     super.deactivate();
   }
 
@@ -183,6 +205,14 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
 
   void startTicking() {
     if (stopwatch.isRunning) return;
+    if (_persistentSessionId == sessionId && _persistentRunStartTime != null) {
+      runStartTime = _persistentRunStartTime;
+    } else {
+      runStartTime = DateTime.now();
+      _persistentSessionId = sessionId;
+      _persistentRunStartTime = runStartTime;
+      _persistentBaseSeconds = savedElapsedSeconds;
+    }
     stopwatch.start();
     tickTimer?.cancel();
     tickTimer = Timer.periodic(
@@ -192,7 +222,12 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
   }
 
   int get currentTotalSeconds =>
-      savedElapsedSeconds + stopwatch.elapsed.inSeconds;
+      (_persistentSessionId == sessionId && runStartTime != null
+          ? _persistentBaseSeconds
+          : savedElapsedSeconds) +
+      (runStartTime != null
+          ? DateTime.now().difference(runStartTime!).inSeconds
+          : 0);
 
   String formatDuration(int totalSeconds) {
     final h = totalSeconds ~/ 3600;
@@ -242,6 +277,9 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     stopwatch.stop();
     tickTimer?.cancel();
     final total = currentTotalSeconds;
+    runStartTime = null;
+    _persistentRunStartTime = null;
+    _persistentSessionId = null;
     await Supabase.instance.client
         .from('workout_sessions')
         .update({'elapsed_seconds': total}).eq('id', sessionId!);
@@ -330,6 +368,9 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     stopwatch.stop();
     tickTimer?.cancel();
     final total = currentTotalSeconds;
+    runStartTime = null;
+    _persistentRunStartTime = null;
+    _persistentSessionId = null;
 
     await Supabase.instance.client.from('workout_sessions').update({
       'status': 'completed',

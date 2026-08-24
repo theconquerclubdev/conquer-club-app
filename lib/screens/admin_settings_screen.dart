@@ -284,7 +284,11 @@ class _OffersTab extends StatefulWidget {
 class _OffersTabState extends State<_OffersTab> {
   List<Map<String, dynamic>> offers = [];
   List<Map<String, dynamic>> allMembers = [];
+  List<Map<String, dynamic>> filteredMembers = [];
   bool isLoading = true;
+  String searchQuery = '';
+  bool isMultiSelectMode = false;
+  final Set<String> _selectedMemberIds = {};
 
   final List<Map<String, dynamic>> _plans = [
     {'key': '1_month', 'label': '1 Month'},
@@ -317,12 +321,31 @@ class _OffersTabState extends State<_OffersTab> {
       setState(() {
         offers = List<Map<String, dynamic>>.from(offersData);
         allMembers = List<Map<String, dynamic>>.from(membersData);
+        filteredMembers = List<Map<String, dynamic>>.from(membersData);
         isLoading = false;
       });
     } catch (e) {
       print('Error loading data: $e');
       setState(() => isLoading = false);
     }
+  }
+
+  void _applySearch() {
+    if (searchQuery.isEmpty) {
+      setState(() {
+        filteredMembers = List<Map<String, dynamic>>.from(allMembers);
+      });
+      return;
+    }
+
+    final q = searchQuery.toLowerCase();
+    setState(() {
+      filteredMembers = allMembers.where((m) {
+        final name = (m['full_name'] ?? '').toString().toLowerCase();
+        final email = (m['email'] ?? '').toString().toLowerCase();
+        return name.contains(q) || email.contains(q);
+      }).toList();
+    });
   }
 
   Future<void> _createOffer() async {
@@ -1203,8 +1226,8 @@ class _ExercisesTabState extends State<_ExercisesTab> {
         'category': selectedCategory,
         'muscle_group': selectedMuscleGroup,
         'name': nameController.text.trim(),
-        'type': selectedType,
-        'input': selectedInput,
+        'exercise_type': selectedType,
+        'input_type': selectedInput,
       });
       await load();
       if (mounted) {

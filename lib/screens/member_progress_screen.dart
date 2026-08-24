@@ -1,5 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:convert';
+import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -214,20 +217,40 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
     );
   }
 
-  Future<Uint8List?> _compressToWebp(String sourcePath) async {
+  Future<Uint8List> _compressImageWeb(XFile file) async {
     try {
-      final result = await FlutterImageCompress.compressWithFile(
-        sourcePath,
+      final bytes = await file.readAsBytes();
+      final image = await decodeImageFromList(bytes);
+
+      int originalWidth = image.width;
+      int originalHeight = image.height;
+
+      int newWidth = originalWidth;
+      int newHeight = originalHeight;
+
+      if (newWidth > 1080) {
+        newWidth = 1080;
+        newHeight = (originalHeight * 1080 / originalWidth).round();
+      }
+      if (newHeight > 1350) {
+        newHeight = 1350;
+        newWidth = (originalWidth * 1350 / originalHeight).round();
+      }
+
+      // Use FlutterImageCompress for web as well
+      final compressed = await FlutterImageCompress.compressWithList(
+        bytes,
         format: CompressFormat.webp,
         quality: 65,
-        minWidth: 1080,
-        minHeight: 1350,
+        minWidth: newWidth,
+        minHeight: newHeight,
         keepExif: false,
       );
-      return result;
+
+      return compressed ?? bytes;
     } catch (e) {
-      print('Compression error: $e');
-      return null;
+      print('Web compression error: $e');
+      rethrow;
     }
   }
 
@@ -263,28 +286,14 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
 
     if (picked == null) return;
 
-    Uint8List? webBytes;
-    if (kIsWeb) {
-      try {
-        webBytes = await picked.readAsBytes();
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Failed to read image: $e')),
-          );
-        }
-        return;
-      }
-    }
-
     setState(() => _uploading.add(slot));
     try {
       Uint8List bytes;
       String contentType;
 
       if (kIsWeb) {
-        bytes = webBytes!;
-        contentType = 'image/jpeg';
+        bytes = await _compressImageWeb(picked);
+        contentType = 'image/webp';
       } else {
         final compressed = await _compressToWebp(picked.path);
         if (compressed == null) {
@@ -347,6 +356,23 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
   String _cacheKey(_Slot slot) {
     final base = '${_memberId}_${slot.col}';
     return slot.isBefore ? base : '${base}_v${_version[slot]}';
+  }
+
+  Future<Uint8List?> _compressToWebp(String sourcePath) async {
+    try {
+      final result = await FlutterImageCompress.compressWithFile(
+        sourcePath,
+        format: CompressFormat.webp,
+        quality: 65,
+        minWidth: 1080,
+        minHeight: 1350,
+        keepExif: false,
+      );
+      return result;
+    } catch (e) {
+      print('Compression error: $e');
+      return null;
+    }
   }
 
   @override

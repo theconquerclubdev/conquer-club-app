@@ -32,7 +32,6 @@ class _MemberProfileCoachViewScreenState
   Map<String, dynamic>? measurements;
   List<Map<String, dynamic>> measurementHistory = [];
   List<Map<String, dynamic>> payments = [];
-  Map<String, dynamic>? streakData;
   bool isLoading = true;
   int currentStreak = 0;
   String? streakMissedReason;
@@ -74,126 +73,62 @@ class _MemberProfileCoachViewScreenState
   Future<void> loadData() async {
     try {
       final memberId = widget.member['id'];
-      final today = DateTime.now();
 
-      // FIX: Directly fetch height from profiles table
-      final profileData = await Supabase.instance.client
-          .from('profiles')
-          .select('height_cm')
-          .eq('id', memberId)
-          .maybeSingle();
+      // ✅ SINGLE RPC CALL - Gets everything in ONE query
+      final response = await Supabase.instance.client.rpc(
+        'get_member_full_profile',
+        params: {'p_member_id': memberId},
+      );
 
-      if (profileData != null && profileData['height_cm'] != null) {
-        height = '${profileData['height_cm']} cm';
-      } else {
-        height = '-- cm';
+      if (response == null) {
+        setState(() => isLoading = false);
+        return;
       }
 
-      final measurementData = await Supabase.instance.client
-          .from('measurement_logs')
-          .select()
-          .eq('member_id', memberId)
-          .order('recorded_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
+      final data = response as Map<String, dynamic>;
 
-      final historyData = await Supabase.instance.client
-          .from('measurement_logs')
-          .select()
-          .eq('member_id', memberId)
-          .order('recorded_at', ascending: true)
-          .limit(30);
+      // Profile Data
+      final profile = data['profile'] as Map<String, dynamic>? ?? {};
 
-      if (measurementData != null) {
-        currentWeight = (measurementData['weight_kg'] as num?)?.toDouble();
-        measurements = measurementData;
-        measurementHistory = List<Map<String, dynamic>>.from(historyData);
-      }
+      // Current Weight
+      currentWeight = data['current_weight'] as double?;
 
-      final paymentData = await Supabase.instance.client
-          .from('payments')
-          .select('amount, plan_key, status, payment_date')
-          .eq('member_id', memberId)
-          .order('payment_date', ascending: false)
-          .limit(5);
+      // Height
+      height = data['height_cm'] != null ? '${data['height_cm']} cm' : '-- cm';
 
-      final streakResponse = await Supabase.instance.client
-          .from('member_streaks')
-          .select(
-              'is_streak_met, workout_minutes, steps_count, is_photos_uploaded, is_measurements_updated, is_sunday')
-          .eq('member_id', memberId)
-          .order('date', ascending: false)
-          .limit(2);
+      // Latest Measurements
+      measurements = data['measurements'] as Map<String, dynamic>?;
 
-      final stepLog = await Supabase.instance.client
-          .from('step_logs')
-          .select('steps')
-          .eq('member_id', memberId)
-          .eq('log_date',
-              '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}')
-          .maybeSingle();
+      // Measurement History (last 30)
+      measurementHistory =
+          List<Map<String, dynamic>>.from(data['measurement_history'] ?? []);
 
-      if (stepLog != null) {
-        todaySteps = (stepLog['steps'] as num?)?.toInt() ?? 0;
-      }
+      // Current Streak
+      currentStreak = data['current_streak'] as int? ?? 0;
+
+      // Today's Steps
+      todaySteps = data['today_steps'] as int? ?? 0;
 
       stepGoal = (widget.member['step_goal'] as num?)?.toInt() ?? 10000;
       stepProgress = (todaySteps / stepGoal).clamp(0.0, 1.0);
 
-      int streak = 0;
-      String? missedReason;
-      for (final record in streakResponse) {
-        if (record['is_streak_met'] == true) {
-          streak++;
-        } else {
-          final isSunday = record['is_sunday'] ?? false;
-          if (!isSunday) {
-            final workoutMins =
-                (record['workout_minutes'] as num?)?.toInt() ?? 0;
-            final steps = (record['steps_count'] as num?)?.toInt() ?? 0;
-            if (workoutMins < 45)
-              missedReason = 'Workout: $workoutMins/45 min';
-            else if (steps < 10000) missedReason = 'Steps: $steps/10,000';
-          } else {
-            final photos = record['is_photos_uploaded'] ?? false;
-            final measurements = record['is_measurements_updated'] ?? false;
-            if (!photos)
-              missedReason = 'Photos missing';
-            else if (!measurements)
-              missedReason = 'Measurements missing';
-            else
-              missedReason = 'Sunday requirements not met';
-          }
-          break;
-        }
-      }
-
-      final endDateStr = widget.member['membership_end_date'] as String?;
+      // Membership Status (from profile)
+      final endDateStr = profile['membership_end_date'] as String?;
       if (endDateStr != null) {
         final endDate = DateTime.parse(endDateStr);
         daysLeft = endDate.difference(DateTime.now()).inDays;
         isMembershipActive = daysLeft >= 0;
       }
 
-      final dietUpdateData = await Supabase.instance.client
-          .from('diets')
-          .select('updated_at')
-          .eq('member_id', memberId)
-          .order('updated_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
-
-      if (dietUpdateData != null && dietUpdateData['updated_at'] != null) {
-        final dietDate = DateTime.parse(dietUpdateData['updated_at']);
+      // Diet Update Check (from latest_diet)
+      final latestDiet = data['latest_diet'] as Map<String, dynamic>?;
+      if (latestDiet != null && latestDiet['updated_at'] != null) {
+        final dietDate = DateTime.parse(latestDiet['updated_at']);
         dietDaysSinceUpdate = DateTime.now().difference(dietDate).inDays;
         isDietUpdateRequired = dietDaysSinceUpdate >= 7;
       }
 
       setState(() {
-        payments = List<Map<String, dynamic>>.from(paymentData);
-        streakData = streakResponse.isNotEmpty ? streakResponse.first : null;
-        currentStreak = streak;
-        streakMissedReason = missedReason;
         isLoading = false;
       });
     } catch (_) {

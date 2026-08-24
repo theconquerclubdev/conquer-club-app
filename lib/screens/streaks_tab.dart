@@ -996,24 +996,14 @@ THE CONQUER CLUB
 
           const SizedBox(height: 16),
 
-          // Stats Row
+          // Stats Row - Only Best Streak in center
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _statItem(
                 '🏆',
                 '$highestStreak',
                 'Best Streak',
-              ),
-              _statItem(
-                '📊',
-                '$streakRate%',
-                'Success Rate',
-              ),
-              _statItem(
-                '✅',
-                '$totalStreaks',
-                'Total Streaks',
               ),
             ],
           ),
@@ -1195,7 +1185,11 @@ class _StreakCard extends StatelessWidget {
                       : (streak.date ==
                               DateTime(DateTime.now().year,
                                   DateTime.now().month, DateTime.now().day)
-                          ? '⏳ Pending'
+                          ? (isSunday
+                              ? '⏳ Pending'
+                              : streak.isWorkoutCompleted
+                                  ? '❌ Missed'
+                                  : '⏳ Pending')
                           : '❌ Missed'),
                   style: TextStyle(
                     color: isSuccess
@@ -1203,7 +1197,11 @@ class _StreakCard extends StatelessWidget {
                         : (streak.date ==
                                 DateTime(DateTime.now().year,
                                     DateTime.now().month, DateTime.now().day)
-                            ? Colors.orange
+                            ? (isSunday
+                                ? Colors.orange
+                                : streak.isWorkoutCompleted
+                                    ? Colors.red
+                                    : Colors.orange)
                             : Colors.red),
                     fontSize: 11,
                     fontWeight: FontWeight.bold,

@@ -621,7 +621,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const StreaksTab()),
-    );
+    ).then((_) => _loadStreak());
   }
 
   // ============================================================

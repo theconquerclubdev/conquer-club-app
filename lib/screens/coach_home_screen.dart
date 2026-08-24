@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
@@ -24,12 +25,16 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   List<Map<String, dynamic>> filteredMembers = [];
   bool isLoading = true;
 
-  // ✅ Pagination variables
+  // ✅ Pagination variables — now backed by real server-side LIMIT/OFFSET
   bool isLoadingMore = false;
-  int currentPage = 0;
-  final int pageSize = 10;
+  final int pageSize = 20;
   bool hasMoreData = true;
+  int totalCount = 0;
   final ScrollController _scrollController = ScrollController();
+  Timer? _searchDebounce;
+
+  // Role — fetched once, not on every page load
+  bool isHeadCoach = false;
 
   // Dashboard Stats
   int activeCount = 0;
@@ -66,6 +71,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   void dispose() {
     _tabController.dispose();
     searchController.dispose();
+    _searchDebounce?.cancel();
     super.dispose();
   }
 
@@ -79,16 +85,28 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
     setState(() => isLoadingPermissions = true);
     try {
       final coachId = Supabase.instance.client.auth.currentUser!.id;
-      final data = await Supabase.instance.client
-          .from('coach_permissions')
-          .select()
-          .eq('coach_id', coachId)
-          .maybeSingle();
+
+      final results = await Future.wait([
+        Supabase.instance.client
+            .from('coach_permissions')
+            .select('can_edit_diet, can_edit_workout')
+            .eq('coach_id', coachId)
+            .maybeSingle(),
+        Supabase.instance.client
+            .from('profiles')
+            .select('role')
+            .eq('id', coachId)
+            .maybeSingle(),
+      ]);
+
+      final data = results[0];
+      final profile = results[1];
 
       if (mounted) {
         setState(() {
           canEditDiet = data?['can_edit_diet'] ?? false;
           canEditWorkout = data?['can_edit_workout'] ?? false;
+          isHeadCoach = profile?['role'] == 'head_coach';
           isLoadingPermissions = false;
         });
       }
@@ -105,17 +123,19 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   }
 
   // ============================================================
-  // ✅ OPTIMIZED: loadMembers with parallel queries for speed
+  // Real server-side pagination, search, filter and sort.
+  // Every param is sent to the get_members_with_latest_data RPC,
+  // which does the LIMIT/OFFSET, ILIKE search, filter and ORDER BY
+  // in Postgres. The client never downloads more rows than it
+  // displays, and search works across ALL members — not just the
+  // ones already paged in.
   // ============================================================
   Future<void> loadMembers({bool reset = true}) async {
     if (!mounted) return;
 
     if (reset) {
       setState(() {
-        isLoading = true;
-        allMembers = [];
-        filteredMembers = [];
-        currentPage = 0;
+        isLoading = allMembers.isEmpty;
         hasMoreData = true;
       });
     } else {
@@ -125,177 +145,46 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
 
     try {
       final currentUser = Supabase.instance.client.auth.currentUser!;
+      final offset = reset ? 0 : allMembers.length;
 
-      // Check if user is head_coach
-      final profile = await Supabase.instance.client
-          .from('profiles')
-          .select('role')
-          .eq('id', currentUser.id)
-          .maybeSingle();
-
-      final isHeadCoach = profile?['role'] == 'head_coach';
-
-      // ✅ SINGLE RPC CALL with pagination
-      final offset = reset ? 0 : currentPage * pageSize;
-
-      // ✅ First get members with coach info (we need coach name for search)
       final data = await Supabase.instance.client.rpc(
         'get_members_with_latest_data',
         params: {
-          'coach_id': isHeadCoach ? null : currentUser.id,
-          'is_head_coach': isHeadCoach,
+          'p_coach_id': isHeadCoach ? null : currentUser.id,
+          'p_is_head_coach': isHeadCoach,
+          'p_search': search.isEmpty ? null : search,
+          'p_filter_type': filterType,
+          'p_sort_type': sortType,
+          'p_sort_ascending': sortAscending,
+          'p_limit': pageSize,
+          'p_offset': offset,
         },
       );
 
-      // ✅ Apply pagination in Dart (temporary until we update RPC)
-      final allResults = List<Map<String, dynamic>>.from(data);
-
-      // ✅ Get coach names for all coaches in one query (not per member!)
-      final allCoachIds = allResults
-          .map((m) => m['assigned_coach_id'] as String?)
-          .where((id) => id != null)
-          .toSet()
-          .toList();
-
-      Map<String, String> coachNames = {};
-      if (allCoachIds.isNotEmpty) {
-        final coachData = await Supabase.instance.client
-            .from('profiles')
-            .select('id, full_name')
-            .inFilter('id', allCoachIds);
-
-        for (final coach in coachData) {
-          coachNames[coach['id']] = coach['full_name'] ?? 'Unknown Coach';
-        }
-      }
-
-      // ✅ Add coach_name to each member
-      for (final member in allResults) {
-        final coachId = member['assigned_coach_id'] as String?;
-        member['coach_name'] = coachId != null ? coachNames[coachId] : null;
-      }
-
-      final paginatedResults = allResults.skip(offset).take(pageSize).toList();
-      final hasMore = (offset + pageSize) < allResults.length;
-
-      final membersWithInfo = <Map<String, dynamic>>[];
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-
-      int active = 0, inactive = 0, newMembers = 0, noDiet = 0, noWorkout = 0;
-      int dueToday = 0, dueTomorrow = 0, overdue = 0;
-      int expToday = 0,
-          expYesterday = 0,
-          expLastWeek = 0,
-          expTomorrow = 0,
-          expIn7Days = 0;
-
-      // ✅ Only process paginated results for display
-      // But count stats from ALL results for dashboard
-      for (final member in allResults) {
-        final hasWorkout = member['latest_workout'] != null;
-        final hasDiet = member['latest_diet'] != null;
-        final endDateStr = member['membership_end_date'] as String?;
-        int daysLeft = -999;
-        bool membershipActive = false;
-
-        if (endDateStr != null) {
-          try {
-            final endDate = DateTime.parse(endDateStr);
-            daysLeft = endDate.difference(today).inDays;
-            membershipActive = daysLeft >= 0;
-          } catch (_) {
-            membershipActive = false;
-          }
-        }
-
-        if (membershipActive) {
-          active++;
-          if (!hasWorkout) noWorkout++;
-          if (!hasDiet) noDiet++;
-
-          if (hasDiet) {
-            final dietDate = DateTime.parse(member['latest_diet']);
-            final daysSince = today.difference(dietDate).inDays;
-            if (daysSince >= 7)
-              overdue++;
-            else if (daysSince == 6)
-              dueTomorrow++;
-            else if (daysSince == 5) dueToday++;
-          }
-
-          if (daysLeft == 0)
-            expToday++;
-          else if (daysLeft == 1)
-            expTomorrow++;
-          else if (daysLeft == 7) expIn7Days++;
-        } else {
-          inactive++;
-          if (daysLeft == -1)
-            expYesterday++;
-          else if (daysLeft <= -7) expLastWeek++;
-        }
-
-        if (membershipActive && !hasDiet && !hasWorkout) newMembers++;
-      }
-
-      // ✅ Process only paginated results for display
-      for (final member in paginatedResults) {
-        final hasWorkout = member['latest_workout'] != null;
-        final hasDiet = member['latest_diet'] != null;
-        final endDateStr = member['membership_end_date'] as String?;
-        int daysLeft = -999;
-        bool membershipActive = false;
-
-        if (endDateStr != null) {
-          try {
-            final endDate = DateTime.parse(endDateStr);
-            daysLeft = endDate.difference(today).inDays;
-            membershipActive = daysLeft >= 0;
-          } catch (_) {
-            membershipActive = false;
-          }
-        }
-
-        membersWithInfo.add({
-          ...member,
-          'has_workout': hasWorkout,
-          'has_diet': hasDiet,
-          'is_active': membershipActive,
-          'days_left': daysLeft,
-          'membership_end_date': endDateStr,
-        });
-      }
+      final results = List<Map<String, dynamic>>.from(data);
+      final total = results.isNotEmpty
+          ? (results.first['total_count'] as num).toInt()
+          : (reset ? 0 : totalCount);
 
       if (mounted) {
         setState(() {
           if (reset) {
-            allMembers = membersWithInfo;
+            allMembers = results;
           } else {
-            allMembers.addAll(membersWithInfo);
+            allMembers = [...allMembers, ...results];
           }
           filteredMembers = allMembers;
+          totalCount = total;
+          hasMoreData = allMembers.length < total;
           isLoading = false;
           isLoadingMore = false;
-          hasMoreData = hasMore;
-          if (hasMore) currentPage++;
-
-          activeCount = active;
-          inactiveCount = inactive;
-          newMembersCount = newMembers;
-          noDietCount = noDiet;
-          noWorkoutCount = noWorkout;
-          dietDueToday = dueToday;
-          dietDueTomorrow = dueTomorrow;
-          dietOverdue = overdue;
-          expiredToday = expToday;
-          expiredYesterday = expYesterday;
-          expiredLastWeek = expLastWeek;
-          expiringTomorrow = expTomorrow;
-          expiringIn7Days = expIn7Days;
-
-          applyFiltersAndSort();
         });
+      }
+
+      // Dashboard stat tiles are computed server-side too, so they stay
+      // correct across the whole member set instead of only the loaded page.
+      if (reset) {
+        unawaited(_loadStats());
       }
     } catch (e) {
       print('Error loading members: $e');
@@ -308,86 +197,59 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
     }
   }
 
-  void applyFiltersAndSort() {
-    if (!mounted) return;
-    var list = List<Map<String, dynamic>>.from(allMembers);
+  Future<void> _loadStats() async {
+    try {
+      final currentUser = Supabase.instance.client.auth.currentUser!;
+      final data = await Supabase.instance.client.rpc(
+        'get_member_stats',
+        params: {
+          'p_coach_id': isHeadCoach ? null : currentUser.id,
+          'p_is_head_coach': isHeadCoach,
+        },
+      );
+      final stats = (data as List).isNotEmpty
+          ? Map<String, dynamic>.from(data.first)
+          : <String, dynamic>{};
 
-    // ✅ Search: member name, email, OR coach name
-    if (search.isNotEmpty) {
-      final q = search.toLowerCase();
-      list = list.where((m) {
-        final name = (m['full_name'] ?? '').toString().toLowerCase();
-        final email = (m['email'] ?? '').toString().toLowerCase();
-        final coachName = (m['coach_name'] ?? '').toString().toLowerCase();
-        return name.contains(q) || email.contains(q) || coachName.contains(q);
-      }).toList();
+      if (!mounted) return;
+      setState(() {
+        activeCount = (stats['active_count'] as num?)?.toInt() ?? 0;
+        inactiveCount = (stats['inactive_count'] as num?)?.toInt() ?? 0;
+        newMembersCount = (stats['new_members_count'] as num?)?.toInt() ?? 0;
+        noDietCount = (stats['no_diet_count'] as num?)?.toInt() ?? 0;
+        noWorkoutCount = (stats['no_workout_count'] as num?)?.toInt() ?? 0;
+        dietDueToday = (stats['diet_due_today'] as num?)?.toInt() ?? 0;
+        dietDueTomorrow = (stats['diet_due_tomorrow'] as num?)?.toInt() ?? 0;
+        dietOverdue = (stats['diet_overdue'] as num?)?.toInt() ?? 0;
+        expiredToday = (stats['expired_today'] as num?)?.toInt() ?? 0;
+        expiredYesterday = (stats['expired_yesterday'] as num?)?.toInt() ?? 0;
+        expiredLastWeek = (stats['expired_last_week'] as num?)?.toInt() ?? 0;
+        expiringTomorrow = (stats['expiring_tomorrow'] as num?)?.toInt() ?? 0;
+        expiringIn7Days = (stats['expiring_in_7_days'] as num?)?.toInt() ?? 0;
+      });
+    } catch (e) {
+      print('Error loading stats: $e');
     }
+  }
 
-    switch (filterType) {
-      case 'active':
-        list = list.where((m) => m['is_active'] == true).toList();
-        break;
-      case 'inactive':
-        list = list.where((m) => m['is_active'] == false).toList();
-        break;
-      case 'new':
-        list = list
-            .where((m) =>
-                m['is_active'] == true &&
-                m['has_diet'] == false &&
-                m['has_workout'] == false)
-            .toList();
-        break;
-      case 'no_diet':
-        list = list
-            .where((m) =>
-                m['is_active'] == true &&
-                m['has_diet'] == false &&
-                m['has_workout'] == true)
-            .toList();
-        break;
-      case 'no_workout':
-        list = list
-            .where((m) =>
-                m['is_active'] == true &&
-                m['has_diet'] == true &&
-                m['has_workout'] == false)
-            .toList();
-        break;
-      default:
-        break;
-    }
-
-    list.sort((a, b) {
-      int comparison = 0;
-      switch (sortType) {
-        case 'name':
-          comparison = (a['full_name'] ?? '').compareTo(b['full_name'] ?? '');
-          break;
-        case 'last_workout':
-          final aDate = a['latest_workout'] ?? '';
-          final bDate = b['latest_workout'] ?? '';
-          comparison = aDate.compareTo(bDate);
-          break;
-        case 'last_diet':
-          final aDate = a['latest_diet'] ?? '';
-          final bDate = b['latest_diet'] ?? '';
-          comparison = aDate.compareTo(bDate);
-          break;
-        case 'signup_date':
-          final aDate = a['created_at'] ?? '';
-          final bDate = b['created_at'] ?? '';
-          comparison = aDate.compareTo(bDate);
-          break;
-        default:
-          comparison = 0;
-      }
-      return sortAscending ? comparison : -comparison;
+  // Debounced search — waits for the user to pause typing before hitting
+  // the server, instead of filtering an incomplete in-memory list.
+  void onSearchChanged(String value) {
+    setState(() => search = value.trim());
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      loadMembers(reset: true);
     });
+  }
 
-    setState(() {
-      filteredMembers = list;
-    });
+  void onFilterChanged(String value) {
+    setState(() => filterType = value);
+    loadMembers(reset: true);
+  }
+
+  void onSortToggled() {
+    setState(() => sortAscending = !sortAscending);
+    loadMembers(reset: true);
   }
 
   String formatDate(String? dateTime) {
@@ -401,10 +263,8 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   }
 
   void _navigateToMembersWithFilter(String filter) {
-    setState(() {
-      filterType = filter;
-      applyFiltersAndSort();
-    });
+    setState(() => filterType = filter);
+    loadMembers(reset: true);
     _tabController.animateTo(1);
   }
 
@@ -443,7 +303,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                             ),
                             const SizedBox(width: 6),
                             Text(
-                              '${allMembers.length}',
+                              '$totalCount',
                               style: TextStyle(
                                 color: AppColors.gold,
                                 fontSize: 14,
@@ -572,7 +432,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
     }
 
     return RefreshIndicator(
-      onRefresh: loadMembers,
+      onRefresh: () => loadMembers(reset: true),
       color: AppColors.gold,
       backgroundColor: AppColors.cardDark,
       child: SingleChildScrollView(
@@ -633,7 +493,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                 const SizedBox(width: 8),
                 _DashboardStatCard(
                   label: 'Total',
-                  count: allMembers.length,
+                  count: totalCount,
                   color: Colors.grey,
                   icon: Icons.people,
                   onTap: () => _navigateToMembersWithFilter('all'),
@@ -800,10 +660,9 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                               ),
                               onPressed: () {
                                 searchController.clear();
-                                setState(() {
-                                  search = '';
-                                  applyFiltersAndSort();
-                                });
+                                _searchDebounce?.cancel();
+                                setState(() => search = '');
+                                loadMembers(reset: true);
                               },
                               padding: EdgeInsets.zero,
                               constraints: const BoxConstraints(
@@ -819,12 +678,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                       ),
                       isDense: true,
                     ),
-                    onChanged: (v) {
-                      setState(() {
-                        search = v.trim();
-                        applyFiltersAndSort();
-                      });
-                    },
+                    onChanged: onSearchChanged,
                   ),
                 ),
               ),
@@ -853,12 +707,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                       fontSize: 10,
                     ),
                     onChanged: (value) {
-                      if (value != null) {
-                        setState(() {
-                          filterType = value;
-                          applyFiltersAndSort();
-                        });
-                      }
+                      if (value != null) onFilterChanged(value);
                     },
                     items: const [
                       DropdownMenuItem(value: 'all', child: Text('All')),
@@ -883,12 +732,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                   color: Colors.grey.shade500,
                   size: 16,
                 ),
-                onPressed: () {
-                  setState(() {
-                    sortAscending = !sortAscending;
-                    applyFiltersAndSort();
-                  });
-                },
+                onPressed: onSortToggled,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(
                   minWidth: 28,
@@ -903,7 +747,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           child: Row(
             children: [
               Text(
-                'Showing ${filteredMembers.length} members',
+                'Showing ${filteredMembers.length} of $totalCount members',
                 style: TextStyle(
                   color: Colors.grey.shade500,
                   fontSize: 10,

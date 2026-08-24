@@ -1,8 +1,10 @@
+import 'dart:async'; // 👈 ADD THIS IMPORT HERE
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import 'login_screen.dart';
 import 'admin_settings_screen.dart';
+import '../utils/cache_manager.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -673,7 +675,7 @@ class _AlertChip extends StatelessWidget {
 }
 
 // ============================================================
-// MEMBERS TAB
+// ADAPTIVE ADMIN MEMBERS TAB (0 to 5,000+ Members)
 // ============================================================
 class AdminMembersTab extends StatefulWidget {
   const AdminMembersTab({super.key});
@@ -686,47 +688,196 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
   List<Map<String, dynamic>> members = [];
   List<Map<String, dynamic>> categories = [];
   List<Map<String, dynamic>> coaches = [];
+
   bool isLoading = true;
+  bool isLoadingMore = false;
+  bool hasMoreData = false;
+  int totalCount = 0;
+  int currentOffset = 0;
+  final int pageSize = 20;
+
+  // Threshold: If total members <= 200, use instant client-side mode
+  static const int kPaginationThreshold = 200;
+  bool get isClientSideMode => totalCount <= kPaginationThreshold;
+
   String searchQuery = '';
   String selectedCategory = 'All';
+  Timer? _searchDebounce;
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
-    _loadData();
+    _loadInitialData();
   }
 
-  Future<void> _loadData() async {
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // 1. Initial Load: Fetch Categories, Coaches, Total Count, and Initial Members
+  Future<void> _loadInitialData() async {
     setState(() => isLoading = true);
     try {
-      final membersData = await Supabase.instance.client
+      final results = await Future.wait([
+        // Categories
+        Supabase.instance.client
+            .from('categories')
+            .select('id, name')
+            .order('name'),
+
+        // Coaches
+        Supabase.instance.client
+            .from('profiles')
+            .select('id, full_name, email')
+            .inFilter('role', ['coach', 'head_coach'])
+            .eq('is_active', true)
+            .order('full_name'),
+
+        // Total count of members
+        Supabase.instance.client
+            .from('profiles')
+            .select('id')
+            .eq('role', 'member'),
+      ]);
+
+      categories = List<Map<String, dynamic>>.from(results[0]);
+      coaches = List<Map<String, dynamic>>.from(results[1]);
+      totalCount = (results[2] as List).length;
+
+      await _fetchMembers(reset: true);
+    } catch (e) {
+      debugPrint('Error loading admin members: $e');
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  // 2. Fetch Members (Auto-switches between Single-Query and Paginated)
+  Future<void> _fetchMembers({bool reset = false}) async {
+    if (reset) {
+      setState(() {
+        currentOffset = 0;
+        isLoading = true;
+        if (isClientSideMode) members.clear();
+      });
+    } else {
+      if (isLoadingMore || !hasMoreData || isClientSideMode) return;
+      setState(() => isLoadingMore = true);
+    }
+
+    try {
+      var query = Supabase.instance.client
           .from('profiles')
           .select(
-              'id, full_name, email, membership_end_date, category_id, is_active, assigned_coach_id')
-          .eq('role', 'member')
-          .order('full_name');
+            'id, full_name, email, membership_start_date, membership_end_date, '
+            'category_id, is_active, assigned_coach_id, last_payment_amount, '
+            'last_payment_date, last_payment_method',
+          )
+          .eq('role', 'member');
 
-      final categoriesData = await Supabase.instance.client
-          .from('categories')
-          .select('id, name')
-          .order('name');
+      if (isClientSideMode) {
+        // 🚀 MODE A: <= 200 members -> Fetch all in 1 query, 0ms search
+        final data = await query.order('full_name');
+        final items = List<Map<String, dynamic>>.from(data);
 
-      final coachesData = await Supabase.instance.client
-          .from('profiles')
-          .select('id, full_name, email')
-          .inFilter('role', ['coach', 'head_coach'])
-          .eq('is_active', true)
-          .order('full_name');
+        if (mounted) {
+          setState(() {
+            members = items;
+            hasMoreData = false;
+            isLoading = false;
+          });
+        }
+      } else {
+        // ⚡ MODE B: > 200 members -> Server-side filter + 20/page pagination
+        if (searchQuery.isNotEmpty) {
+          query = query.or(
+            'full_name.ilike.%$searchQuery%,email.ilike.%$searchQuery%',
+          );
+        }
+        if (selectedCategory != 'All') {
+          query = query.eq('category_id', selectedCategory);
+        }
 
-      setState(() {
-        members = List<Map<String, dynamic>>.from(membersData);
-        categories = List<Map<String, dynamic>>.from(categoriesData);
-        coaches = List<Map<String, dynamic>>.from(coachesData);
-        isLoading = false;
-      });
+        final data = await query
+            .order('full_name')
+            .range(currentOffset, currentOffset + pageSize - 1);
+
+        final items = List<Map<String, dynamic>>.from(data);
+
+        if (mounted) {
+          setState(() {
+            if (reset) {
+              members = items;
+            } else {
+              members.addAll(items);
+            }
+            currentOffset += items.length;
+            hasMoreData = items.length == pageSize;
+            isLoading = false;
+            isLoadingMore = false;
+          });
+        }
+      }
     } catch (e) {
-      print('Error loading data: $e');
-      setState(() => isLoading = false);
+      debugPrint('Error fetching members: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          isLoadingMore = false;
+        });
+      }
+    }
+  }
+
+  // Instant filtering for <= 200 members, server-filtered for > 200 members
+  List<Map<String, dynamic>> get _displayedMembers {
+    if (!isClientSideMode) {
+      // In server mode, `members` is already filtered by Postgres
+      return members;
+    }
+
+    // In client mode, filter in Dart memory (instant 0ms)
+    var list = members;
+    if (searchQuery.isNotEmpty) {
+      final q = searchQuery.toLowerCase();
+      list = list.where((m) {
+        final name = (m['full_name'] ?? '').toString().toLowerCase();
+        final email = (m['email'] ?? '').toString().toLowerCase();
+        return name.contains(q) || email.contains(q);
+      }).toList();
+    }
+    if (selectedCategory != 'All') {
+      list = list.where((m) => m['category_id'] == selectedCategory).toList();
+    }
+    return list;
+  }
+
+  void _onSearchChanged(String v) {
+    setState(() => searchQuery = v.trim());
+
+    if (isClientSideMode) {
+      // Instant in-memory search
+      setState(() {});
+    } else {
+      // Debounced server search
+      _searchDebounce?.cancel();
+      _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+        _fetchMembers(reset: true);
+      });
+    }
+  }
+
+  void _onCategoryChanged(String? v) {
+    if (v == null) return;
+    setState(() => selectedCategory = v);
+
+    if (isClientSideMode) {
+      setState(() {});
+    } else {
+      _fetchMembers(reset: true);
     }
   }
 
@@ -734,30 +885,14 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
     await Supabase.instance.client
         .from('profiles')
         .update({'category_id': categoryId}).eq('id', memberId);
-    _loadData();
+    _fetchMembers(reset: true);
   }
 
   Future<void> _assignCoach(String memberId, String? coachId) async {
     await Supabase.instance.client
         .from('profiles')
         .update({'assigned_coach_id': coachId}).eq('id', memberId);
-    _loadData();
-  }
-
-  List<Map<String, dynamic>> get _filteredMembers {
-    var list = members;
-    if (searchQuery.isNotEmpty) {
-      list = list.where((m) {
-        final name = (m['full_name'] ?? '').toString().toLowerCase();
-        final email = (m['email'] ?? '').toString().toLowerCase();
-        return name.contains(searchQuery.toLowerCase()) ||
-            email.contains(searchQuery.toLowerCase());
-      }).toList();
-    }
-    if (selectedCategory != 'All') {
-      list = list.where((m) => m['category_id'] == selectedCategory).toList();
-    }
-    return list;
+    _fetchMembers(reset: true);
   }
 
   void _showPaymentSheet(Map<String, dynamic> member) {
@@ -767,13 +902,25 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
       isScrollControlled: true,
       builder: (_) => MemberPaymentSheet(
         member: member,
-        onPaymentComplete: _loadData,
+        onPaymentComplete: () => _fetchMembers(reset: true),
       ),
     );
   }
 
+  int _getDaysLeft(String? endDateStr) {
+    if (endDateStr == null) return -1;
+    try {
+      final endDate = DateTime.parse(endDateStr);
+      return endDate.difference(DateTime.now()).inDays;
+    } catch (_) {
+      return -1;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final displayedList = _displayedMembers;
+
     return Column(
       children: [
         Padding(
@@ -789,7 +936,7 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
                     isDense: true,
                     contentPadding: EdgeInsets.symmetric(vertical: 8),
                   ),
-                  onChanged: (v) => setState(() => searchQuery = v),
+                  onChanged: _onSearchChanged,
                 ),
               ),
               const SizedBox(width: 8),
@@ -804,7 +951,7 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
                         child: Text(c['name']),
                       )),
                 ],
-                onChanged: (v) => setState(() => selectedCategory = v!),
+                onChanged: _onCategoryChanged,
               ),
             ],
           ),
@@ -814,203 +961,314 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
               ? const Center(
                   child: CircularProgressIndicator(color: AppColors.gold),
                 )
-              : _filteredMembers.isEmpty
+              : displayedList.isEmpty
                   ? const Center(
                       child: Text(
                         'No members found',
                         style: TextStyle(color: Colors.grey),
                       ),
                     )
-                  : ListView.builder(
-                      itemCount: _filteredMembers.length,
-                      itemBuilder: (context, index) {
-                        final m = _filteredMembers[index];
-                        final isActive = m['is_active'] ?? true;
-                        final daysLeft = _getDaysLeft(m['membership_end_date']);
-                        return Container(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 4,
-                          ),
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.cardDark,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: SizedBox(
-                              width: 700,
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          m['full_name'] ?? 'Unknown',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontWeight: FontWeight.bold,
-                                          ),
+                  : RefreshIndicator(
+                      onRefresh: () => _loadInitialData(),
+                      color: AppColors.gold,
+                      backgroundColor: AppColors.cardDark,
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        itemCount: displayedList.length + (hasMoreData ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          // "Load More..." button for > 200 members mode
+                          if (index == displayedList.length) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              child: Center(
+                                child: isLoadingMore
+                                    ? const SizedBox(
+                                        height: 24,
+                                        width: 24,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppColors.gold,
                                         ),
-                                        Text(
-                                          m['email'] ?? '',
-                                          style: const TextStyle(
-                                            color: Colors.grey,
-                                            fontSize: 12,
-                                          ),
+                                      )
+                                    : TextButton(
+                                        onPressed: () =>
+                                            _fetchMembers(reset: false),
+                                        child: const Text(
+                                          'Load More...',
+                                          style: TextStyle(color: Colors.grey),
                                         ),
-                                        Row(
-                                          children: [
-                                            if (m['membership_end_date'] !=
-                                                null)
+                                      ),
+                              ),
+                            );
+                          }
+
+                          final m = displayedList[index];
+                          final isActive = m['is_active'] ?? true;
+                          final daysLeft =
+                              _getDaysLeft(m['membership_end_date']);
+
+                          return Container(
+                            margin: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.cardDark,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: 700,
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            m['full_name'] ?? 'Unknown',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          Text(
+                                            m['email'] ?? '',
+                                            style: const TextStyle(
+                                              color: Colors.grey,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          // ✅ Membership dates
+                                          Wrap(
+                                            spacing: 6,
+                                            runSpacing: 2,
+                                            children: [
+                                              if (m['membership_start_date'] !=
+                                                  null)
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.blue
+                                                        .withOpacity(0.15),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            4),
+                                                  ),
+                                                  child: Text(
+                                                    'Start: ${m['membership_start_date'].toString().substring(0, 10)}',
+                                                    style: const TextStyle(
+                                                      color: Colors.blue,
+                                                      fontSize: 9,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ),
+                                              if (m['membership_end_date'] !=
+                                                  null)
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: daysLeft >= 0
+                                                        ? Colors.green
+                                                            .withOpacity(0.15)
+                                                        : Colors.red
+                                                            .withOpacity(0.15),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            4),
+                                                  ),
+                                                  child: Text(
+                                                    daysLeft >= 0
+                                                        ? 'End: ${m['membership_end_date'].toString().substring(0, 10)} ($daysLeft d)'
+                                                        : 'End: ${m['membership_end_date'].toString().substring(0, 10)} (Expired)',
+                                                    style: TextStyle(
+                                                      color: daysLeft >= 0
+                                                          ? Colors.green
+                                                          : Colors.red,
+                                                      fontSize: 9,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                          Row(
+                                            children: [
                                               Container(
                                                 padding:
                                                     const EdgeInsets.symmetric(
-                                                  horizontal: 8,
+                                                  horizontal: 6,
                                                   vertical: 2,
                                                 ),
                                                 decoration: BoxDecoration(
-                                                  color: daysLeft >= 0
-                                                      ? Colors.green
+                                                  color: isActive
+                                                      ? Colors.blue
                                                           .withOpacity(0.2)
-                                                      : Colors.red
+                                                      : Colors.grey
                                                           .withOpacity(0.2),
                                                   borderRadius:
-                                                      BorderRadius.circular(8),
+                                                      BorderRadius.circular(4),
                                                 ),
                                                 child: Text(
-                                                  daysLeft >= 0
-                                                      ? '$daysLeft days left'
-                                                      : 'Expired',
+                                                  isActive
+                                                      ? 'Active'
+                                                      : 'Inactive',
                                                   style: TextStyle(
-                                                    color: daysLeft >= 0
-                                                        ? Colors.green
-                                                        : Colors.red,
-                                                    fontSize: 10,
+                                                    color: isActive
+                                                        ? Colors.blue
+                                                        : Colors.grey,
+                                                    fontSize: 9,
                                                     fontWeight: FontWeight.bold,
                                                   ),
                                                 ),
                                               ),
-                                            const SizedBox(width: 8),
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                horizontal: 8,
-                                                vertical: 2,
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    // ✅ Last payment info
+                                    if (m['last_payment_amount'] != null)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color:
+                                              AppColors.gold.withOpacity(0.1),
+                                          borderRadius:
+                                              BorderRadius.circular(4),
+                                          border: Border.all(
+                                            color:
+                                                AppColors.gold.withOpacity(0.2),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              '₹${m['last_payment_amount']}',
+                                              style: TextStyle(
+                                                color: AppColors.gold,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
                                               ),
-                                              decoration: BoxDecoration(
-                                                color: isActive
-                                                    ? Colors.blue
-                                                        .withOpacity(0.2)
-                                                    : Colors.grey
-                                                        .withOpacity(0.2),
-                                                borderRadius:
-                                                    BorderRadius.circular(8),
+                                            ),
+                                            Text(
+                                              m['last_payment_date'] != null
+                                                  ? m['last_payment_date']
+                                                      .toString()
+                                                      .substring(0, 10)
+                                                  : '',
+                                              style: TextStyle(
+                                                color: Colors.grey.shade500,
+                                                fontSize: 8,
                                               ),
-                                              child: Text(
-                                                isActive
-                                                    ? 'Active'
-                                                    : 'Inactive',
-                                                style: TextStyle(
-                                                  color: isActive
-                                                      ? Colors.blue
-                                                      : Colors.grey,
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
+                                            ),
+                                            Text(
+                                              m['last_payment_method'] ?? 'UPI',
+                                              style: TextStyle(
+                                                color: Colors.grey.shade500,
+                                                fontSize: 8,
                                               ),
                                             ),
                                           ],
                                         ),
+                                      ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.payment,
+                                        color: AppColors.gold,
+                                      ),
+                                      onPressed: () => _showPaymentSheet(m),
+                                      tooltip: 'Payment',
+                                    ),
+                                    DropdownButton<String>(
+                                      value: m['assigned_coach_id'] as String?,
+                                      dropdownColor: AppColors.cardDark,
+                                      hint: const Text(
+                                        'Coach',
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                      style:
+                                          const TextStyle(color: Colors.white),
+                                      items: [
+                                        const DropdownMenuItem(
+                                          value: null,
+                                          child: Text('None'),
+                                        ),
+                                        ...coaches.map((c) => DropdownMenuItem(
+                                              value: c['id'],
+                                              child: Text(
+                                                  c['full_name'] ?? c['email']),
+                                            )),
                                       ],
+                                      onChanged: (val) =>
+                                          _assignCoach(m['id'], val),
                                     ),
-                                  ),
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.payment,
-                                      color: AppColors.gold,
-                                    ),
-                                    onPressed: () => _showPaymentSheet(m),
-                                    tooltip: 'Payment',
-                                  ),
-                                  DropdownButton<String>(
-                                    value: m['assigned_coach_id'] as String?,
-                                    dropdownColor: AppColors.cardDark,
-                                    hint: const Text(
-                                      'Coach',
-                                      style: TextStyle(color: Colors.grey),
-                                    ),
-                                    style: const TextStyle(color: Colors.white),
-                                    items: [
-                                      const DropdownMenuItem(
-                                        value: null,
-                                        child: Text('None'),
+                                    DropdownButton<String>(
+                                      value: m['category_id'] as String?,
+                                      dropdownColor: AppColors.cardDark,
+                                      hint: const Text(
+                                        'Category',
+                                        style: TextStyle(color: Colors.grey),
                                       ),
-                                      ...coaches.map((c) => DropdownMenuItem(
-                                            value: c['id'],
-                                            child: Text(
-                                                c['full_name'] ?? c['email']),
-                                          )),
-                                    ],
-                                    onChanged: (val) =>
-                                        _assignCoach(m['id'], val),
-                                  ),
-                                  DropdownButton<String>(
-                                    value: m['category_id'] as String?,
-                                    dropdownColor: AppColors.cardDark,
-                                    hint: const Text(
-                                      'Category',
-                                      style: TextStyle(color: Colors.grey),
+                                      style:
+                                          const TextStyle(color: Colors.white),
+                                      items: [
+                                        const DropdownMenuItem(
+                                          value: null,
+                                          child: Text('None'),
+                                        ),
+                                        ...categories
+                                            .map((c) => DropdownMenuItem(
+                                                  value: c['id'],
+                                                  child: Text(c['name']),
+                                                )),
+                                      ],
+                                      onChanged: (val) =>
+                                          _assignCategory(m['id'], val),
                                     ),
-                                    style: const TextStyle(color: Colors.white),
-                                    items: [
-                                      const DropdownMenuItem(
-                                        value: null,
-                                        child: Text('None'),
-                                      ),
-                                      ...categories.map((c) => DropdownMenuItem(
-                                            value: c['id'],
-                                            child: Text(c['name']),
-                                          )),
-                                    ],
-                                    onChanged: (val) =>
-                                        _assignCategory(m['id'], val),
-                                  ),
-                                  Switch(
-                                    value: isActive,
-                                    activeColor: AppColors.gold,
-                                    onChanged: (_) async {
-                                      await Supabase.instance.client
-                                          .from('profiles')
-                                          .update({'is_active': !isActive}).eq(
-                                              'id', m['id']);
-                                      _loadData();
-                                    },
-                                  ),
-                                ],
+                                    Switch(
+                                      value: isActive,
+                                      activeColor: AppColors.gold,
+                                      onChanged: (_) async {
+                                        await Supabase.instance.client
+                                            .from('profiles')
+                                            .update({
+                                          'is_active': !isActive
+                                        }).eq('id', m['id']);
+                                        _fetchMembers(reset: true);
+                                      },
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
         ),
       ],
     );
-  }
-
-  int _getDaysLeft(String? endDateStr) {
-    if (endDateStr == null) return -1;
-    try {
-      final endDate = DateTime.parse(endDateStr);
-      final now = DateTime.now();
-      return endDate.difference(now).inDays;
-    } catch (e) {
-      return -1;
-    }
   }
 }
 
@@ -1593,6 +1851,11 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
   final TextEditingController _notesController = TextEditingController();
   bool isCashPayment = false;
 
+  // Custom date controls
+  DateTime? _customStartDate;
+  int? _customDurationMonths;
+  bool _useCustomDates = false;
+
   final List<Map<String, dynamic>> _plans = [
     {'key': '1_month', 'label': '1 Month', 'months': 1},
     {'key': '3_month', 'label': '3 Months', 'months': 3},
@@ -1604,6 +1867,8 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
   void initState() {
     super.initState();
     _loadData();
+    // Initialize custom start date to today
+    _customStartDate = DateTime.now();
   }
 
   @override
@@ -1640,6 +1905,31 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
     }
   }
 
+  Future<void> _selectStartDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _customStartDate ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.gold,
+              onPrimary: Colors.black,
+              surface: AppColors.cardDark,
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() => _customStartDate = picked);
+    }
+  }
+
   double getPlanPrice(String planKey) {
     if (memberPricing != null && memberPricing![planKey] != null) {
       return (memberPricing![planKey] as num).toDouble();
@@ -1648,62 +1938,77 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
   }
 
   Future<void> _processPayment() async {
-    if (selectedPlan == null) {
+    if (selectedPlan == null && !_useCustomDates) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a plan')),
+        const SnackBar(
+            content: Text('Please select a plan or use custom dates')),
       );
       return;
+    }
+
+    // ✅ Fix: If using custom dates but no plan selected, use a default
+    if (_useCustomDates && selectedPlan == null) {
+      // Use a default plan for display purposes
+      selectedPlan = '1_month';
     }
 
     setState(() => isProcessing = true);
 
     try {
-      final plan = _plans.firstWhere((p) => p['key'] == selectedPlan);
+      // ✅ Fix: Safely find plan with null check
+      final plan = _plans.firstWhere(
+        (p) => p['key'] == selectedPlan,
+        orElse: () => _plans.first, // Fallback to first plan if not found
+      );
       final amount = useCustomAmount
           ? double.tryParse(_customAmountController.text) ?? 0
           : getPlanPrice(selectedPlan!);
-      final months = plan['months'] as int;
+      final months = _useCustomDates
+          ? (_customDurationMonths ?? 0)
+          : (plan['months'] as int);
 
-      final currentEndDate = widget.member['membership_end_date'] != null
-          ? DateTime.parse(widget.member['membership_end_date'])
+      if (months <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a valid duration')),
+        );
+        setState(() => isProcessing = false);
+        return;
+      }
+
+      // Use custom start date if provided, otherwise use current date
+      final startDate = _useCustomDates && _customStartDate != null
+          ? _customStartDate!
           : DateTime.now();
 
-      final now = DateTime.now();
-
-      DateTime newEndDate;
-      if (currentEndDate.isAfter(now)) {
-        newEndDate = DateTime(
-          currentEndDate.year,
-          currentEndDate.month + months,
-          currentEndDate.day,
-        );
-      } else {
-        newEndDate = DateTime(
-          now.year,
-          now.month + months,
-          now.day,
-        );
-      }
+      DateTime newEndDate = DateTime(
+        startDate.year,
+        startDate.month + months,
+        startDate.day,
+      );
 
       await Supabase.instance.client.from('payments').insert({
         'member_id': widget.member['id'],
         'amount': amount,
-        'plan_key': selectedPlan,
+        'plan_key': selectedPlan ?? 'custom',
         'months': months,
         'status': 'completed',
         'payment_date': DateTime.now().toIso8601String(),
         'notes': _notesController.text.trim(),
         'is_cash': isCashPayment,
+        'start_date': startDate.toIso8601String().substring(0, 10),
+        'end_date': newEndDate.toIso8601String().substring(0, 10),
+        'is_manual': _useCustomDates,
       });
 
       await Supabase.instance.client.from('profiles').update({
+        'membership_start_date': startDate.toIso8601String().substring(0, 10),
         'membership_end_date': newEndDate.toIso8601String().substring(0, 10),
       }).eq('id', widget.member['id']);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Payment recorded successfully!'),
+            content: Text('Membership updated successfully!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -1713,7 +2018,7 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Payment failed: $e')),
+          SnackBar(content: Text('Update failed: $e')),
         );
       }
     } finally {
@@ -1804,204 +2109,199 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
       child: Container(
         padding: const EdgeInsets.all(20),
         constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.9,
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Payment for ${widget.member['full_name'] ?? 'Member'}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: daysLeft > 0
-                        ? Colors.green.withOpacity(0.2)
-                        : Colors.red.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: daysLeft > 0 ? Colors.green : Colors.red,
-                    ),
-                  ),
-                  child: Text(
-                    daysLeft > 0 ? '$daysLeft days left' : 'Expired',
-                    style: TextStyle(
-                      color: daysLeft > 0 ? Colors.green : Colors.red,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Payment for ${widget.member['full_name'] ?? 'Member'}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'SELECT PLAN',
-              style: TextStyle(
-                color: AppColors.gold,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _plans.map((plan) {
-                final key = plan['key'] as String;
-                final isSelected = selectedPlan == key;
-                final price = getPlanPrice(key);
-                return GestureDetector(
-                  onTap: () {
-                    setState(() {
-                      selectedPlan = key;
-                      useCustomAmount = false;
-                    });
-                  },
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? AppColors.gold.withOpacity(0.2)
-                          : AppColors.cardDark,
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: isSelected
-                            ? AppColors.gold
-                            : Colors.white.withOpacity(0.1),
-                        width: isSelected ? 2 : 1,
-                      ),
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          plan['label'] as String,
-                          style: TextStyle(
-                            color: isSelected ? AppColors.gold : Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          '₹${price.toStringAsFixed(0)}',
-                          style: TextStyle(
-                            color: isSelected ? AppColors.gold : Colors.grey,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                if (memberPricing != null)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
+                      horizontal: 12,
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.orange.withOpacity(0.2),
-                      borderRadius: BorderRadius.circular(6),
+                      color: daysLeft > 0
+                          ? Colors.green.withOpacity(0.2)
+                          : Colors.red.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: daysLeft > 0 ? Colors.green : Colors.red,
+                      ),
                     ),
-                    child: const Text(
-                      'Custom Pricing Active',
+                    child: Text(
+                      daysLeft > 0 ? '$daysLeft days left' : 'Expired',
                       style: TextStyle(
-                        color: Colors.orange,
-                        fontSize: 10,
+                        color: daysLeft > 0 ? Colors.green : Colors.red,
                         fontWeight: FontWeight.bold,
                       ),
                     ),
                   ),
-                const Spacer(),
-                TextButton.icon(
-                  icon: const Icon(Icons.edit, size: 16),
-                  label: const Text('Set Custom Price'),
-                  onPressed: _setCustomPrice,
-                ),
-              ],
-            ),
-            if (useCustomAmount) ...[
-              const SizedBox(height: 8),
-              TextField(
-                controller: _customAmountController,
-                keyboardType: TextInputType.number,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  prefixText: '₹ ',
-                  labelText: 'Custom amount',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.all(Radius.circular(8)),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // ✅ Custom Date Override Toggle
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  'Manual Date Override',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
                   ),
                 ),
+                subtitle: Text(
+                  _useCustomDates
+                      ? 'Set custom start date and duration'
+                      : 'Use plan-based dates',
+                  style: TextStyle(
+                    color: _useCustomDates ? AppColors.gold : Colors.grey,
+                    fontSize: 11,
+                  ),
+                ),
+                value: _useCustomDates,
+                activeColor: AppColors.gold,
+                activeTrackColor: AppColors.gold.withOpacity(0.3),
+                inactiveTrackColor: Colors.grey.shade700,
+                onChanged: (v) => setState(() {
+                  _useCustomDates = v;
+                  if (v) {
+                    // Auto-select a default plan duration
+                    selectedPlan = '1_month';
+                    _customDurationMonths = 1;
+                  }
+                }),
               ),
-            ],
-            const SizedBox(height: 12),
-            TextField(
-              controller: _notesController,
-              style: const TextStyle(color: Colors.white),
-              decoration: const InputDecoration(
-                labelText: 'Notes (optional)',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.all(Radius.circular(8)),
-                ),
-              ),
-              maxLines: 2,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Checkbox(
-                  value: isCashPayment,
-                  onChanged: (v) => setState(() => isCashPayment = v ?? false),
-                  activeColor: AppColors.gold,
-                ),
-                const Text(
-                  'Cash payment (record manually)',
-                  style: TextStyle(color: Colors.white),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: isProcessing ? null : _processPayment,
-                child: isProcessing
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.black,
+
+              if (_useCustomDates) ...[
+                const SizedBox(height: 8),
+                // Start Date Picker
+                GestureDetector(
+                  onTap: _selectStartDate,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardDark,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppColors.gold.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          color: AppColors.gold,
+                          size: 18,
                         ),
-                      )
-                    : const Text('RECORD PAYMENT'),
-              ),
-            ),
-            if (payments.isNotEmpty) ...[
-              const Divider(color: Colors.white12),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _customStartDate != null
+                                ? 'Start Date: ${_customStartDate!.day.toString().padLeft(2, '0')}-${_customStartDate!.month.toString().padLeft(2, '0')}-${_customStartDate!.year}'
+                                : 'Select Start Date',
+                            style: TextStyle(
+                              color: _customStartDate != null
+                                  ? Colors.white
+                                  : Colors.grey,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.arrow_drop_down,
+                          color: AppColors.gold,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Duration Selection
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'DURATION (MONTHS)',
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [1, 3, 6, 12].map((months) {
+                          final isSelected = _customDurationMonths == months;
+                          return GestureDetector(
+                            onTap: () => setState(() {
+                              _customDurationMonths = months;
+                              selectedPlan = null;
+                            }),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? AppColors.gold.withOpacity(0.2)
+                                    : AppColors.cardDark,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AppColors.gold
+                                      : Colors.white.withOpacity(0.1),
+                                  width: isSelected ? 2 : 1,
+                                ),
+                              ),
+                              child: Text(
+                                '$months mo',
+                                style: TextStyle(
+                                  color: isSelected
+                                      ? AppColors.gold
+                                      : Colors.white,
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+
               const SizedBox(height: 8),
               const Text(
-                'PAYMENT HISTORY',
+                'SELECT PLAN',
                 style: TextStyle(
                   color: AppColors.gold,
                   fontSize: 12,
@@ -2010,45 +2310,203 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
                 ),
               ),
               const SizedBox(height: 8),
-              Expanded(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: payments.length > 5 ? 5 : payments.length,
-                  itemBuilder: (context, index) {
-                    final p = payments[index];
-                    final date = DateTime.parse(p['payment_date']);
-                    return ListTile(
-                      dense: true,
-                      title: Text(
-                        '₹${(p['amount'] as num).toStringAsFixed(0)}',
-                        style: const TextStyle(color: Colors.white),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _plans.map((plan) {
+                  final key = plan['key'] as String;
+                  final isSelected = selectedPlan == key;
+                  final price = getPlanPrice(key);
+                  return GestureDetector(
+                    onTap: _useCustomDates
+                        ? null
+                        : () {
+                            setState(() {
+                              selectedPlan = key;
+                              useCustomAmount = false;
+                            });
+                          },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
                       ),
-                      subtitle: Text(
-                        '${p['plan_key']} · ${date.day}/${date.month}/${date.year}',
-                        style:
-                            const TextStyle(color: Colors.grey, fontSize: 12),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? AppColors.gold.withOpacity(0.2)
+                            : AppColors.cardDark,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isSelected
+                              ? AppColors.gold
+                              : Colors.white.withOpacity(0.1),
+                          width: isSelected ? 2 : 1,
+                        ),
                       ),
-                      trailing: Text(
-                        p['status'] ?? 'completed',
+                      child: Column(
+                        children: [
+                          Text(
+                            plan['label'] as String,
+                            style: TextStyle(
+                              color: isSelected ? AppColors.gold : Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '₹${price.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              color: isSelected ? AppColors.gold : Colors.grey,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (memberPricing != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'Custom Pricing Active',
                         style: TextStyle(
-                          color: p['status'] == 'completed'
-                              ? Colors.green
-                              : Colors.orange,
-                          fontSize: 12,
+                          color: Colors.orange,
+                          fontSize: 10,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                    );
-                  },
+                    ),
+                  const Spacer(),
+                  TextButton.icon(
+                    icon: const Icon(Icons.edit, size: 16),
+                    label: const Text('Set Custom Price'),
+                    onPressed: _setCustomPrice,
+                  ),
+                ],
+              ),
+              if (useCustomAmount) ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _customAmountController,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    prefixText: '₹ ',
+                    labelText: 'Custom amount',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: _notesController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'Notes (optional)',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(8)),
+                  ),
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Checkbox(
+                    value: isCashPayment,
+                    onChanged: (v) =>
+                        setState(() => isCashPayment = v ?? false),
+                    activeColor: AppColors.gold,
+                  ),
+                  const Text(
+                    'Cash payment (record manually)',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: isProcessing ? null : _processPayment,
+                  child: isProcessing
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      : const Text('RECORD PAYMENT'),
                 ),
               ),
-              if (payments.length > 5)
-                TextButton(
-                  onPressed: () => _showFullPaymentHistory(),
-                  child: const Text('View all payments'),
+              if (payments.isNotEmpty) ...[
+                const Divider(color: Colors.white12),
+                const SizedBox(height: 8),
+                const Text(
+                  'PAYMENT HISTORY',
+                  style: TextStyle(
+                    color: AppColors.gold,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
+                  ),
                 ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: payments.length > 5 ? 5 : payments.length,
+                    itemBuilder: (context, index) {
+                      final p = payments[index];
+                      final date = DateTime.parse(p['payment_date']);
+                      return ListTile(
+                        dense: true,
+                        title: Text(
+                          '₹${(p['amount'] as num).toStringAsFixed(0)}',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        subtitle: Text(
+                          '${p['plan_key']} · ${date.day}/${date.month}/${date.year}',
+                          style:
+                              const TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                        trailing: Text(
+                          p['status'] ?? 'completed',
+                          style: TextStyle(
+                            color: p['status'] == 'completed'
+                                ? Colors.green
+                                : Colors.orange,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                if (payments.length > 5)
+                  TextButton(
+                    onPressed: () => _showFullPaymentHistory(),
+                    child: const Text('View all payments'),
+                  ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

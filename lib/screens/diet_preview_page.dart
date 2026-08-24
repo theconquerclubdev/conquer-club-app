@@ -150,10 +150,7 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
   }
 
   String get memberName => widget.member['full_name'] ?? 'Member';
-  String get coachName =>
-      widget.coachNameOverride ??
-      Supabase.instance.client.auth.currentUser?.email ??
-      'Coach';
+  String get coachName => widget.coachNameOverride ?? 'Abhishek Mohite';
 
   // Calculate dynamic font size based on content length
   double _getDynamicFontSize(int totalItems) {
