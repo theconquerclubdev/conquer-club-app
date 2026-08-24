@@ -74,65 +74,102 @@ class _MemberProfileCoachViewScreenState
     try {
       final memberId = widget.member['id'];
 
-      // ✅ SINGLE RPC CALL - Gets everything in ONE query
-      final response = await Supabase.instance.client.rpc(
-        'get_member_full_profile',
-        params: {'p_member_id': memberId},
-      );
+      // 1. Fetch profile info directly from Supabase to guarantee fresh data
+      final profileData = await Supabase.instance.client
+          .from('profiles')
+          .select('height_cm, membership_end_date, step_goal')
+          .eq('id', memberId)
+          .maybeSingle();
 
-      if (response == null) {
-        setState(() => isLoading = false);
-        return;
+      // 2. Fetch RPC for remaining calculations
+      Map<String, dynamic> data = {};
+      try {
+        final response = await Supabase.instance.client.rpc(
+          'get_member_full_profile',
+          params: {'p_member_id': memberId},
+        );
+        if (response != null && response is Map<String, dynamic>) {
+          data = response;
+        }
+      } catch (e) {
+        debugPrint('RPC error: $e');
       }
 
-      final data = response as Map<String, dynamic>;
+      final profile =
+          (data['profile'] as Map<String, dynamic>?) ?? profileData ?? {};
 
-      // Profile Data
-      final profile = data['profile'] as Map<String, dynamic>? ?? {};
+      // Current Weight (safe cast)
+      currentWeight = (data['current_weight'] as num?)?.toDouble();
 
-      // Current Weight
-      currentWeight = data['current_weight'] as double?;
-
-      // Height
-      height = data['height_cm'] != null ? '${data['height_cm']} cm' : '-- cm';
+      // Height (checks direct profile first, then RPC)
+      final hVal = profileData?['height_cm'] ??
+          data['height_cm'] ??
+          profile['height_cm'];
+      height = (hVal != null) ? '$hVal cm' : '-- cm';
 
       // Latest Measurements
       measurements = data['measurements'] as Map<String, dynamic>?;
 
-      // Measurement History (last 30)
+      // Measurement History
       measurementHistory =
           List<Map<String, dynamic>>.from(data['measurement_history'] ?? []);
 
       // Current Streak
-      currentStreak = data['current_streak'] as int? ?? 0;
+      currentStreak = (data['current_streak'] as num?)?.toInt() ?? 0;
 
       // Today's Steps
-      todaySteps = data['today_steps'] as int? ?? 0;
+      todaySteps = (data['today_steps'] as num?)?.toInt() ?? 0;
 
-      stepGoal = (widget.member['step_goal'] as num?)?.toInt() ?? 10000;
-      stepProgress = (todaySteps / stepGoal).clamp(0.0, 1.0);
+      // Step Goal (prioritize direct profile query)
+      final rawStepGoal = profileData?['step_goal'] ??
+          profile['step_goal'] ??
+          widget.member['step_goal'];
+      stepGoal = (rawStepGoal as num?)?.toInt() ?? 10000;
+      stepProgress =
+          stepGoal > 0 ? (todaySteps / stepGoal).clamp(0.0, 1.0) : 0.0;
 
-      // Membership Status (from profile)
-      final endDateStr = profile['membership_end_date'] as String?;
-      if (endDateStr != null) {
-        final endDate = DateTime.parse(endDateStr);
-        daysLeft = endDate.difference(DateTime.now()).inDays;
-        isMembershipActive = daysLeft >= 0;
+      // ✅ Membership Status: checks direct profile first, then RPC profile, then widget.member
+      final endDateStr = (profileData?['membership_end_date'] ??
+          profile['membership_end_date'] ??
+          widget.member['membership_end_date']) as String?;
+
+      if (endDateStr != null && endDateStr.isNotEmpty) {
+        try {
+          final endDate = DateTime.parse(endDateStr);
+          final now = DateTime.now();
+          final todayDate = DateTime(now.year, now.month, now.day);
+          final cleanEndDate =
+              DateTime(endDate.year, endDate.month, endDate.day);
+          daysLeft = cleanEndDate.difference(todayDate).inDays;
+          isMembershipActive = daysLeft >= 0;
+        } catch (e) {
+          debugPrint('Error parsing membership date: $e');
+          isMembershipActive = false;
+        }
+      } else {
+        isMembershipActive = false;
       }
 
-      // Diet Update Check (from latest_diet)
+      // Diet Update Check
       final latestDiet = data['latest_diet'] as Map<String, dynamic>?;
       if (latestDiet != null && latestDiet['updated_at'] != null) {
-        final dietDate = DateTime.parse(latestDiet['updated_at']);
-        dietDaysSinceUpdate = DateTime.now().difference(dietDate).inDays;
-        isDietUpdateRequired = dietDaysSinceUpdate >= 7;
+        try {
+          final dietDate = DateTime.parse(latestDiet['updated_at']);
+          dietDaysSinceUpdate = DateTime.now().difference(dietDate).inDays;
+          isDietUpdateRequired = dietDaysSinceUpdate >= 7;
+        } catch (_) {}
       }
 
-      setState(() {
-        isLoading = false;
-      });
-    } catch (_) {
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    } catch (err, stack) {
+      debugPrint('Error in loadData(): $err\n$stack');
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     }
   }
 
