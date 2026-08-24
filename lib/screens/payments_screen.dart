@@ -26,6 +26,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   String? membershipEndDate;
   int daysLeft = -1;
   final TextEditingController _notesController = TextEditingController();
+  bool _isLoadingPayments = false;
 
   final List<Map<String, dynamic>> _plans = [
     {'key': '1_month', 'label': '1 Month', 'months': 1},
@@ -47,6 +48,9 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   }
 
   Future<void> _loadData() async {
+    if (_isLoadingPayments) return;
+    _isLoadingPayments = true;
+
     setState(() => isLoading = true);
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
@@ -62,19 +66,21 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       membershipEndDate = profile['membership_end_date'];
       daysLeft = _getDaysLeft(membershipEndDate);
 
-      // Get payment history
+      // Get payment history (explicit columns + limit 20)
       final paymentData = await Supabase.instance.client
           .from('payments')
-          .select()
+          .select(
+              'id, amount, plan_key, months, status, payment_date, notes, is_cash, offer_used, pricing_type')
           .eq('member_id', userId)
-          .order('payment_date', ascending: false);
+          .order('payment_date', ascending: false)
+          .limit(20);
 
       payments = List<Map<String, dynamic>>.from(paymentData);
 
       // Get standard pricing
       final standardData = await Supabase.instance.client
           .from('pricing')
-          .select()
+          .select('1_month, 3_month, 6_month, 1_year')
           .limit(1)
           .maybeSingle();
 
@@ -92,7 +98,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       // Check if member has an offer
       final offerData = await Supabase.instance.client
           .from('offer_members')
-          .select('offer_id, offers(*)')
+          .select('offer_id, offers(1_month, 3_month, 6_month, 1_year, name)')
           .eq('member_id', userId)
           .maybeSingle();
 
@@ -101,16 +107,22 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         offerPricing = offer;
         hasOffer = true;
         offerName = offer['name'] as String?;
-        selectedPricingType = 'offer'; // Default to offer if available
+        selectedPricingType = 'offer';
       } else {
         hasOffer = false;
         selectedPricingType = 'standard';
       }
 
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
     } catch (e) {
       print('Error loading payment data: $e');
-      setState(() => isLoading = false);
+      if (mounted) {
+        setState(() => isLoading = false);
+      }
+    } finally {
+      _isLoadingPayments = false;
     }
   }
 

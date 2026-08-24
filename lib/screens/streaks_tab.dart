@@ -164,12 +164,14 @@ class _StreaksTabState extends State<StreaksTab> {
         'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'member_id,date');
 
-      // 2. Get all streak history
+      // 2. Get streak history (last 5 days only)
       final response = await Supabase.instance.client
           .from('member_streaks')
-          .select()
+          .select(
+              'id, member_id, date, is_workout_completed, is_photos_uploaded, is_measurements_updated, workout_minutes, is_sunday, is_streak_met')
           .eq('member_id', userId)
-          .order('date', ascending: false);
+          .order('date', ascending: false)
+          .limit(5);
 
       final List<StreakModel> history = [];
       int currentStreak = 0;

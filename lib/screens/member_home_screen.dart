@@ -82,6 +82,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   bool _measurementsUpdatedToday = false;
   Map<String, bool> _photoStatus = {'front': false, 'back': false};
 
+  int _lastSavedSteps = -1;
+
   // Update checker - auto-generated from build time
   bool _isCheckingUpdate = false;
   String get _currentVersion {
@@ -285,15 +287,19 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   Future<void> _saveTodaySteps() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
+    if (todaySteps == _lastSavedSteps) return;
     final logDate = _todayKey();
     final ok = await _upsertStepLog(userId, logDate, todaySteps);
     final prefs = await SharedPreferences.getInstance();
     if (!ok) {
       await prefs.setString('pending_step_log_date', logDate);
       await prefs.setInt('pending_step_log_value', todaySteps);
-    } else if (prefs.getString('pending_step_log_date') == logDate) {
-      await prefs.remove('pending_step_log_date');
-      await prefs.remove('pending_step_log_value');
+    } else {
+      _lastSavedSteps = todaySteps;
+      if (prefs.getString('pending_step_log_date') == logDate) {
+        await prefs.remove('pending_step_log_date');
+        await prefs.remove('pending_step_log_value');
+      }
     }
   }
 
