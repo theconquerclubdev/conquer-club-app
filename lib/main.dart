@@ -1,31 +1,33 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'screens/login_screen.dart';
 import 'screens/get_started_screen.dart';
 import 'screens/coach_home_screen.dart';
 import 'screens/member_home_screen.dart';
 import 'screens/admin_home_screen.dart';
-import 'screens/onboarding_screen.dart'; // ✅ ADD THIS
+import 'screens/onboarding_screen.dart';
 import 'theme/app_theme.dart';
+
+// ✅ Define your current app build version
+const String kCurrentAppVersion = '2.0.0';
 
 /// Responsive breakpoints used by the app.
 ///
 /// This does not change any existing screen logic. Screens can use these
 /// helpers later when a specific layout genuinely needs to adapt.
 class AppResponsive {
-  static double width(BuildContext context) =>
-      MediaQuery.sizeOf(context).width;
+  static double width(BuildContext context) => MediaQuery.sizeOf(context).width;
 
-  static bool isCompact(BuildContext context) =>
-      width(context) < 600;
+  static bool isCompact(BuildContext context) => width(context) < 600;
 
   static bool isMedium(BuildContext context) =>
       width(context) >= 600 && width(context) < 1200;
 
-  static bool isExpanded(BuildContext context) =>
-      width(context) >= 1200;
+  static bool isExpanded(BuildContext context) => width(context) >= 1200;
 }
 
 /// Common maximum content width for large windows.
@@ -145,6 +147,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
   bool _isLoading = true;
   Widget? _initialScreen;
 
+  static const String _currentVersion = '2.0.0';
+
   @override
   void initState() {
     super.initState();
@@ -152,6 +156,14 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 
   Future<void> _checkAuth() async {
+    // ✅ Check version first before anything else
+    if (!await _checkAppVersion()) {
+      setState(() {
+        _isLoading = false;
+      });
+      return;
+    }
+
     try {
       final session = Supabase.instance.client.auth.currentSession;
 
@@ -165,14 +177,13 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
         // ✅ Get user role
         try {
-          final profile =
-              await Supabase.instance.client
-                  .from('profiles')
-                  .select(
-                    'role, weight_kg, height_cm, goal, date_of_birth, gender',
-                  )
-                  .eq('id', session.user.id)
-                  .maybeSingle();
+          final profile = await Supabase.instance.client
+              .from('profiles')
+              .select(
+                'role, weight_kg, height_cm, goal, date_of_birth, gender',
+              )
+              .eq('id', session.user.id)
+              .maybeSingle();
 
           if (profile == null) {
             setState(() {
@@ -185,8 +196,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
           final role = profile['role'] as String? ?? 'member';
 
           // ✅ Check if profile is complete
-          final isProfileComplete =
-              profile['weight_kg'] != null &&
+          final isProfileComplete = profile['weight_kg'] != null &&
               profile['height_cm'] != null &&
               profile['goal'] != null &&
               profile['date_of_birth'] != null &&
@@ -229,6 +239,80 @@ class _AuthWrapperState extends State<AuthWrapper> {
     }
   }
 
+  Future<bool> _checkAppVersion() async {
+    try {
+      final res = await Supabase.instance.client
+          .from('app_versions')
+          .select('minimum_version, download_url')
+          .eq('platform', 'android')
+          .maybeSingle();
+
+      if (res != null) {
+        final minVersion = res['minimum_version'] as String;
+        final downloadUrl = res['download_url'] as String? ?? '';
+
+        if (_isVersionOutdated(_currentVersion, minVersion)) {
+          if (mounted) {
+            _showBlockingUpdateDialog(context, downloadUrl);
+          }
+          return false;
+        }
+      }
+    } catch (e) {
+      debugPrint('Version check failed: $e');
+    }
+    return true;
+  }
+
+  bool _isVersionOutdated(String current, String minimum) {
+    List<int> currParts =
+        current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    List<int> minParts =
+        minimum.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+
+    for (int i = 0; i < 3; i++) {
+      int c = i < currParts.length ? currParts[i] : 0;
+      int m = i < minParts.length ? minParts[i] : 0;
+      if (c < m) return true;
+      if (c > m) return false;
+    }
+    return false;
+  }
+
+  void _showBlockingUpdateDialog(BuildContext context, String downloadUrl) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: const Text(
+          'Update Required',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Your app version is outdated. Please update to continue.',
+          style: TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          if (downloadUrl.isNotEmpty)
+            ElevatedButton(
+              onPressed: () {
+                // Open download URL
+                // Use url_launcher to open the link
+              },
+              child: const Text('UPDATE NOW'),
+            ),
+          TextButton(
+            onPressed: () {
+              // Close app or stay on this screen
+            },
+            child: const Text('Close', style: TextStyle(color: Colors.grey)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _getHomeScreen(String role) {
     switch (role) {
       case 'admin':
@@ -249,5 +333,94 @@ class _AuthWrapperState extends State<AuthWrapper> {
       );
     }
     return _initialScreen ?? const GetStartedScreen();
+  }
+}
+
+// ============================================================
+// 🔒 BLOCKING FORCE UPDATE SCREEN
+// ============================================================
+class ForceUpdateScreen extends StatelessWidget {
+  final String currentVersion;
+  final String minimumVersion;
+  final String downloadUrl;
+
+  const ForceUpdateScreen({
+    super.key,
+    required this.currentVersion,
+    required this.minimumVersion,
+    required this.downloadUrl,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 90,
+                height: 90,
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.system_update,
+                  color: Colors.orange,
+                  size: 46,
+                ),
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                'Update Required',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 24,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'A new version ($minimumVersion) is available with critical performance and stability updates. Please update to continue using The Conquer Club.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.grey.shade400,
+                  fontSize: 14,
+                  height: 1.5,
+                ),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  icon: const Icon(Icons.download, color: Colors.black),
+                  label: const Text(
+                    'DOWNLOAD UPDATE',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
+                  ),
+                  onPressed: () async {
+                    if (downloadUrl.isNotEmpty) {
+                      final uri = Uri.parse(downloadUrl);
+                      if (await canLaunchUrl(uri)) {
+                        await launchUrl(uri,
+                            mode: LaunchMode.externalApplication);
+                      }
+                    }
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
