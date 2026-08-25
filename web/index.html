@@ -1,24 +1,16 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <!--
-    If you are serving your web app in a path other than the root, change the
-    href value below to reflect the base path you are serving from.
-
-    The path provided below has to start and end with a slash "/" in order for
-    it to work correctly.
-
-    For more details:
-    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
-
-    This is a placeholder for base href that will be replaced by the value of
-    the `--base-href` argument provided to `flutter build`.
-  -->
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="A new Flutter project.">
+
+  <!-- 🛑 Cache-Busting Headers: Prevents browsers from loading old cached builds -->
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
 
   <!-- iOS meta tags & icons -->
   <meta name="mobile-web-app-capable" content="yes">
@@ -32,10 +24,6 @@
   <title>conquer_club</title>
   <link rel="manifest" href="manifest.json">
   <script>
-    // When the browser tab was backgrounded and regains focus, nudge the
-    // page with a resize event — helps the rendering engine repaint text
-    // cleanly instead of showing stale/garbled glyphs from before the tab
-    // was hidden. Pure defensive JS, doesn't touch the Flutter build itself.
     document.addEventListener('visibilitychange', function () {
       if (document.visibilityState === 'visible') {
         window.dispatchEvent(new Event('resize'));
@@ -44,6 +32,17 @@
   </script>
 </head>
 <body>
+  <!-- 🔄 Unregister old service workers so users get updates instantly -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(function(registrations) {
+        for(let registration of registrations) {
+          registration.unregister();
+        }
+      });
+    }
+  </script>
+
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
