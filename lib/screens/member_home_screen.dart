@@ -395,29 +395,24 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
       final startOfDay = DateTime(now.year, now.month, now.day).toUtc();
 
-      // Check if workout completed today
-      final session = await Supabase.instance.client
-          .from('workout_sessions')
-          .select('id, status')
-          .eq('member_id', userId)
-          .eq('status', 'completed')
-          .gte('started_at', startOfDay.toIso8601String())
-          .maybeSingle();
+      // Check today's task status in a single RPC call (was 3 separate queries)
+      final data = await Supabase.instance.client.rpc(
+        'get_today_task_status',
+        params: {
+          'p_member_id': userId,
+          'p_start_of_day': startOfDay.toIso8601String(),
+        },
+      );
+      final taskStatus = List<Map<String, dynamic>>.from(data).first;
 
-      // Check if measurements updated today
-      final measurement = await Supabase.instance.client
-          .from('measurement_logs')
-          .select('id')
-          .eq('member_id', userId)
-          .gte('recorded_at', startOfDay.toIso8601String())
-          .maybeSingle();
-
-      // Check if photos uploaded today (after photos)
-      final photos = await Supabase.instance.client
-          .from('member_progress_photos')
-          .select('after_front_updated_at, after_back_updated_at')
-          .eq('member_id', userId)
-          .maybeSingle();
+      final session =
+          taskStatus['workout_completed'] == true ? {'id': true} : null;
+      final measurement =
+          taskStatus['measurement_updated'] == true ? {'id': true} : null;
+      final photos = {
+        'after_front_updated_at': taskStatus['after_front_updated_at'],
+        'after_back_updated_at': taskStatus['after_back_updated_at'],
+      };
 
       bool frontUploaded = false;
       bool backUploaded = false;
