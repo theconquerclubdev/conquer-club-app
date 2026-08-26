@@ -13,7 +13,7 @@ import 'screens/onboarding_screen.dart';
 import 'theme/app_theme.dart';
 
 // ✅ Define your current app build version
-const String kCurrentAppVersion = '2.0.0';
+const String kCurrentAppVersion = '2.0.1';
 
 /// Responsive breakpoints used by the app.
 ///

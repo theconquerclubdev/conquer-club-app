@@ -114,11 +114,30 @@ class _MemberProfileCoachViewScreenState
       measurementHistory =
           List<Map<String, dynamic>>.from(data['measurement_history'] ?? []);
 
-      // Current Streak
-      currentStreak = (data['current_streak'] as num?)?.toInt() ?? 0;
+      // Current Streak - Use RPC function (same as member_home_screen)
+      try {
+        final streakResult = await Supabase.instance.client
+            .rpc('get_current_streak', params: {'p_member_id': memberId});
+        currentStreak = (streakResult as int?) ?? 0;
+      } catch (e) {
+        debugPrint('Error fetching streak: $e');
+        currentStreak = 0;
+      }
 
-      // Today's Steps
-      todaySteps = (data['today_steps'] as num?)?.toInt() ?? 0;
+      // Today's Steps - Direct query from step_logs
+      try {
+        final todayStr = DateTime.now().toIso8601String().substring(0, 10);
+        final stepLog = await Supabase.instance.client
+            .from('step_logs')
+            .select('steps')
+            .eq('member_id', memberId)
+            .eq('log_date', todayStr)
+            .maybeSingle();
+        todaySteps = (stepLog?['steps'] as num?)?.toInt() ?? 0;
+      } catch (e) {
+        debugPrint('Error fetching steps: $e');
+        todaySteps = 0;
+      }
 
       // Step Goal (prioritize direct profile query)
       final rawStepGoal = profileData?['step_goal'] ??

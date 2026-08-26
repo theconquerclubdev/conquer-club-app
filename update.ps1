@@ -1,18 +1,17 @@
-﻿# update.ps1 - Complete auto-deployment
+﻿# update.ps1 - Simplified auto-deployment
 
 Write-Host "🚀 Auto-deploy started..." -ForegroundColor Yellow
 
-# Auto-generate version
-$timestamp = Get-Date -Format "yyyy.MM.dd.HHmm"
-$version = $timestamp
+# Fixed version
+$version = "2.0.1"
 
 Write-Host "📌 Version: $version" -ForegroundColor Cyan
 
-# Create version.json
+# Create version.json with YOUR Google Drive link
 $json = @{
     version = $version
     apk_url = "https://drive.google.com/uc?export=download&id=1dwBLzyXqU3W0YdsQZlAZeA7Xp47IYJUY"
-    changelog = "Auto-build $version"
+    changelog = "Fixed streak logic, version $version"
 } | ConvertTo-Json
 
 # Ensure directories exist
@@ -37,10 +36,11 @@ if (!(Test-Path "public")) {
 
 # Check if APK was built successfully
 if (Test-Path "build/app/outputs/flutter-apk/app-release.apk") {
-    cp build/app/outputs/flutter-apk/app-release.apk public\conquer_club.apk -Force
+    Copy-Item build/app/outputs/flutter-apk/app-release.apk public\conquer_club.apk -Force
     Write-Host "✅ APK copied successfully!" -ForegroundColor Green
 } else {
     Write-Host "❌ APK build failed or file not found!" -ForegroundColor Red
+    exit 1
 }
 
 # Build web
@@ -57,5 +57,12 @@ if (!(Test-Path "build/web")) {
 Write-Host "☁️ Deploying to Cloudflare..." -ForegroundColor Yellow
 npx wrangler pages deploy build/web --project-name=conquer-club-app
 
+Write-Host ""
 Write-Host "✅ Deployed version: $version" -ForegroundColor Green
-Write-Host "📱 Remember to upload APK to Google Drive!" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "📋 MANUAL STEP REQUIRED:" -ForegroundColor Yellow
+Write-Host "Run this SQL in Supabase:" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "DELETE FROM app_versions WHERE platform = 'android';" -ForegroundColor White
+Write-Host "INSERT INTO app_versions (platform, minimum_version, latest_version, download_url, created_at, updated_at)" -ForegroundColor White
+Write-Host "VALUES ('android', '$version', '$version', 'https://drive.google.com/uc?export=download&id=1dwBLzyXqU3W0YdsQZlAZeA7Xp47IYJUY', NOW(), NOW());" -ForegroundColor White

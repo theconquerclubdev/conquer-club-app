@@ -164,67 +164,71 @@ class _StreaksTabState extends State<StreaksTab> {
         'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'member_id,date');
 
-      // 2. Get streak history (last 5 days only)
+      // 2. Fetch current streak from the exact same SQL RPC function
+      final rpcStreak = await Supabase.instance.client
+          .rpc('get_current_streak', params: {'p_member_id': userId});
+      final int currentStreak = (rpcStreak as int?) ?? 0;
+      print('🔍 RPC currentStreak: $currentStreak');
+
+      // 3. Get history for UI cards & highest streak
       final response = await Supabase.instance.client
           .from('member_streaks')
           .select(
               'id, member_id, date, is_workout_completed, is_photos_uploaded, is_measurements_updated, workout_minutes, is_sunday, is_streak_met')
           .eq('member_id', userId)
           .order('date', ascending: false)
-          .limit(5);
+          .limit(60);
 
       final List<StreakModel> history = [];
-      int currentStreak = 0;
-      int highestStreak = 0;
-      int totalStreaks = 0;
-      int totalDays = 0;
-      DateTime? currentStreakStart;
-      bool streakActive = false;
-
       for (var record in response) {
-        final streak = StreakModel.fromJson(record);
-        history.add(streak);
+        history.add(StreakModel.fromJson(record));
+      }
 
-        if (!streakActive) {
-          // First record (today) must be a success for streak to exist
-          if (streak.isStreakMet) {
-            streakActive = true;
-            currentStreak = 1;
-            currentStreakStart = streak.date;
-          } else {
-            // Today failed, no active streak
-            break;
-          }
-        } else {
-          // We're in an active streak, count consecutive successes
-          if (streak.isStreakMet) {
-            currentStreak++;
-          } else {
-            break; // Streak broken
-          }
-        }
+      // Calculate streak start date if active
+      DateTime? currentStreakStart;
+      if (currentStreak > 0) {
+        currentStreakStart =
+            DateTime.now().subtract(Duration(days: currentStreak - 1));
       }
 
       // Calculate highest streak
-      int tempStreak = 0;
-      for (var streak in history) {
+      final sortedHistory = List<StreakModel>.from(history)
+        ..sort((a, b) => a.date.compareTo(b.date));
+
+      int highestStreak = 0;
+      int runningStreak = 0;
+      DateTime? lastStreakDate;
+
+      for (final streak in sortedHistory) {
+        final sDate =
+            DateTime(streak.date.year, streak.date.month, streak.date.day);
         if (streak.isStreakMet) {
-          tempStreak++;
-          highestStreak =
-              highestStreak > tempStreak ? highestStreak : tempStreak;
+          if (lastStreakDate != null &&
+              sDate.difference(lastStreakDate).inDays == 1) {
+            runningStreak++;
+          } else {
+            runningStreak = 1;
+          }
+          lastStreakDate = sDate;
+          if (runningStreak > highestStreak) {
+            highestStreak = runningStreak;
+          }
         } else {
-          tempStreak = 0;
+          runningStreak = 0;
+          lastStreakDate = null;
         }
       }
 
-      totalDays = history.length;
-      for (var streak in history) {
-        if (streak.isStreakMet) totalStreaks++;
+      if (currentStreak > highestStreak) {
+        highestStreak = currentStreak;
       }
+
+      final totalStreaks = history.where((s) => s.isStreakMet).length;
+      final totalDays = history.length;
       final streakRate =
           totalDays > 0 ? (totalStreaks / totalDays * 100).round() : 0;
-
       if (mounted) {
+        print('🔍 Setting stats currentStreak: $currentStreak');
         setState(() {
           _streaks = history;
           _stats = {
@@ -1114,6 +1118,10 @@ class _StreakCard extends StatelessWidget {
     final dateFormat = DateFormat('EEEE, MMM d, yyyy');
     final isSuccess = streak.isStreakMet;
     final isSunday = streak.isSunday;
+    final now = DateTime.now();
+    final isToday = streak.date.year == now.year &&
+        streak.date.month == now.month &&
+        streak.date.day == now.day;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -1139,11 +1147,7 @@ class _StreakCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isSuccess
                       ? Colors.green
-                      : (streak.date ==
-                              DateTime(DateTime.now().year,
-                                  DateTime.now().month, DateTime.now().day)
-                          ? Colors.orange
-                          : Colors.red),
+                      : (isToday ? Colors.orange : Colors.red),
                   shape: BoxShape.circle,
                 ),
               ),
@@ -1186,9 +1190,7 @@ class _StreakCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isSuccess
                       ? Colors.green.withOpacity(0.15)
-                      : (streak.date ==
-                              DateTime(DateTime.now().year,
-                                  DateTime.now().month, DateTime.now().day)
+                      : (isToday
                           ? Colors.orange.withOpacity(0.15)
                           : Colors.red.withOpacity(0.15)),
                   borderRadius: BorderRadius.circular(10),
@@ -1196,9 +1198,7 @@ class _StreakCard extends StatelessWidget {
                 child: Text(
                   isSuccess
                       ? '✅ Streak!'
-                      : (streak.date ==
-                              DateTime(DateTime.now().year,
-                                  DateTime.now().month, DateTime.now().day)
+                      : (isToday
                           ? (isSunday
                               ? '⏳ Pending'
                               : streak.isWorkoutCompleted
@@ -1208,9 +1208,7 @@ class _StreakCard extends StatelessWidget {
                   style: TextStyle(
                     color: isSuccess
                         ? Colors.green
-                        : (streak.date ==
-                                DateTime(DateTime.now().year,
-                                    DateTime.now().month, DateTime.now().day)
+                        : (isToday
                             ? (isSunday
                                 ? Colors.orange
                                 : streak.isWorkoutCompleted

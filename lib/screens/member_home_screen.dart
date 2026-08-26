@@ -131,15 +131,18 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      _healthPollTimer?.cancel();
-      _stepSub?.cancel();
+      // ✅ App going to background - save current steps
       _flushPendingStepSave();
+      // ❌ Don't cancel timer! Let it continue in background
+      // _healthPollTimer?.cancel();  // ← Remove this
+      // _stepSub?.cancel();  // ← Remove this
     } else if (state == AppLifecycleState.resumed) {
-      // ✅ Debounce resume: skip if called within 2 seconds of last resume
+      // ✅ App resumed - fetch latest steps from Health API
       final now = DateTime.now();
       if (_lastResumeTime == null ||
           now.difference(_lastResumeTime!) >= const Duration(seconds: 2)) {
         _lastResumeTime = now;
+        // ✅ Re-initialize to fetch latest data
         _initStepTracker();
         _loadTodayTaskStatus();
       }
@@ -150,6 +153,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   bool _stepTrackerStarting = false;
 
   Future<void> _initStepTracker() async {
+    if (kIsWeb) {
+      // ⚠️ Web browsers don't support step tracking
+      print('🌐 Web platform - step tracking not supported');
+      return;
+    }
     if (_stepTrackerStarting) return;
     _stepTrackerStarting = true;
     _flushPendingStepSave();
@@ -168,7 +176,10 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           await health.hasPermissions(types, permissions: permissions) ?? false;
       final granted = hasPermission ||
           await health.requestAuthorization(types, permissions: permissions);
-      if (!granted) return false;
+      if (!granted) {
+        print('⚠️ Health permission denied');
+        return false;
+      }
 
       final ok = await _fetchHealthSteps();
       if (!ok) return false;
@@ -181,12 +192,15 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         });
       }
       _healthPollTimer?.cancel();
+      // ✅ Poll every 60 seconds for updated steps from Health API
+      // This works even when app is in background
       _healthPollTimer = Timer.periodic(
         const Duration(seconds: 60),
         (_) => _fetchHealthSteps(),
       );
       return true;
     } catch (_) {
+      print('❌ Health API failed: $_');
       return false;
     }
   }
@@ -287,11 +301,13 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   Future<void> _saveTodaySteps() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
-    if (todaySteps == _lastSavedSteps) return;
+    // ✅ Always save if steps changed OR if steps are 0 (to ensure record exists)
+    if (todaySteps == _lastSavedSteps && todaySteps > 0) return;
     final logDate = _todayKey();
     final ok = await _upsertStepLog(userId, logDate, todaySteps);
     final prefs = await SharedPreferences.getInstance();
     if (!ok) {
+      // ✅ Store pending save locally (works even if app is killed)
       await prefs.setString('pending_step_log_date', logDate);
       await prefs.setInt('pending_step_log_value', todaySteps);
     } else {
@@ -349,37 +365,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
 
-      final response = await Supabase.instance.client
-          .from('member_streaks')
-          .select('is_streak_met')
-          .eq('member_id', userId)
-          .order('date', ascending: false);
-
-      int streak = 0;
-      bool streakActive = false;
-
-      for (final record in response) {
-        if (!streakActive) {
-          // First record (today) must be a success for streak to exist
-          if (record['is_streak_met'] == true) {
-            streakActive = true;
-            streak = 1;
-          } else {
-            // Today failed, no active streak
-            break;
-          }
-        } else {
-          // We're in an active streak, count consecutive successes
-          if (record['is_streak_met'] == true) {
-            streak++;
-          } else {
-            break; // Streak broken
-          }
-        }
-      }
+      final streak = await Supabase.instance.client
+          .rpc('get_current_streak', params: {'p_member_id': userId});
 
       setState(() {
-        currentStreak = streak;
+        currentStreak = (streak as int?) ?? 0;
         isLoadingStreak = false;
       });
     } catch (e) {

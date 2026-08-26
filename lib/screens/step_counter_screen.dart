@@ -75,6 +75,18 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
       final todayKey = _fmt(today);
       if (widget.liveTodaySteps > (map[todayKey] ?? 0)) {
         map[todayKey] = widget.liveTodaySteps;
+        // ✅ Save today's steps to database when viewing step counter
+        try {
+          await Supabase.instance.client.from('step_logs').upsert({
+            'member_id': userId,
+            'log_date': todayKey,
+            'steps': widget.liveTodaySteps,
+            'updated_at': DateTime.now().toIso8601String(),
+          }, onConflict: 'member_id,log_date');
+          print('✅ StepCounterScreen: Saved $widget.liveTodaySteps steps');
+        } catch (e) {
+          print('❌ StepCounterScreen: Failed to save steps: $e');
+        }
       }
       if (mounted) {
         setState(() {

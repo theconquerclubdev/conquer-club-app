@@ -1,7 +1,7 @@
 name: conquer_club
 description: A Flutter fitness app for tracking workouts and diet.
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.1+1  # Version 2.0.1, build number 1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
