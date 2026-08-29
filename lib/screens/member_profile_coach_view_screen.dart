@@ -9,6 +9,7 @@ import 'workout_progress_screen.dart';
 import 'streaks_tab.dart';
 import 'step_counter_screen.dart';
 import 'member_progress_screen.dart';
+import '../providers/master_data_provider.dart';
 
 class MemberProfileCoachViewScreen extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -74,109 +75,65 @@ class _MemberProfileCoachViewScreenState
     try {
       final memberId = widget.member['id'];
 
-      // 1. Fetch profile info directly from Supabase to guarantee fresh data
-      final profileData = await Supabase.instance.client
-          .from('profiles')
-          .select('height_cm, membership_end_date, step_goal')
-          .eq('id', memberId)
-          .maybeSingle();
+      // ✅ Use MasterDataProvider (single source of truth)
+      final dashboardData = await MasterDataProvider.instance
+          .fetchMemberData(memberId, force: true);
 
-      // 2. Fetch RPC for remaining calculations
-      Map<String, dynamic> data = {};
-      try {
-        final response = await Supabase.instance.client.rpc(
-          'get_member_full_profile',
-          params: {'p_member_id': memberId},
-        );
-        if (response != null && response is Map<String, dynamic>) {
-          data = response;
-        }
-      } catch (e) {
-        debugPrint('RPC error: $e');
-      }
+      final profile = dashboardData.profile;
 
-      final profile =
-          (data['profile'] as Map<String, dynamic>?) ?? profileData ?? {};
+      // Current Weight - Safe fallback parsing
+      currentWeight = dashboardData.currentWeight ??
+          (dashboardData.measurements?['weight_kg'] as num?)?.toDouble() ??
+          (profile?['weight_kg'] as num?)?.toDouble();
 
-      // Current Weight (safe cast)
-      currentWeight = (data['current_weight'] as num?)?.toDouble();
-
-      // Height (checks direct profile first, then RPC)
-      final hVal = profileData?['height_cm'] ??
-          data['height_cm'] ??
-          profile['height_cm'];
+      // Height - Safe fallback parsing
+      final hVal = dashboardData.heightCm ?? profile?['height_cm'];
       height = (hVal != null) ? '$hVal cm' : '-- cm';
 
       // Latest Measurements
-      measurements = data['measurements'] as Map<String, dynamic>?;
+      measurements = dashboardData.measurements;
 
       // Measurement History
-      measurementHistory =
-          List<Map<String, dynamic>>.from(data['measurement_history'] ?? []);
+      measurementHistory = dashboardData.measurementHistory;
 
-      // Current Streak - Use RPC function (same as member_home_screen)
-      try {
-        final streakResult = await Supabase.instance.client
-            .rpc('get_current_streak', params: {'p_member_id': memberId});
-        currentStreak = (streakResult as int?) ?? 0;
-      } catch (e) {
-        debugPrint('Error fetching streak: $e');
-        currentStreak = 0;
-      }
+      // Current Streak - from provider
+      currentStreak = dashboardData.currentStreak;
+      debugPrint('🔍 Coach view streak: $currentStreak');
 
-      // Today's Steps - Direct query from step_logs
-      try {
-        final todayStr = DateTime.now().toIso8601String().substring(0, 10);
-        final stepLog = await Supabase.instance.client
-            .from('step_logs')
-            .select('steps')
-            .eq('member_id', memberId)
-            .eq('log_date', todayStr)
-            .maybeSingle();
-        todaySteps = (stepLog?['steps'] as num?)?.toInt() ?? 0;
-      } catch (e) {
-        debugPrint('Error fetching steps: $e');
-        todaySteps = 0;
-      }
+      // Today's Steps - from provider
+      todaySteps = dashboardData.todaySteps;
 
-      // Step Goal (prioritize direct profile query)
-      final rawStepGoal = profileData?['step_goal'] ??
-          profile['step_goal'] ??
-          widget.member['step_goal'];
-      stepGoal = (rawStepGoal as num?)?.toInt() ?? 10000;
+      // Step Goal - from provider
+      stepGoal = dashboardData.stepGoal;
       stepProgress =
           stepGoal > 0 ? (todaySteps / stepGoal).clamp(0.0, 1.0) : 0.0;
 
-      // ✅ Membership Status: checks direct profile first, then RPC profile, then widget.member
-      final endDateStr = (profileData?['membership_end_date'] ??
-          profile['membership_end_date'] ??
-          widget.member['membership_end_date']) as String?;
-
-      if (endDateStr != null && endDateStr.isNotEmpty) {
-        try {
-          final endDate = DateTime.parse(endDateStr);
-          final now = DateTime.now();
-          final todayDate = DateTime(now.year, now.month, now.day);
-          final cleanEndDate =
-              DateTime(endDate.year, endDate.month, endDate.day);
-          daysLeft = cleanEndDate.difference(todayDate).inDays;
-          isMembershipActive = daysLeft >= 0;
-        } catch (e) {
-          debugPrint('Error parsing membership date: $e');
-          isMembershipActive = false;
-        }
-      } else {
-        isMembershipActive = false;
-      }
+      // ✅ Membership Status
+      daysLeft = dashboardData.daysLeft;
+      isMembershipActive = dashboardData.isMembershipActive;
 
       // Diet Update Check
-      final latestDiet = data['latest_diet'] as Map<String, dynamic>?;
+      final latestDiet = dashboardData.latestDiet;
       if (latestDiet != null && latestDiet['updated_at'] != null) {
         try {
           final dietDate = DateTime.parse(latestDiet['updated_at']);
           dietDaysSinceUpdate = DateTime.now().difference(dietDate).inDays;
           isDietUpdateRequired = dietDaysSinceUpdate >= 7;
         } catch (_) {}
+      }
+
+      // ✅ Payments - fetched separately (not in provider yet)
+      // Keep this for now, can be moved to provider later
+      try {
+        final paymentData = await Supabase.instance.client
+            .from('payments')
+            .select('id, amount, plan_key, status, payment_date')
+            .eq('member_id', memberId)
+            .order('payment_date', ascending: false)
+            .limit(5);
+        payments = List<Map<String, dynamic>>.from(paymentData);
+      } catch (e) {
+        debugPrint('Error fetching payments: $e');
       }
 
       if (mounted) {

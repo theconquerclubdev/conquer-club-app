@@ -21,6 +21,7 @@ import 'workout_progress_screen.dart';
 import 'member_payment_sheet.dart';
 import 'streaks_tab.dart';
 import 'payments_screen.dart';
+import '../providers/master_data_provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:path_provider/path_provider.dart';
@@ -108,7 +109,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         loadProfile();
-        _loadTodayTaskStatus();
+        // ✅ _loadTodayTaskStatus is now called inside loadProfile
       }
     });
     _initStepTracker();
@@ -140,7 +141,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       // ✅ App resumed - fetch latest steps from Health API
       final now = DateTime.now();
       if (_lastResumeTime == null ||
-          now.difference(_lastResumeTime!) >= const Duration(seconds: 2)) {
+          now.difference(_lastResumeTime!) >= const Duration(seconds: 30)) {
         _lastResumeTime = now;
         // ✅ Re-initialize to fetch latest data
         _initStepTracker();
@@ -213,7 +214,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       if (mounted) {
         setState(() => todaySteps = steps);
         _stepSaveTimer?.cancel();
-        _stepSaveTimer = Timer(const Duration(seconds: 20), _saveTodaySteps);
+        _stepSaveTimer = Timer(const Duration(seconds: 60), _saveTodaySteps);
       }
       return true;
     } catch (_) {
@@ -365,16 +366,20 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
 
-      final streak = await Supabase.instance.client
-          .rpc('get_current_streak', params: {'p_member_id': userId});
+      // ✅ Use MasterDataProvider
+      final data = await MasterDataProvider.instance.fetchMemberData(userId);
 
-      setState(() {
-        currentStreak = (streak as int?) ?? 0;
-        isLoadingStreak = false;
-      });
+      if (mounted) {
+        setState(() {
+          currentStreak = data.currentStreak;
+          isLoadingStreak = false;
+        });
+      }
     } catch (e) {
       print('Error loading streak: $e');
-      setState(() => isLoadingStreak = false);
+      if (mounted) {
+        setState(() => isLoadingStreak = false);
+      }
     }
   }
 
@@ -390,59 +395,16 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
-      final now = DateTime.now();
-      final todayStr =
-          '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-      final startOfDay = DateTime(now.year, now.month, now.day).toUtc();
 
-      // Check today's task status in a single RPC call (was 3 separate queries)
-      final data = await Supabase.instance.client.rpc(
-        'get_today_task_status',
-        params: {
-          'p_member_id': userId,
-          'p_start_of_day': startOfDay.toIso8601String(),
-        },
-      );
-      final taskStatus = List<Map<String, dynamic>>.from(data).first;
-
-      final session =
-          taskStatus['workout_completed'] == true ? {'id': true} : null;
-      final measurement =
-          taskStatus['measurement_updated'] == true ? {'id': true} : null;
-      final photos = {
-        'after_front_updated_at': taskStatus['after_front_updated_at'],
-        'after_back_updated_at': taskStatus['after_back_updated_at'],
-      };
-
-      bool frontUploaded = false;
-      bool backUploaded = false;
-
-      if (photos != null) {
-        final frontDate = photos['after_front_updated_at'] != null
-            ? DateTime.tryParse(photos['after_front_updated_at'])
-            : null;
-        final backDate = photos['after_back_updated_at'] != null
-            ? DateTime.tryParse(photos['after_back_updated_at'])
-            : null;
-
-        if (frontDate != null) {
-          frontUploaded = frontDate.year == now.year &&
-              frontDate.month == now.month &&
-              frontDate.day == now.day;
-        }
-        if (backDate != null) {
-          backUploaded = backDate.year == now.year &&
-              backDate.month == now.month &&
-              backDate.day == now.day;
-        }
-      }
+      // ✅ Use MasterDataProvider (data already cached)
+      final data = await MasterDataProvider.instance.fetchMemberData(userId);
 
       if (mounted) {
         setState(() {
-          _workoutCompletedToday = session != null;
-          _measurementsUpdatedToday = measurement != null;
-          _photoStatus['front'] = frontUploaded;
-          _photoStatus['back'] = backUploaded;
+          _workoutCompletedToday = data.workoutCompletedToday;
+          _measurementsUpdatedToday = data.measurementUpdatedToday;
+          _photoStatus['front'] = data.photoFrontUpdated;
+          _photoStatus['back'] = data.photoBackUpdated;
         });
       }
     } catch (e) {
@@ -455,56 +417,75 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   Future<void> loadProfile() async {
     if (!mounted) return;
     final userId = Supabase.instance.client.auth.currentUser!.id;
-    final profile = await Supabase.instance.client
-        .from('profiles')
-        .select(
-            'full_name, assigned_coach_id, weight_kg, height_cm, goal, date_of_birth, gender, membership_end_date, step_goal, created_at')
-        .eq('id', userId)
-        .single();
 
-    fullName = profile['full_name'] ?? '';
-    final coachId = profile['assigned_coach_id'];
-    membershipEndDate = profile['membership_end_date'] ?? '';
+    try {
+      // ✅ Use MasterDataProvider for all data
+      final data = await MasterDataProvider.instance.fetchMemberData(userId);
 
-    daysLeft = _getDaysLeft(profile['membership_end_date']);
+      final profile = data.profile;
+      fullName = profile?['full_name'] ?? '';
+      membershipEndDate = profile?['membership_end_date'] ?? '';
+      daysLeft = data.daysLeft;
+      stepGoal = data.stepGoal;
+      signupDate =
+          DateTime.tryParse(profile?['created_at'] ?? '') ?? signupDate;
 
-    isMembershipActive = daysLeft > 0;
-    isMembershipExpiringSoon = daysLeft > 0 && daysLeft <= 30;
-    isNewMember = membershipEndDate.isEmpty || daysLeft <= 0;
+      isMembershipActive = data.isMembershipActive;
+      isMembershipExpiringSoon = daysLeft > 0 && daysLeft <= 30;
+      isNewMember = membershipEndDate.isEmpty || daysLeft <= 0;
 
-    stepGoal = (profile['step_goal'] as num?)?.toInt() ?? stepGoal;
-    signupDate = DateTime.tryParse(profile['created_at'] ?? '') ?? signupDate;
+      // ✅ Update state from provider data
+      setState(() {
+        currentStreak = data.currentStreak;
+        todaySteps = data.todaySteps;
+        isLoadingStreak = false;
 
-    profileComplete = (profile['full_name'] as String?)?.isNotEmpty == true &&
-        profile['weight_kg'] != null &&
-        profile['height_cm'] != null &&
-        (profile['goal'] as String?)?.isNotEmpty == true &&
-        profile['date_of_birth'] != null &&
-        (profile['gender'] as String?)?.isNotEmpty == true;
+        // ✅ Tasks
+        _workoutCompletedToday = data.workoutCompletedToday;
+        _measurementsUpdatedToday = data.measurementUpdatedToday;
+        _photoStatus['front'] = data.photoFrontUpdated;
+        _photoStatus['back'] = data.photoBackUpdated;
+      });
 
-    if (coachId != null) {
-      final coachData = await Supabase.instance.client
-          .from('profiles')
-          .select('full_name, email')
-          .eq('id', coachId)
-          .maybeSingle();
+      // ✅ Coach info
+      final coachId = profile?['assigned_coach_id'];
+      if (coachId != null) {
+        final coachData = await Supabase.instance.client
+            .from('profiles')
+            .select('full_name, email')
+            .eq('id', coachId)
+            .maybeSingle();
+        if (mounted) {
+          setState(() {
+            coach = coachData;
+          });
+        }
+      }
+
+      // ✅ Profile completion check
+      profileComplete =
+          (profile?['full_name'] as String?)?.isNotEmpty == true &&
+              profile?['weight_kg'] != null &&
+              profile?['height_cm'] != null &&
+              (profile?['goal'] as String?)?.isNotEmpty == true &&
+              profile?['date_of_birth'] != null &&
+              (profile?['gender'] as String?)?.isNotEmpty == true;
+
       if (mounted) {
         setState(() {
-          coach = coachData;
           isLoadingProfile = false;
         });
       }
-    } else {
+
+      if (!profileComplete && mounted) {
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _showCompleteProfilePrompt());
+      }
+    } catch (e) {
+      print('Error loading profile: $e');
       if (mounted) {
         setState(() => isLoadingProfile = false);
       }
-    }
-
-    await _loadStreak();
-
-    if (!profileComplete && mounted) {
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => _showCompleteProfilePrompt());
     }
   }
 
@@ -623,14 +604,26 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const PaymentsScreen()),
-    );
+    ).then((_) {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        MasterDataProvider.instance.invalidateCache(userId);
+        loadProfile();
+      }
+    });
   }
 
   void _openStreaksPage() {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const StreaksTab()),
-    ).then((_) => _loadStreak());
+    ).then((_) {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        MasterDataProvider.instance.invalidateCache(userId);
+        _loadStreak();
+      }
+    });
   }
 
   // ============================================================
@@ -650,7 +643,13 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           signupDate: signupDate,
         ),
       ),
-    ).then((_) => _loadTodayTaskStatus());
+    ).then((_) {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        MasterDataProvider.instance.invalidateCache(userId);
+        _loadTodayTaskStatus();
+      }
+    });
   }
 
   void _openMeasurements() {
@@ -658,14 +657,26 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const MeasurementsScreen()),
-    ).then((_) => _loadTodayTaskStatus());
+    ).then((_) {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        MasterDataProvider.instance.invalidateCache(userId);
+        _loadTodayTaskStatus();
+      }
+    });
   }
 
   void _openProgressPhotos() {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const MemberProgressScreen()),
-    ).then((_) => _loadTodayTaskStatus());
+    ).then((_) {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        MasterDataProvider.instance.invalidateCache(userId);
+        _loadTodayTaskStatus();
+      }
+    });
   }
 
   // ============================================================

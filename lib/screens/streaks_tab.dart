@@ -4,6 +4,7 @@ import 'package:flutter/rendering.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import '../providers/master_data_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 // Simple StreakModel defined inline
@@ -164,11 +165,11 @@ class _StreaksTabState extends State<StreaksTab> {
         'updated_at': DateTime.now().toIso8601String(),
       }, onConflict: 'member_id,date');
 
-      // 2. Fetch current streak from the exact same SQL RPC function
-      final rpcStreak = await Supabase.instance.client
-          .rpc('get_current_streak', params: {'p_member_id': userId});
-      final int currentStreak = (rpcStreak as int?) ?? 0;
-      print('🔍 RPC currentStreak: $currentStreak');
+      // 2. Get current streak from MasterDataProvider (single source of truth)
+      // ✅ Force refresh to get the newly upserted streak data
+      final dashboardData = await MasterDataProvider.instance.fetchMemberData(userId, force: true);
+      final int currentStreak = dashboardData.currentStreak;
+      print('🔍 MasterDataProvider currentStreak: $currentStreak');
 
       // 3. Get history for UI cards & highest streak
       final response = await Supabase.instance.client
