@@ -59,4 +59,39 @@ class CacheManager {
       await prefs.remove(_membersTimestampKey);
     } catch (_) {}
   }
+
+  /// Generic cache save for static reference data (foods, coaches, etc)
+  static Future<void> saveGeneric(
+    String key,
+    List<Map<String, dynamic>> data, {
+    Duration duration = const Duration(hours: 1),
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(key, jsonEncode(data));
+      await prefs.setString(
+          '${key}_timestamp', DateTime.now().toIso8601String());
+      await prefs.setInt('${key}_duration_minutes', duration.inMinutes);
+    } catch (_) {}
+  }
+
+  /// Generic cache read for static reference data (foods, coaches, etc)
+  static Future<List<Map<String, dynamic>>?> getGeneric(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = prefs.getString(key);
+      final timestamp = prefs.getString('${key}_timestamp');
+      final durationMinutes = prefs.getInt('${key}_duration_minutes') ?? 60;
+      if (jsonString == null || timestamp == null) return null;
+      final cachedTime = DateTime.parse(timestamp);
+      if (DateTime.now().difference(cachedTime) >
+          Duration(minutes: durationMinutes)) {
+        return null;
+      }
+      final List<dynamic> decoded = jsonDecode(jsonString);
+      return decoded.map((e) => Map<String, dynamic>.from(e)).toList();
+    } catch (_) {
+      return null;
+    }
+  }
 }

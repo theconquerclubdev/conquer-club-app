@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import '../utils/cache_manager.dart';
 import 'diet_preview_page.dart';
 // import 'package:reorderables/reorderables.dart'; // Temporarily disabled
 
@@ -1627,10 +1628,19 @@ class _FoodPickerSheetState extends State<_FoodPickerSheet> {
   }
 
   Future<void> load() async {
-    final data =
-        await Supabase.instance.client.from('foods').select().order('name');
+    List<Map<String, dynamic>> data;
+    final cached = await CacheManager.getGeneric('cached_foods');
+    if (cached != null) {
+      data = cached;
+    } else {
+      final fresh =
+          await Supabase.instance.client.from('foods').select().order('name');
+      data = List<Map<String, dynamic>>.from(fresh);
+      await CacheManager.saveGeneric('cached_foods', data,
+          duration: const Duration(hours: 1));
+    }
     setState(() {
-      allFoods = List<Map<String, dynamic>>.from(data);
+      allFoods = data;
       for (final f in allFoods) {
         foodById[f['id']] = f;
         final baseQty = (f['base_quantity'] as num).toDouble();

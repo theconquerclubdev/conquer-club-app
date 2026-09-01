@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import '../utils/cache_manager.dart';
 
 class MemberDetailScreen extends StatefulWidget {
   final Map member;
@@ -20,8 +21,20 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     selectedCoachId = widget.member['assigned_coach_id'];
     // Fetched ONCE here instead of inline in build() — see coach_detail_screen.dart
     // for why that's a real perceived-speed bug (re-fetches on every rebuild).
-    _coachesFuture =
-        Supabase.instance.client.from('profiles').select().eq('role', 'coach');
+    _coachesFuture = _loadCoaches();
+  }
+
+  Future<List<dynamic>> _loadCoaches() async {
+    final cached = await CacheManager.getGeneric('cached_coaches');
+    if (cached != null) return cached;
+    final fresh = await Supabase.instance.client
+        .from('profiles')
+        .select()
+        .eq('role', 'coach');
+    final data = List<Map<String, dynamic>>.from(fresh);
+    await CacheManager.saveGeneric('cached_coaches', data,
+        duration: const Duration(hours: 1));
+    return data;
   }
 
   Future<void> resetPassword() async {
