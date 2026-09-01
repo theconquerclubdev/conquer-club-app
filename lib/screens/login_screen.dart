@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
@@ -20,6 +21,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool isLoading = false;
   bool _obscurePassword = true;
   String? errorMessage;
+  bool _isResetting = false;
 
   Future<void> login() async {
     setState(() {
@@ -77,6 +79,172 @@ class _LoginScreenState extends State<LoginScreen> {
         isLoading = false;
       });
     }
+  }
+
+  void _showResetPasswordDialog() {
+    final emailCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text(
+          'Reset Password',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter your registered email address to receive a password reset link.',
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: emailCtrl,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Email',
+                labelStyle: TextStyle(color: Colors.grey),
+                prefixIcon: Icon(Icons.email_outlined, color: Colors.grey),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.all(Radius.circular(12)),
+                ),
+              ),
+              keyboardType: TextInputType.emailAddress,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: _isResetting
+                ? null
+                : () => _sendResetEmail(emailCtrl.text.trim(), context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.gold,
+              foregroundColor: Colors.black,
+            ),
+            child: _isResetting
+                ? const SizedBox(
+                    height: 20,
+                    width: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.black,
+                    ),
+                  )
+                : const Text('SEND RESET LINK'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _sendResetEmail(String email, BuildContext dialogContext) async {
+    if (email.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your email address')),
+      );
+      return;
+    }
+
+    setState(() => _isResetting = true);
+
+    try {
+      // Platform-specific redirect URLs
+      String? redirectUrl;
+
+      if (kIsWeb) {
+        // Web: use your web app URL
+        redirectUrl = 'https://main.conquer-club-app.pages.dev';
+      } else {
+        // Mobile (Android/iOS): use deep link scheme
+        redirectUrl = 'conquerclub://reset-password';
+      }
+
+      await Supabase.instance.client.auth.resetPasswordForEmail(
+        email,
+        redirectTo: redirectUrl,
+      );
+
+      if (mounted) {
+        Navigator.pop(dialogContext);
+        _showResetSuccessDialog();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to send reset email: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } finally {
+      setState(() => _isResetting = false);
+    }
+  }
+
+  void _showResetSuccessDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text(
+          'Check Your Email',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.email_outlined,
+              color: AppColors.gold,
+              size: 48,
+            ),
+            SizedBox(height: 12),
+            Text(
+              'We\'ve sent a password reset link to your email address.\n\nPlease check your inbox and follow the instructions to reset your password.',
+              style: TextStyle(color: Colors.grey, fontSize: 14),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.gold,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -204,7 +372,18 @@ class _LoginScreenState extends State<LoginScreen> {
                         onPressed: login,
                         child: const Text('LOGIN'),
                       ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: _showResetPasswordDialog,
+                  child: const Text(
+                    'Forgot Password?',
+                    style: TextStyle(
+                      color: AppColors.grey,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
                 TextButton(
                   onPressed: () {
                     Navigator.push(

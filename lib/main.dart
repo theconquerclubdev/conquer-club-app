@@ -4,12 +4,14 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:app_links/app_links.dart';
 import 'screens/login_screen.dart';
 import 'screens/get_started_screen.dart';
 import 'screens/coach_home_screen.dart';
 import 'screens/member_home_screen.dart';
 import 'screens/admin_home_screen.dart';
 import 'screens/onboarding_screen.dart';
+import 'screens/reset_password_screen.dart';
 import 'theme/app_theme.dart';
 
 // ✅ Define your current app build version
@@ -55,6 +57,9 @@ class ResponsiveContent extends StatelessWidget {
   }
 }
 
+// Global navigator key for deep link handling
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -76,6 +81,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Conquer Club',
+      navigatorKey: navigatorKey,
       theme: ThemeData(
         brightness: Brightness.dark,
         primaryColor: Colors.orange,
@@ -146,6 +152,7 @@ class AuthWrapper extends StatefulWidget {
 class _AuthWrapperState extends State<AuthWrapper> {
   bool _isLoading = true;
   Widget? _initialScreen;
+  AppLinks? _appLinks;
 
   static const String _currentVersion = '2.0.0';
 
@@ -153,6 +160,67 @@ class _AuthWrapperState extends State<AuthWrapper> {
   void initState() {
     super.initState();
     _checkAuth();
+    _initDeepLinks();
+  }
+
+  Future<void> _initDeepLinks() async {
+    try {
+      _appLinks = AppLinks();
+
+      // Handle initial link (app opened via deep link)
+      final initialLink = await _appLinks!.getInitialLink();
+      if (initialLink != null) {
+        _handleDeepLink(initialLink);
+      }
+
+      // Listen for future deep links
+      _appLinks!.uriLinkStream.listen(
+        (Uri uri) {
+          _handleDeepLink(uri);
+        },
+        onError: (err) {
+          print('Error listening to deep links: $err');
+        },
+      );
+    } catch (e) {
+      print('Error initializing deep links: $e');
+    }
+  }
+
+  void _handleDeepLink(Uri uri) {
+    // Check if it's a password reset link
+    final link = uri.toString();
+    if (link.contains('reset-password')) {
+      try {
+        final fragment = uri.fragment;
+
+        // Parse the fragment parameters (access_token=xyz&refresh_token=abc)
+        final params = <String, String>{};
+        if (fragment.isNotEmpty) {
+          for (final pair in fragment.split('&')) {
+            final parts = pair.split('=');
+            if (parts.length == 2) {
+              params[parts[0]] = parts[1];
+            }
+          }
+        }
+
+        final accessToken = params['access_token'];
+        if (accessToken != null && accessToken.isNotEmpty) {
+          // Navigate to reset password screen
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            navigatorKey.currentState?.pushReplacement(
+              MaterialPageRoute(
+                builder: (context) =>
+                    ResetPasswordScreen(accessToken: accessToken),
+              ),
+            );
+          });
+        }
+      } catch (e) {
+        print('Error handling deep link: $e');
+      }
+    }
   }
 
   Future<void> _checkAuth() async {
@@ -164,7 +232,47 @@ class _AuthWrapperState extends State<AuthWrapper> {
       return;
     }
 
+    // ✅ Handle web deep links (password reset)
+    if (kIsWeb) {
+      final uri = Uri.base;
+      print('🔍 Web URL: $uri');
+      print('🔍 Fragment: ${uri.fragment}');
+      print('🔍 Query: ${uri.queryParameters}');
+
+      String? accessToken;
+
+      // First check fragment (for deep links)
+      final fragment = uri.fragment;
+      if (fragment.contains('access_token')) {
+        final params = <String, String>{};
+        for (final pair in fragment.split('&')) {
+          final parts = pair.split('=');
+          if (parts.length == 2) {
+            params[parts[0]] = parts[1];
+          }
+        }
+        accessToken = params['access_token'];
+      }
+
+      // If not in fragment, check query parameters (for direct URL)
+      if (accessToken == null || accessToken.isEmpty) {
+        final query = uri.queryParameters;
+        accessToken = query['access_token'];
+      }
+
+      if (accessToken != null && accessToken.isNotEmpty) {
+        // Show reset screen immediately
+        setState(() {
+          _initialScreen = ResetPasswordScreen(accessToken: accessToken);
+          _isLoading = false;
+        });
+        return;
+      }
+    }
+
+    // ✅ Also check if we have a reset token in the session
     try {
+      // Check if there's a pending recovery from the URL
       final session = Supabase.instance.client.auth.currentSession;
 
       if (session != null) {

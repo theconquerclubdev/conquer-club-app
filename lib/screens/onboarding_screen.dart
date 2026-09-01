@@ -71,9 +71,33 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
   Future<void> _saveProfile() async {
     final fullName = _fullNameController.text.trim();
+    final phone = _phoneController.text.trim();
+    final height = _heightController.text.trim();
+    final weight = _weightController.text.trim();
+    final goal = _goalController.text.trim();
 
     if (fullName.isEmpty) {
       setState(() => _errorMessage = 'Please enter your full name');
+      return;
+    }
+
+    if (phone.isEmpty) {
+      setState(() => _errorMessage = 'Please enter your phone number');
+      return;
+    }
+
+    if (height.isEmpty) {
+      setState(() => _errorMessage = 'Please enter your height');
+      return;
+    }
+
+    if (weight.isEmpty) {
+      setState(() => _errorMessage = 'Please enter your weight');
+      return;
+    }
+
+    if (goal.isEmpty) {
+      setState(() => _errorMessage = 'Please enter your goal');
       return;
     }
 
@@ -97,14 +121,10 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
       await Supabase.instance.client.from('profiles').update({
         'full_name': fullName,
-        'phone': _phoneController.text.trim().isEmpty
-            ? null
-            : _phoneController.text.trim(),
-        'height_cm': double.tryParse(_heightController.text.trim()),
-        'weight_kg': double.tryParse(_weightController.text.trim()),
-        'goal': _goalController.text.trim().isEmpty
-            ? null
-            : _goalController.text.trim(),
+        'phone': phone,
+        'height_cm': double.tryParse(height),
+        'weight_kg': double.tryParse(weight),
+        'goal': goal,
         'date_of_birth':
             '${_dob!.year.toString().padLeft(4, '0')}-${_dob!.month.toString().padLeft(2, '0')}-${_dob!.day.toString().padLeft(2, '0')}',
         'gender': _gender,
@@ -224,7 +244,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         keyboardType: TextInputType.phone,
                         style: const TextStyle(color: Colors.white),
                         decoration: const InputDecoration(
-                          labelText: 'Phone Number',
+                          labelText: 'Phone Number *',
                           labelStyle: TextStyle(color: Colors.grey),
                           prefixIcon:
                               Icon(Icons.phone_outlined, color: Colors.grey),
@@ -398,7 +418,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               ),
                               style: const TextStyle(color: Colors.white),
                               decoration: const InputDecoration(
-                                labelText: 'Height (cm)',
+                                labelText: 'Height (cm) *',
                                 labelStyle: TextStyle(color: Colors.grey),
                                 prefixIcon:
                                     Icon(Icons.height, color: Colors.grey),
@@ -422,7 +442,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               ),
                               style: const TextStyle(color: Colors.white),
                               decoration: const InputDecoration(
-                                labelText: 'Weight (kg)',
+                                labelText: 'Weight (kg) *',
                                 labelStyle: TextStyle(color: Colors.grey),
                                 prefixIcon: Icon(Icons.monitor_weight_outlined,
                                     color: Colors.grey),
@@ -471,7 +491,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         style: const TextStyle(color: Colors.white),
                         maxLines: 2,
                         decoration: const InputDecoration(
-                          labelText: 'Your Goal (e.g. Fat Loss, Muscle Gain)',
+                          labelText: 'Your Goal (e.g. Fat Loss, Muscle Gain) *',
                           labelStyle: TextStyle(color: Colors.grey),
                           prefixIcon:
                               Icon(Icons.flag_outlined, color: Colors.grey),
