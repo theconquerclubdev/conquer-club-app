@@ -22,7 +22,7 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
     // causing repeated spinners/lag. Caching it here fixes that.
     _assignedMembersFuture = Supabase.instance.client
         .from('profiles')
-        .select()
+        .select('id, full_name, email')
         .eq('assigned_coach_id', widget.coach['id']);
   }
 
