@@ -1,4 +1,5 @@
 ﻿# update.ps1 - Simplified auto-deployment
+#Requires -Version 5.0
 
 Write-Host "🚀 Auto-deploy started..." -ForegroundColor Yellow
 

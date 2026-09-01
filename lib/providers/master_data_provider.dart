@@ -47,6 +47,20 @@ class MemberDashboardData {
     final profileMap = json['profile'] as Map<String, dynamic>?;
     final tasksMap = json['tasks_today'] as Map<String, dynamic>?;
 
+    // Ensure membership fields are set in profile
+    if (profileMap != null) {
+      // If days_left is not in profile, add it from the main json
+      if (!profileMap.containsKey('days_left') ||
+          profileMap['days_left'] == null) {
+        profileMap['days_left'] = json['days_left'] ?? -1;
+      }
+      if (!profileMap.containsKey('is_membership_active') ||
+          profileMap['is_membership_active'] == null) {
+        profileMap['is_membership_active'] =
+            json['is_membership_active'] ?? false;
+      }
+    }
+
     return MemberDashboardData(
       memberId: memberId,
       currentStreak: (json['current_streak'] as num?)?.toInt() ?? 0,
@@ -73,9 +87,44 @@ class MemberDashboardData {
   // Common Field Getters
   String get fullName => profile?['full_name'] ?? 'Member';
   String get email => profile?['email'] ?? '';
-  int get daysLeft => (profile?['days_left'] as num?)?.toInt() ?? -1;
-  bool get isMembershipActive =>
-      profile?['is_membership_active'] == true || daysLeft >= 0;
+  int get daysLeft {
+    // Try to get days_left from profile first
+    final days = (profile?['days_left'] as num?)?.toInt();
+    if (days != null && days != -1) return days;
+
+    // If not found, calculate from membership_end_date
+    final endDate = profile?['membership_end_date'] as String?;
+    if (endDate != null && endDate.isNotEmpty) {
+      try {
+        final end = DateTime.parse(endDate);
+        final diff = end.difference(DateTime.now()).inDays;
+        return diff;
+      } catch (_) {
+        return -1;
+      }
+    }
+    return -1;
+  }
+
+  bool get isMembershipActive {
+    // First check the RPC flag
+    if (profile?['is_membership_active'] == true) return true;
+
+    // Then check calculated days
+    if (daysLeft >= 0) return true;
+
+    // Finally check membership_end_date directly
+    final endDate = profile?['membership_end_date'] as String?;
+    if (endDate != null && endDate.isNotEmpty) {
+      try {
+        final end = DateTime.parse(endDate);
+        return end.isAfter(DateTime.now());
+      } catch (_) {
+        return false;
+      }
+    }
+    return false;
+  }
 
   // Task Status Getters
   bool get workoutCompletedToday => tasksToday?['workout_completed'] == true;
@@ -157,7 +206,26 @@ class MasterDataProvider extends ChangeNotifier {
       );
 
       if (response == null) {
-        throw Exception('No data returned for member: $memberId');
+        // Return a default dashboard with membership expired
+        final fallback = MemberDashboardData(
+          memberId: memberId,
+          currentStreak: 0,
+          todaySteps: 0,
+          stepGoal: 10000,
+          profile: {
+            'id': memberId,
+            'full_name': 'Unknown',
+            'email': '',
+            'is_active': true,
+            'days_left': -1,
+            'is_membership_active': false,
+            'membership_end_date': null,
+          },
+          fetchedAt: DateTime.now(),
+        );
+        _cache[memberId] = fallback;
+        _cacheTimestamps[memberId] = DateTime.now();
+        return fallback;
       }
 
       final data = Map<String, dynamic>.from(response as Map);
@@ -169,10 +237,30 @@ class MasterDataProvider extends ChangeNotifier {
 
       return dashboardData;
     } catch (e) {
+      // If cache exists, return it
       if (_cache.containsKey(memberId)) {
         return _cache[memberId]!;
       }
-      rethrow;
+
+      // Return a fallback with expired membership
+      final fallback = MemberDashboardData(
+        memberId: memberId,
+        currentStreak: 0,
+        todaySteps: 0,
+        stepGoal: 10000,
+        profile: {
+          'id': memberId,
+          'full_name': 'Unknown',
+          'email': '',
+          'is_active': true,
+          'days_left': -1,
+          'is_membership_active': false,
+        },
+        fetchedAt: DateTime.now(),
+      );
+      _cache[memberId] = fallback;
+      _cacheTimestamps[memberId] = DateTime.now();
+      return fallback;
     }
   }
 
@@ -234,6 +322,19 @@ class MasterDataProvider extends ChangeNotifier {
   bool get hasCacheData => _cache.isNotEmpty;
   int get cacheSize => _cache.length;
   List<String> get cachedMemberIds => _cache.keys.toList();
+
+  // Debug method to check membership status
+  void debugMembership(String memberId) {
+    final data = _cache[memberId];
+    if (data == null) {
+      print('🔍 No cached data for member: $memberId');
+      return;
+    }
+    print('🔍 Member: ${data.fullName}');
+    print('🔍 Days Left: ${data.daysLeft}');
+    print('🔍 Is Active: ${data.isMembershipActive}');
+    print('🔍 End Date: ${data.profile?['membership_end_date']}');
+  }
 }
 
 extension MasterDataProviderExtension on BuildContext {
