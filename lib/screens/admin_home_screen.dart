@@ -20,6 +20,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
   final List<Widget> _tabs = const [
     AdminDashboardTab(),
     AdminMembersTab(),
+    AdminPaymentsTab(),
     AdminCoachesTab(),
     AdminSettingsTab(),
   ];
@@ -27,6 +28,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
   final List<String> _tabLabels = [
     'Dashboard',
     'Members',
+    'Payments',
     'Coaches',
     'Settings',
   ];
@@ -34,7 +36,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
   @override
   void initState() {
     super.initState();
-    tabController = TabController(length: 4, vsync: this, initialIndex: 0);
+    tabController = TabController(length: 5, vsync: this, initialIndex: 0);
   }
 
   @override
@@ -111,6 +113,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
   int dietChangesToday = 0;
   int dietChangesTomorrow = 0;
   int dietChangesOverdue = 0;
+  int pendingPaymentsCount = 0;
 
   @override
   void initState() {
@@ -129,6 +132,19 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
       // ✅ SINGLE RPC CALL — replaces 4 separate queries!
       final result = await Supabase.instance.client.rpc('get_dashboard_stats');
 
+      // Pending payment count (kept separate from the RPC so a failure
+      // here never blocks the rest of the dashboard from loading).
+      int pendingCount = 0;
+      try {
+        final pending = await Supabase.instance.client
+            .from('payments')
+            .select('id')
+            .eq('status', 'pending');
+        pendingCount = (pending as List).length;
+      } catch (e) {
+        print('Error loading pending payments count: $e');
+      }
+
       if (mounted) {
         setState(() {
           activeMembers = result['active_members'] ?? 0;
@@ -143,6 +159,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
           dietChangesToday = result['diet_due_today'] ?? 0;
           dietChangesTomorrow = result['diet_due_tomorrow'] ?? 0;
           dietChangesOverdue = result['diet_overdue'] ?? 0;
+          pendingPaymentsCount = pendingCount;
           isLoading = false;
         });
       }
@@ -172,6 +189,31 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (pendingPaymentsCount > 0)
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.pending_actions, color: Colors.orange),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '$pendingPaymentsCount payment${pendingPaymentsCount == 1 ? '' : 's'} waiting for verification — check the Payments tab',
+                        style: const TextStyle(
+                            color: Colors.orange,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             Row(
               children: [
                 _StatCard(
@@ -1806,6 +1848,332 @@ class _CoachSettingsSheetState extends State<CoachSettingsSheet> {
           ],
         ),
       ),
+    );
+  }
+}
+
+// ============================================================
+// PAYMENTS TAB — verify member-submitted payments before
+// membership dates are ever written to profiles.
+// ============================================================
+class AdminPaymentsTab extends StatefulWidget {
+  const AdminPaymentsTab({super.key});
+
+  @override
+  State<AdminPaymentsTab> createState() => _AdminPaymentsTabState();
+}
+
+class _AdminPaymentsTabState extends State<AdminPaymentsTab> {
+  bool isLoading = true;
+  List<Map<String, dynamic>> pendingPayments = [];
+  final Set<String> _processingIds = {};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadPending();
+    });
+  }
+
+  Future<void> _loadPending() async {
+    if (!mounted) return;
+    setState(() => isLoading = true);
+    try {
+      final result = await Supabase.instance.client
+          .from('payments')
+          .select(
+              'id, member_id, amount, plan_key, months, payment_date, notes, '
+              'start_date, end_date, is_cash, offer_used, '
+              'profiles!payments_member_id_fkey(full_name, email)')
+          .eq('status', 'pending')
+          .order('payment_date', ascending: true);
+
+      if (mounted) {
+        setState(() {
+          pendingPayments = List<Map<String, dynamic>>.from(result);
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading pending payments: $e');
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _verifyPayment(Map<String, dynamic> payment) async {
+    final paymentId = payment['id'] as String;
+    final memberId = payment['member_id'] as String;
+    setState(() => _processingIds.add(paymentId));
+    try {
+      final adminId = Supabase.instance.client.auth.currentUser!.id;
+
+      // 1. Mark the payment verified
+      await Supabase.instance.client.from('payments').update({
+        'status': 'completed',
+        'verified_at': DateTime.now().toIso8601String(),
+        'verified_by': adminId,
+      }).eq('id', paymentId);
+
+      // 2. Only now does the membership actually get extended
+      await Supabase.instance.client.from('profiles').update({
+        'membership_start_date': payment['start_date'],
+        'membership_end_date': payment['end_date'],
+      }).eq('id', memberId);
+
+      if (mounted) {
+        setState(() {
+          pendingPayments.removeWhere((p) => p['id'] == paymentId);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Payment verified — membership activated'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to verify payment: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _processingIds.remove(paymentId));
+    }
+  }
+
+  Future<void> _rejectPayment(Map<String, dynamic> payment) async {
+    final paymentId = payment['id'] as String;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: const Text('Reject payment?',
+            style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'This member will not be marked as paid and their membership will not change.',
+          style: TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reject', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _processingIds.add(paymentId));
+    try {
+      final adminId = Supabase.instance.client.auth.currentUser!.id;
+      await Supabase.instance.client.from('payments').update({
+        'status': 'rejected',
+        'verified_at': DateTime.now().toIso8601String(),
+        'verified_by': adminId,
+      }).eq('id', paymentId);
+
+      if (mounted) {
+        setState(() {
+          pendingPayments.removeWhere((p) => p['id'] == paymentId);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Payment rejected')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to reject payment: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _processingIds.remove(paymentId));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.gold),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadPending,
+      color: AppColors.gold,
+      backgroundColor: AppColors.cardDark,
+      child: pendingPayments.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 120),
+                Icon(Icons.check_circle_outline,
+                    color: Colors.grey, size: 48),
+                SizedBox(height: 12),
+                Center(
+                  child: Text(
+                    'No payments waiting for verification',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              ],
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemCount: pendingPayments.length,
+              itemBuilder: (context, index) {
+                final p = pendingPayments[index];
+                final profile = p['profiles'] as Map<String, dynamic>?;
+                final name = profile?['full_name'] ?? 'Unknown member';
+                final email = profile?['email'] ?? '';
+                final date = DateTime.tryParse(p['payment_date'] ?? '');
+                final isBusy = _processingIds.contains(p['id']);
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.cardDark,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                if (email.isNotEmpty)
+                                  Text(
+                                    email,
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 12),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            '₹${(p['amount'] as num).toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              color: AppColors.gold,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 4,
+                        children: [
+                          _InfoChip(
+                              icon: Icons.calendar_today,
+                              label: '${p['plan_key']} (${p['months']}mo)'),
+                          if (date != null)
+                            _InfoChip(
+                              icon: Icons.schedule,
+                              label:
+                                  'Submitted ${date.day}/${date.month}/${date.year}',
+                            ),
+                          if (p['offer_used'] != null)
+                            _InfoChip(
+                                icon: Icons.local_offer,
+                                label: p['offer_used']),
+                        ],
+                      ),
+                      if (p['notes'] != null &&
+                          (p['notes'] as String).trim().isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          '"${p['notes']}"',
+                          style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed:
+                                  isBusy ? null : () => _rejectPayment(p),
+                              icon: const Icon(Icons.close,
+                                  color: Colors.red, size: 18),
+                              label: const Text('Reject',
+                                  style: TextStyle(color: Colors.red)),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.red),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed:
+                                  isBusy ? null : () => _verifyPayment(p),
+                              icon: isBusy
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2, color: Colors.black),
+                                    )
+                                  : const Icon(Icons.check,
+                                      color: Colors.black, size: 18),
+                              label: const Text('Verify & Activate'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.gold,
+                                foregroundColor: Colors.black,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _InfoChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: Colors.grey),
+        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+      ],
     );
   }
 }

@@ -5,8 +5,15 @@ import '../models/streak_model.dart';
 class StreakService {
   static const String _table = 'member_streaks';
 
+  /// NOTE: This service is not currently wired into the app — the live
+  /// streak write path is the `update_daily_member_streaks` Postgres
+  /// function (cron) plus `streaks_tab.dart`. Kept fixed and IST-consistent
+  /// here so it isn't a trap if it ever gets wired in later.
+  DateTime _istNow() =>
+      DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+
   Future<void> checkAndUpdateStreak(String memberId) async {
-    final today = DateTime.now();
+    final today = _istNow();
     final isSunday = today.weekday == DateTime.sunday;
     final dateStr = today.toIso8601String().split('T').first;
 
@@ -24,7 +31,7 @@ class StreakService {
     final stepsCount = await _getStepsCount(memberId, today);
     final stepGoal = await _getStepGoal(memberId);
     final isStepsCompleted = stepsCount >= stepGoal;
-    final isPhotosUploaded = await _checkPhotosUploaded(memberId);
+    final isPhotosUploaded = await _checkPhotosUploaded(memberId, today);
     final isMeasurementsUpdated =
         await _checkMeasurementsUpdated(memberId, today);
 
@@ -121,15 +128,30 @@ class StreakService {
     return profile?['step_goal'] ?? 10000;
   }
 
-  Future<bool> _checkPhotosUploaded(String memberId) async {
+  Future<bool> _checkPhotosUploaded(String memberId, DateTime date) async {
+    final startOfDay = DateTime(date.year, date.month, date.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+
     final photos = await Supabase.instance.client
         .from('member_progress_photos')
-        .select('after_front, after_back')
+        .select('after_front_updated_at, after_back_updated_at')
         .eq('member_id', memberId)
         .maybeSingle();
 
     if (photos == null) return false;
-    return photos['after_front'] != null && photos['after_back'] != null;
+    final front = photos['after_front_updated_at'] != null
+        ? DateTime.tryParse(photos['after_front_updated_at'])
+        : null;
+    final back = photos['after_back_updated_at'] != null
+        ? DateTime.tryParse(photos['after_back_updated_at'])
+        : null;
+
+    return front != null &&
+        !front.isBefore(startOfDay) &&
+        front.isBefore(endOfDay) &&
+        back != null &&
+        !back.isBefore(startOfDay) &&
+        back.isBefore(endOfDay);
   }
 
   Future<bool> _checkMeasurementsUpdated(String memberId, DateTime date) async {
@@ -148,23 +170,37 @@ class StreakService {
   }
 
   Future<int> getCurrentStreak(String memberId) async {
-    final today = DateTime.now();
-    var streakCount = 0;
-    var currentDate = today;
+    final today = _istNow();
 
-    while (true) {
-      final dateStr = currentDate.toIso8601String().split('T').first;
+    Future<bool> metOn(DateTime date) async {
+      final dateStr = date.toIso8601String().split('T').first;
       final result = await Supabase.instance.client
           .from(_table)
           .select('is_streak_met')
           .eq('member_id', memberId)
           .eq('date', dateStr)
           .maybeSingle();
+      return result != null && result['is_streak_met'] == true;
+    }
 
-      if (result == null || result['is_streak_met'] != true) {
-        break;
+    // Grace period: "today" won't have a row until the nightly cron runs
+    // (or the tab has been opened today), so a missing/unmet today should
+    // fall back to checking yesterday rather than reporting 0 outright.
+    DateTime currentDate;
+    var streakCount = 0;
+    if (await metOn(today)) {
+      streakCount = 1;
+      currentDate = today.subtract(const Duration(days: 1));
+    } else {
+      final yesterday = today.subtract(const Duration(days: 1));
+      if (!await metOn(yesterday)) {
+        return 0;
       }
+      streakCount = 1;
+      currentDate = yesterday.subtract(const Duration(days: 1));
+    }
 
+    while (await metOn(currentDate)) {
       streakCount++;
       currentDate = currentDate.subtract(const Duration(days: 1));
     }

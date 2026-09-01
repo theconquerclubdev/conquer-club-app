@@ -5,7 +5,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 
 class WorkoutProgressScreen extends StatefulWidget {
-  const WorkoutProgressScreen({super.key});
+  // Optional: pass this when a coach/admin is viewing a specific
+  // member's progress. If omitted, defaults to the logged-in user
+  // (unchanged behaviour for the member's own "My Progress" screen).
+  final String? memberId;
+
+  const WorkoutProgressScreen({super.key, this.memberId});
 
   @override
   State<WorkoutProgressScreen> createState() => _WorkoutProgressScreenState();
@@ -63,7 +68,8 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
       _errorMessage = null;
     });
     try {
-      final userId = Supabase.instance.client.auth.currentUser?.id;
+      final userId =
+          widget.memberId ?? Supabase.instance.client.auth.currentUser?.id;
       if (userId == null) {
         if (mounted) {
           setState(() {
@@ -97,234 +103,96 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
   Future<List<Map<String, dynamic>>> _getStrengthRecords(String userId) async {
     final List<Map<String, dynamic>> records = [];
 
-    // OPTIMIZATION: Get all exercise names we need in one query
-    final allExerciseNames = _trackedExercises
-        .expand((e) => (e['dbNames'] as List).map((v) => v['name'] as String))
-        .toList();
-
-    // Single query to get all exercise IDs
-    final allExercises = await Supabase.instance.client
-        .from('exercises')
-        .select('id, name')
-        .inFilter('name', allExerciseNames);
-
-    final exerciseIdMap = <String, String>{}; // name -> id
-    for (final ex in allExercises) {
-      exerciseIdMap[ex['name'] as String] = ex['id'] as String;
-    }
-
-    // Build a map of exercise name -> tag for each tracked exercise
-    final exerciseConfigs = <String, List<Map<String, String>>>{};
+    // Flatten every tracked exercise's db name variants (today there's
+    // exactly one variant per exercise, but this keeps working if more
+    // are added later) and remember which displayName + tag each name
+    // belongs to.
+    final dbNameToDisplayName = <String, String>{};
+    final dbNameToTag = <String, String>{};
+    final allDbNames = <String>[];
     for (final config in _trackedExercises) {
       final displayName = config['displayName'] as String;
       final dbNames = config['dbNames'] as List<Map<String, String>>;
-      exerciseConfigs[displayName] = dbNames;
-    }
-
-    // Get ALL workout_exercises for ALL tracked exercises in one query
-    final allExerciseIds = allExercises.map((e) => e['id'] as String).toList();
-
-    if (allExerciseIds.isEmpty) {
-      // No exercises found in database
-      for (final config in _trackedExercises) {
-        records.add(_emptyRecord(config['displayName'] as String));
-      }
-      return records;
-    }
-
-    final allWorkoutExercises = await Supabase.instance.client
-        .from('workout_exercises')
-        .select('id, workout_id, exercise_id')
-        .inFilter('exercise_id', allExerciseIds);
-
-    if (allWorkoutExercises.isEmpty) {
-      for (final config in _trackedExercises) {
-        records.add(_emptyRecord(config['displayName'] as String));
-      }
-      return records;
-    }
-
-    // Get ALL sets from session_set_logs (actual member logged data)
-    final allWorkoutExerciseIds =
-        allWorkoutExercises.map((we) => we['id'] as String).toList();
-    final allSets = await Supabase.instance.client
-        .from('session_set_logs')
-        .select(
-            'id, kg:actual_kg, reps:actual_reps, workout_exercise_id, session_id')
-        .inFilter('workout_exercise_id', allWorkoutExerciseIds)
-        .eq('completed', true);
-
-    if (allSets.isEmpty) {
-      for (final config in _trackedExercises) {
-        records.add(_emptyRecord(config['displayName'] as String));
-      }
-      return records;
-    }
-
-    // Build lookup maps
-    final workoutIdMap = <String, String>{}; // workoutExerciseId -> workoutId
-    final exerciseIdForWE =
-        <String, String>{}; // workoutExerciseId -> exerciseId
-    for (final we in allWorkoutExercises) {
-      final weId = we['id'] as String;
-      workoutIdMap[weId] = we['workout_id'] as String;
-      exerciseIdForWE[weId] = we['exercise_id'] as String;
-    }
-
-    // Get session IDs from session_set_logs (filter out null)
-    final sessionIds = allSets
-        .map((s) => s['session_id'] as String?)
-        .where((id) => id != null)
-        .cast<String>()
-        .toSet()
-        .toList();
-
-    // Get all completed sessions for these session IDs
-    final sessions = <Map<String, dynamic>>[];
-    if (sessionIds.isNotEmpty) {
-      final result = await Supabase.instance.client
-          .from('workout_sessions')
-          .select('id, started_at, workout_id')
-          .inFilter('id', sessionIds)
-          .eq('status', 'completed');
-      sessions.addAll(result);
-    }
-
-    final sessionDates = <String, DateTime>{};
-    final sessionWorkoutMap = <String, String>{}; // sessionId -> workoutId
-    for (final session in sessions) {
-      final startedAt = DateTime.tryParse(session['started_at'] as String);
-      final workoutId = session['workout_id'] as String?;
-      final sessionId = session['id'] as String?;
-      if (startedAt != null && workoutId != null && sessionId != null) {
-        sessionDates[workoutId] = startedAt;
-        sessionWorkoutMap[sessionId] = workoutId;
-      }
-    }
-
-    // Build exercise name -> exercise id mapping for lookup
-    final exerciseNameToId = <String, String>{};
-    for (final ex in allExercises) {
-      exerciseNameToId[ex['name'] as String] = ex['id'] as String;
-    }
-
-    // Process each tracked exercise
-    for (final config in _trackedExercises) {
-      final displayName = config['displayName'] as String;
-      final dbNames = config['dbNames'] as List<Map<String, String>>;
-
-      // Get exercise IDs for this exercise
-      final exerciseIds = <String>[];
-      final tagMap = <String, String>{}; // exerciseId -> tag
       for (final variant in dbNames) {
-        final exId = exerciseNameToId[variant['name']!];
-        if (exId != null) {
-          exerciseIds.add(exId);
-          tagMap[exId] = variant['tag']!;
+        final name = variant['name']!;
+        allDbNames.add(name);
+        dbNameToDisplayName[name] = displayName;
+        dbNameToTag[name] = variant['tag']!;
+      }
+    }
+
+    // ✅ Single RPC call — server aggregates and filters by this member
+    // only, instead of pulling every member's logged sets to the client.
+    final result = await Supabase.instance.client.rpc(
+      'get_member_strength_records',
+      params: {
+        'p_member_id': userId,
+        'p_exercise_names': allDbNames,
+      },
+    );
+
+    final rows = List<Map<String, dynamic>>.from(result as List);
+
+    // Group rows back by displayName, since a displayName can (in
+    // theory) map to more than one db exercise name/variant.
+    final rowsByDisplayName = <String, List<Map<String, dynamic>>>{};
+    for (final row in rows) {
+      if (row['has_data'] != true) continue;
+      final dbName = row['exercise_name'] as String;
+      final displayName = dbNameToDisplayName[dbName];
+      if (displayName == null) continue;
+      rowsByDisplayName.putIfAbsent(displayName, () => []).add(row);
+    }
+
+    for (final config in _trackedExercises) {
+      final displayName = config['displayName'] as String;
+      final variantRows = rowsByDisplayName[displayName];
+
+      if (variantRows == null || variantRows.isEmpty) {
+        records.add(_emptyRecord(displayName));
+        continue;
+      }
+
+      // Pick the variant with the most recent lastDate, and the
+      // variant with the highest highestKg/highestReps — same
+      // "best across variants" behaviour as before.
+      Map<String, dynamic> latestRow = variantRows.first;
+      Map<String, dynamic> bestRow = variantRows.first;
+      for (final row in variantRows) {
+        final rowLastDate = DateTime.tryParse(row['last_date'] as String? ?? '');
+        final latestDate =
+            DateTime.tryParse(latestRow['last_date'] as String? ?? '');
+        if (rowLastDate != null &&
+            (latestDate == null || rowLastDate.isAfter(latestDate))) {
+          latestRow = row;
+        }
+
+        final rowKg = (row['highest_kg'] as num?)?.toDouble() ?? 0;
+        final rowReps = (row['highest_reps'] as num?)?.toInt() ?? 0;
+        final bestKg = (bestRow['highest_kg'] as num?)?.toDouble() ?? 0;
+        final bestReps = (bestRow['highest_reps'] as num?)?.toInt() ?? 0;
+        if (rowKg > bestKg || (rowKg == bestKg && rowReps > bestReps)) {
+          bestRow = row;
         }
       }
-
-      if (exerciseIds.isEmpty) {
-        records.add(_emptyRecord(displayName));
-        continue;
-      }
-
-      // Filter workout_exercises for this exercise
-      final relevantWEs = allWorkoutExercises
-          .where((we) => exerciseIds.contains(we['exercise_id'] as String))
-          .toList();
-
-      if (relevantWEs.isEmpty) {
-        records.add(_emptyRecord(displayName));
-        continue;
-      }
-
-      final relevantWEIds =
-          relevantWEs.map((we) => we['id'] as String).toList();
-
-      // Filter sets for this exercise
-      final relevantSets = allSets
-          .where((set) =>
-              relevantWEIds.contains(set['workout_exercise_id'] as String))
-          .toList();
-
-      if (relevantSets.isEmpty) {
-        records.add(_emptyRecord(displayName));
-        continue;
-      }
-
-      // Build tag map for workout_exercise_id
-      final weTagMap = <String, String>{};
-      for (final we in relevantWEs) {
-        final weId = we['id'] as String;
-        final exId = we['exercise_id'] as String;
-        weTagMap[weId] = tagMap[exId] ?? '';
-      }
-
-      // Build sets with dates
-      final setsWithDates = <Map<String, dynamic>>[];
-      for (final set in relevantSets) {
-        final weId = set['workout_exercise_id'] as String;
-        final sessionId = set['session_id'] as String?;
-        if (sessionId == null) continue;
-        final workoutId = sessionWorkoutMap[sessionId];
-        if (workoutId == null) continue;
-        final date = sessionDates[workoutId];
-        if (date == null) continue;
-
-        final kg = (set['kg'] as num?)?.toDouble() ?? 0;
-        final reps = (set['reps'] as num?)?.toInt() ?? 0;
-
-        // Skip sets where both kg and reps are 0 (invalid/empty logs)
-        if (kg == 0 && reps == 0) continue;
-
-        setsWithDates.add({
-          'kg': kg,
-          'reps': reps,
-          'date': date,
-          'tag': weTagMap[weId] ?? '',
-        });
-      }
-
-      if (setsWithDates.isEmpty) {
-        records.add(_emptyRecord(displayName));
-        continue;
-      }
-
-      // Compare function
-      int compareSets(Map<String, dynamic> a, Map<String, dynamic> b) {
-        final kgCompare = (a['kg'] as double).compareTo(b['kg'] as double);
-        if (kgCompare != 0) return kgCompare;
-        return (a['reps'] as int).compareTo(b['reps'] as int);
-      }
-
-      final highestSet =
-          setsWithDates.reduce((a, b) => compareSets(a, b) >= 0 ? a : b);
-
-      final latestDate = setsWithDates
-          .map((s) => s['date'] as DateTime)
-          .reduce((a, b) => a.isAfter(b) ? a : b);
-      final latestSessionSets =
-          setsWithDates.where((s) => s['date'] == latestDate).toList();
-      final lastSet =
-          latestSessionSets.reduce((a, b) => compareSets(a, b) >= 0 ? a : b);
 
       records.add({
         'displayName': displayName,
         'hasData': true,
-        'lastDate': lastSet['date'],
-        'lastKg': lastSet['kg'],
-        'lastReps': lastSet['reps'],
-        'lastTag': lastSet['tag'],
-        'highestDate': highestSet['date'],
-        'highestKg': highestSet['kg'],
-        'highestReps': highestSet['reps'],
-        'highestTag': highestSet['tag'],
+        'lastDate': DateTime.tryParse(latestRow['last_date'] as String),
+        'lastKg': (latestRow['last_kg'] as num?)?.toDouble(),
+        'lastReps': (latestRow['last_reps'] as num?)?.toInt(),
+        'lastTag': dbNameToTag[latestRow['exercise_name']] ?? '',
+        'highestDate': DateTime.tryParse(bestRow['highest_date'] as String),
+        'highestKg': (bestRow['highest_kg'] as num?)?.toDouble(),
+        'highestReps': (bestRow['highest_reps'] as num?)?.toInt(),
+        'highestTag': dbNameToTag[bestRow['exercise_name']] ?? '',
       });
     }
 
     return records;
   }
+
 
   Map<String, dynamic> _emptyRecord(String displayName) {
     return {

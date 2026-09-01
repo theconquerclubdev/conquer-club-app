@@ -76,41 +76,77 @@ class _StreaksTabState extends State<StreaksTab> {
     setState(() => _isLoading = true);
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
-      final today = DateTime.now();
-      final todayStr = today.toIso8601String().substring(0, 10);
+
+      // ✅ Always compute "today" in IST, regardless of device timezone,
+      // so this matches the backend cron (which also runs on IST days).
+      final nowUtc = DateTime.now().toUtc();
+      final istNow = nowUtc.add(const Duration(hours: 5, minutes: 30));
+      final today = DateTime(istNow.year, istNow.month, istNow.day);
+      final todayStr =
+          '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
       final isSunday = today.weekday == DateTime.sunday;
 
-      // 1. Update today's streak record
-      final startOfDay = DateTime(today.year, today.month, today.day);
+      // IST day boundaries expressed as explicit UTC instants (unambiguous
+      // when serialized), for querying timestamptz columns.
+      final startOfDayUtc = DateTime.utc(today.year, today.month, today.day)
+          .subtract(const Duration(hours: 5, minutes: 30));
+      final endOfDayUtc = startOfDayUtc.add(const Duration(days: 1));
 
-      // Check workout completion (>= 45 minutes)
-      final workoutSession = await Supabase.instance.client
+      // Check workout completion (>= 45 minutes) — bounded to today's IST
+      // window, most recent session first, and capped to 1 row so multiple
+      // completed sessions in a day can never throw.
+      final workoutSessions = await Supabase.instance.client
           .from('workout_sessions')
           .select('elapsed_seconds')
           .eq('member_id', userId)
           .eq('status', 'completed')
-          .gte('started_at', startOfDay.toIso8601String())
-          .maybeSingle();
+          .gte('started_at', startOfDayUtc.toIso8601String())
+          .lt('started_at', endOfDayUtc.toIso8601String())
+          .order('started_at', ascending: false)
+          .limit(1);
 
       bool workoutCompleted = false;
       int workoutMinutes = 0;
-      if (workoutSession != null) {
+      if (workoutSessions.isNotEmpty) {
         final elapsedSeconds =
-            (workoutSession['elapsed_seconds'] as num?)?.toInt() ?? 0;
+            (workoutSessions.first['elapsed_seconds'] as num?)?.toInt() ?? 0;
         workoutMinutes = (elapsedSeconds / 60).round();
         workoutCompleted = workoutMinutes >= 45;
       }
+
+      // Steps — required every day (not just Sunday), same as backend.
+      final stepLog = await Supabase.instance.client
+          .from('step_logs')
+          .select('steps, goal')
+          .eq('member_id', userId)
+          .eq('log_date', todayStr)
+          .limit(1)
+          .maybeSingle();
+
+      final stepsCount = (stepLog?['steps'] as num?)?.toInt() ?? 0;
+      int stepGoal = (stepLog?['goal'] as num?)?.toInt() ?? 0;
+      if (stepGoal <= 0) {
+        final profile = await Supabase.instance.client
+            .from('profiles')
+            .select('step_goal')
+            .eq('id', userId)
+            .limit(1)
+            .maybeSingle();
+        stepGoal = (profile?['step_goal'] as num?)?.toInt() ?? 10000;
+      }
+      final stepsCompleted = stepsCount >= stepGoal;
 
       // For Sunday, check photos and measurements
       bool photosUploaded = false;
       bool measurementsUpdated = false;
 
       if (isSunday) {
-        // Check after photos
+        // Check after photos — must be updated today (IST)
         final photos = await Supabase.instance.client
             .from('member_progress_photos')
             .select('after_front_updated_at, after_back_updated_at')
             .eq('member_id', userId)
+            .limit(1)
             .maybeSingle();
 
         if (photos != null) {
@@ -122,32 +158,32 @@ class _StreaksTabState extends State<StreaksTab> {
               : null;
 
           photosUploaded = frontDate != null &&
-              frontDate.year == today.year &&
-              frontDate.month == today.month &&
-              frontDate.day == today.day &&
+              !frontDate.isBefore(startOfDayUtc) &&
+              frontDate.isBefore(endOfDayUtc) &&
               backDate != null &&
-              backDate.year == today.year &&
-              backDate.month == today.month &&
-              backDate.day == today.day;
+              !backDate.isBefore(startOfDayUtc) &&
+              backDate.isBefore(endOfDayUtc);
         }
 
-        // Check measurements
-        final measurement = await Supabase.instance.client
+        // Check measurements — bounded to today's IST window, capped to 1 row
+        final measurements = await Supabase.instance.client
             .from('measurement_logs')
             .select('id')
             .eq('member_id', userId)
-            .gte('recorded_at', startOfDay.toIso8601String())
-            .maybeSingle();
+            .gte('recorded_at', startOfDayUtc.toIso8601String())
+            .lt('recorded_at', endOfDayUtc.toIso8601String())
+            .limit(1);
 
-        measurementsUpdated = measurement != null;
+        measurementsUpdated = measurements.isNotEmpty;
       }
 
-      // Determine if streak is met
+      // Determine if streak is met — same formula as the backend cron:
+      // Sunday = steps + photos + measurements; weekday = workout + steps.
       bool isStreakMet;
       if (isSunday) {
-        isStreakMet = photosUploaded && measurementsUpdated;
+        isStreakMet = stepsCompleted && photosUploaded && measurementsUpdated;
       } else {
-        isStreakMet = workoutCompleted;
+        isStreakMet = workoutCompleted && stepsCompleted;
       }
 
       // Upsert today's streak record
@@ -155,19 +191,20 @@ class _StreaksTabState extends State<StreaksTab> {
         'member_id': userId,
         'date': todayStr,
         'is_workout_completed': workoutCompleted,
-        'is_steps_completed': false,
+        'is_steps_completed': stepsCompleted,
         'is_photos_uploaded': photosUploaded,
         'is_measurements_updated': measurementsUpdated,
         'workout_minutes': workoutMinutes,
-        'steps_count': 0,
+        'steps_count': stepsCount,
         'is_sunday': isSunday,
         'is_streak_met': isStreakMet,
-        'updated_at': DateTime.now().toIso8601String(),
+        'updated_at': DateTime.now().toUtc().toIso8601String(),
       }, onConflict: 'member_id,date');
 
       // 2. Get current streak from MasterDataProvider (single source of truth)
       // ✅ Force refresh to get the newly upserted streak data
-      final dashboardData = await MasterDataProvider.instance.fetchMemberData(userId, force: true);
+      final dashboardData = await MasterDataProvider.instance
+          .fetchMemberData(userId, force: true);
       final int currentStreak = dashboardData.currentStreak;
       print('🔍 MasterDataProvider currentStreak: $currentStreak');
 
@@ -188,8 +225,7 @@ class _StreaksTabState extends State<StreaksTab> {
       // Calculate streak start date if active
       DateTime? currentStreakStart;
       if (currentStreak > 0) {
-        currentStreakStart =
-            DateTime.now().subtract(Duration(days: currentStreak - 1));
+        currentStreakStart = today.subtract(Duration(days: currentStreak - 1));
       }
 
       // Calculate highest streak
@@ -1119,10 +1155,11 @@ class _StreakCard extends StatelessWidget {
     final dateFormat = DateFormat('EEEE, MMM d, yyyy');
     final isSuccess = streak.isStreakMet;
     final isSunday = streak.isSunday;
-    final now = DateTime.now();
-    final isToday = streak.date.year == now.year &&
-        streak.date.month == now.month &&
-        streak.date.day == now.day;
+    final istNow =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    final isToday = streak.date.year == istNow.year &&
+        streak.date.month == istNow.month &&
+        streak.date.day == istNow.day;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),

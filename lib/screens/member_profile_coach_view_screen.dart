@@ -868,7 +868,9 @@ class _MemberProfileCoachViewScreenState
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => const WorkoutProgressScreen(),
+                          builder: (_) => WorkoutProgressScreen(
+                            memberId: widget.member['id']?.toString(),
+                          ),
                         ),
                       );
                     },

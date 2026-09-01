@@ -93,6 +93,9 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
     for (final s in _Slot.values) s: null,
   };
   final Map<_Slot, int> _version = {for (final s in _Slot.values) s: 0};
+  final Map<_Slot, DateTime?> _updatedAt = {
+    for (final s in _Slot.values) s: null,
+  };
 
   // ✅ UPDATED: Uses widget.memberId if provided, otherwise logged-in user
   String get _memberId {
@@ -133,6 +136,8 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
           _url[slot] = row['${slot.col}_url'] as String?;
           final exp = row['${slot.col}_url_expiry'] as String?;
           _urlExpiresAt[slot] = exp == null ? null : DateTime.tryParse(exp);
+          final updated = row['${slot.col}_updated_at'] as String?;
+          _updatedAt[slot] = updated == null ? null : DateTime.tryParse(updated);
         }
       }
 
@@ -172,14 +177,23 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
 
   bool _canUpload(_Slot slot) {
     final hasExisting = _path[slot] != null;
-    if (slot.isBefore) return !hasExisting;
+    if (slot.isBefore) {
+      if (!hasExisting) return true;
+      final uploadedAt = _updatedAt[slot];
+      if (uploadedAt == null) return false; // no timestamp on record: play safe, treat as locked
+      return _isSameDay(uploadedAt, DateTime.now());
+    }
     if (!hasExisting) return true;
     return _isSunday;
   }
 
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   String? _blockedReason(_Slot slot) {
     if (_canUpload(slot)) return null;
-    if (slot.isBefore) return 'Before photos are locked once uploaded.';
+    if (slot.isBefore) return 'Before photos can only be replaced on the day you first uploaded them.';
     return 'After photos can only be updated on Sundays.';
   }
 
@@ -338,6 +352,7 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
         _path[slot] = path;
         _url[slot] = signed;
         _urlExpiresAt[slot] = expiry;
+        _updatedAt[slot] = DateTime.now();
         _version[slot] = _version[slot]! + 1;
       });
 
@@ -481,7 +496,7 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
   Widget _photoCard(_Slot slot) {
     final hasPhoto = _path[slot] != null;
     final isUploading = _uploading.contains(slot);
-    final locked = slot.isBefore && hasPhoto;
+    final locked = slot.isBefore && hasPhoto && !_canUpload(slot);
 
     return GestureDetector(
       onTap: (isUploading || widget.readOnly) ? null : () => _handleTap(slot),
@@ -646,7 +661,7 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          _infoRow('🔒', 'Before photos', 'Locked after first upload'),
+          _infoRow('🔒', 'Before photos', 'Replaceable same day, then locked'),
           const SizedBox(height: 4),
           _infoRow('📅', 'After photos', 'Update only on Sundays'),
           const SizedBox(height: 4),
