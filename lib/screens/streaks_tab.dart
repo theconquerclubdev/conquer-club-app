@@ -114,28 +114,6 @@ class _StreaksTabState extends State<StreaksTab> {
         workoutCompleted = workoutMinutes >= 45;
       }
 
-      // Steps — required every day (not just Sunday), same as backend.
-      final stepLog = await Supabase.instance.client
-          .from('step_logs')
-          .select('steps, goal')
-          .eq('member_id', userId)
-          .eq('log_date', todayStr)
-          .limit(1)
-          .maybeSingle();
-
-      final stepsCount = (stepLog?['steps'] as num?)?.toInt() ?? 0;
-      int stepGoal = (stepLog?['goal'] as num?)?.toInt() ?? 0;
-      if (stepGoal <= 0) {
-        final profile = await Supabase.instance.client
-            .from('profiles')
-            .select('step_goal')
-            .eq('id', userId)
-            .limit(1)
-            .maybeSingle();
-        stepGoal = (profile?['step_goal'] as num?)?.toInt() ?? 10000;
-      }
-      final stepsCompleted = stepsCount >= stepGoal;
-
       // For Sunday, check photos and measurements
       bool photosUploaded = false;
       bool measurementsUpdated = false;
@@ -191,47 +169,109 @@ class _StreaksTabState extends State<StreaksTab> {
         'member_id': userId,
         'date': todayStr,
         'is_workout_completed': workoutCompleted,
-        'is_steps_completed': stepsCompleted,
         'is_photos_uploaded': photosUploaded,
         'is_measurements_updated': measurementsUpdated,
         'workout_minutes': workoutMinutes,
-        'steps_count': stepsCount,
         'is_sunday': isSunday,
         'is_streak_met': isStreakMet,
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }, onConflict: 'member_id,date');
 
-      // 2. Get current streak from RPC function (server-side calculation)
-      // This correctly handles consecutive days and doesn't have the .limit(5) bug
-      final currentStreakResponse = await Supabase.instance.client.rpc(
-        'get_current_streak',
-        params: {'p_member_id': userId},
-      );
-      final int currentStreak = (currentStreakResponse as num?)?.toInt() ?? 0;
-      print('🔍 RPC get_current_streak: $currentStreak');
-
-      // 3. Get history for UI cards & highest streak
+      // 2. Get history for UI cards & streak calculation
       final response = await Supabase.instance.client
           .from('member_streaks')
           .select(
               'id, member_id, date, is_workout_completed, is_photos_uploaded, is_measurements_updated, workout_minutes, is_sunday, is_streak_met')
           .eq('member_id', userId)
           .order('date', ascending: false)
-          .limit(60);
+          .limit(90);
 
       final List<StreakModel> history = [];
       for (var record in response) {
         history.add(StreakModel.fromJson(record));
       }
 
-      // Calculate streak start date if active
+      // Calculate current streak from history
+      int currentStreak = 0;
       DateTime? currentStreakStart;
-      if (currentStreak > 0) {
-        currentStreakStart = today.subtract(Duration(days: currentStreak - 1));
+
+      if (history.isNotEmpty) {
+        // Sort by date ascending for streak calculation
+        final sortedHistory = List<StreakModel>.from(history)
+          ..sort((a, b) => a.date.compareTo(b.date));
+
+        // Check today's streak
+        final todayStr =
+            '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+
+        bool todayStreakMet = false;
+        for (final streak in sortedHistory.reversed) {
+          final dateStr =
+              '${streak.date.year}-${streak.date.month.toString().padLeft(2, '0')}-${streak.date.day.toString().padLeft(2, '0')}';
+          if (dateStr == todayStr) {
+            todayStreakMet = streak.isStreakMet;
+            break;
+          }
+        }
+
+        // Start counting from today or yesterday
+        DateTime checkDate = today;
+        if (todayStreakMet) {
+          currentStreak = 1;
+          checkDate = today.subtract(const Duration(days: 1));
+        } else {
+          // Check yesterday
+          final yesterday = today.subtract(const Duration(days: 1));
+          final yesterdayStr =
+              '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}';
+          bool yesterdayStreakMet = false;
+          for (final streak in sortedHistory.reversed) {
+            final dateStr =
+                '${streak.date.year}-${streak.date.month.toString().padLeft(2, '0')}-${streak.date.day.toString().padLeft(2, '0')}';
+            if (dateStr == yesterdayStr) {
+              yesterdayStreakMet = streak.isStreakMet;
+              break;
+            }
+          }
+
+          if (!yesterdayStreakMet) {
+            currentStreak = 0;
+          } else {
+            currentStreak = 1;
+            checkDate = yesterday.subtract(const Duration(days: 1));
+          }
+        }
+
+        // Count consecutive streak days backwards
+        if (currentStreak > 0) {
+          final streakMap = <String, bool>{};
+          for (final streak in sortedHistory) {
+            final dateStr =
+                '${streak.date.year}-${streak.date.month.toString().padLeft(2, '0')}-${streak.date.day.toString().padLeft(2, '0')}';
+            streakMap[dateStr] = streak.isStreakMet;
+          }
+
+          while (true) {
+            final dateStr =
+                '${checkDate.year}-${checkDate.month.toString().padLeft(2, '0')}-${checkDate.day.toString().padLeft(2, '0')}';
+            if (streakMap[dateStr] == true) {
+              currentStreak++;
+              checkDate = checkDate.subtract(const Duration(days: 1));
+            } else {
+              break;
+            }
+          }
+
+          // Calculate start date
+          currentStreakStart = today;
+          for (int i = 0; i < currentStreak - 1; i++) {
+            currentStreakStart =
+                currentStreakStart!.subtract(const Duration(days: 1));
+          }
+        }
       }
 
-      // Calculate highest streak from history (client-side)
-      // This is still needed for the "Best Streak" display
+      // Calculate highest streak from history
       final sortedHistory = List<StreakModel>.from(history)
         ..sort((a, b) => a.date.compareTo(b.date));
 
@@ -259,15 +299,13 @@ class _StreaksTabState extends State<StreaksTab> {
         }
       }
 
-      // Use RPC result for current streak, but keep best streak from history
-      // The RPC gives us the accurate current streak (no .limit(5) bug)
-
       final totalStreaks = history.where((s) => s.isStreakMet).length;
       final totalDays = history.length;
       final streakRate =
           totalDays > 0 ? (totalStreaks / totalDays * 100).round() : 0;
       if (mounted) {
-        print('🔍 Setting stats currentStreak: $currentStreak');
+        print('🔍 Calculated currentStreak: $currentStreak');
+        print('🔍 Calculated highestStreak: $highestStreak');
         setState(() {
           _streaks = history;
           _stats = {

@@ -723,55 +723,209 @@ class _OfferCardState extends State<_OfferCard> {
       return;
     }
 
+    final Set<String> selectedMemberIds = {};
+    bool isSelectAll = false;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.cardDark,
       isScrollControlled: true,
-      builder: (_) => Container(
-        height: MediaQuery.of(context).size.height * 0.7,
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Add Members',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Select members to assign to this offer',
-              style: TextStyle(color: Colors.grey),
-            ),
-            const SizedBox(height: 12),
-            Expanded(
-              child: ListView.builder(
-                itemCount: availableMembers.length,
-                itemBuilder: (context, index) {
-                  final m = availableMembers[index];
-                  return ListTile(
-                    title: Text(
-                      m['full_name'] ?? 'Unknown',
-                      style: const TextStyle(color: Colors.white),
+      builder: (context) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          String memberSearchQuery = '';
+          List<Map<String, dynamic>> filteredMembers =
+              List.from(availableMembers);
+
+          void applyMemberSearch(String query) {
+            final q = query.toLowerCase().trim();
+            setSheetState(() {
+              memberSearchQuery = query;
+              if (q.isEmpty) {
+                filteredMembers = List.from(availableMembers);
+              } else {
+                filteredMembers = availableMembers.where((m) {
+                  final name = (m['full_name'] ?? '').toString().toLowerCase();
+                  final email = (m['email'] ?? '').toString().toLowerCase();
+                  return name.contains(q) || email.contains(q);
+                }).toList();
+              }
+            });
+          }
+
+          void toggleMemberSelection(String memberId) {
+            setSheetState(() {
+              if (selectedMemberIds.contains(memberId)) {
+                selectedMemberIds.remove(memberId);
+              } else {
+                selectedMemberIds.add(memberId);
+              }
+            });
+          }
+
+          void toggleSelectAll() {
+            setSheetState(() {
+              final currentFiltered = filteredMembers;
+              if (selectedMemberIds.length == currentFiltered.length) {
+                selectedMemberIds.clear();
+                isSelectAll = false;
+              } else {
+                selectedMemberIds.clear();
+                for (final m in currentFiltered) {
+                  selectedMemberIds.add(m['id']);
+                }
+                isSelectAll = true;
+              }
+            });
+          }
+
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.75,
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Add Members',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Select members to assign to this offer',
+                  style: TextStyle(color: Colors.grey),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    hintText: 'Search members...',
+                    prefixIcon: Icon(Icons.search, color: Colors.grey),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 8),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(8)),
                     ),
-                    subtitle: Text(
-                      m['email'] ?? '',
-                      style: const TextStyle(color: Colors.grey),
+                  ),
+                  onChanged: (v) {
+                    applyMemberSearch(v.trim());
+                  },
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Text(
+                      '${selectedMemberIds.length} selected',
+                      style: TextStyle(
+                        color: selectedMemberIds.isNotEmpty
+                            ? AppColors.gold
+                            : Colors.grey,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                    trailing: const Icon(Icons.add, color: AppColors.gold),
-                    onTap: () {
-                      _assignMember(m['id']);
-                      Navigator.pop(context);
-                    },
-                  );
-                },
-              ),
+                    const Spacer(),
+                    if (filteredMembers.isNotEmpty)
+                      TextButton(
+                        onPressed: toggleSelectAll,
+                        child: Text(
+                          selectedMemberIds.length == filteredMembers.length
+                              ? 'Deselect All'
+                              : 'Select All',
+                          style: TextStyle(
+                            color: AppColors.gold,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Expanded(
+                  child: filteredMembers.isEmpty
+                      ? Center(
+                          child: Text(
+                            memberSearchQuery.isEmpty
+                                ? 'No members available'
+                                : 'No members found',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        )
+                      : ListView.builder(
+                          itemCount: filteredMembers.length,
+                          itemBuilder: (context, index) {
+                            final m = filteredMembers[index];
+                            final isSelected =
+                                selectedMemberIds.contains(m['id']);
+                            return ListTile(
+                              leading: Container(
+                                width: 24,
+                                height: 24,
+                                decoration: BoxDecoration(
+                                  shape: BoxShape.circle,
+                                  color: isSelected
+                                      ? AppColors.gold
+                                      : Colors.transparent,
+                                  border: Border.all(
+                                    color: isSelected
+                                        ? AppColors.gold
+                                        : Colors.grey,
+                                    width: 1.5,
+                                  ),
+                                ),
+                                child: isSelected
+                                    ? const Icon(
+                                        Icons.check,
+                                        size: 16,
+                                        color: Colors.black,
+                                      )
+                                    : null,
+                              ),
+                              title: Text(
+                                m['full_name'] ?? 'Unknown',
+                                style: TextStyle(
+                                  color: isSelected
+                                      ? AppColors.gold
+                                      : Colors.white,
+                                ),
+                              ),
+                              subtitle: Text(
+                                m['email'] ?? '',
+                                style: const TextStyle(color: Colors.grey),
+                              ),
+                              onTap: () => toggleMemberSelection(m['id']),
+                            );
+                          },
+                        ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: selectedMemberIds.isEmpty
+                        ? null
+                        : () {
+                            for (final memberId in selectedMemberIds) {
+                              _assignMember(memberId);
+                            }
+                            Navigator.pop(context);
+                          },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.gold,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    child: Text(
+                      'Assign ${selectedMemberIds.length} Member${selectedMemberIds.length > 1 ? 's' : ''}',
+                    ),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
