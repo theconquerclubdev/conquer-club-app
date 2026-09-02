@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import '../providers/master_data_provider.dart';
 
 class WorkoutDaySessionScreen extends StatefulWidget {
   final Map<String, dynamic> workout;
@@ -390,6 +391,11 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
       'elapsed_seconds': total,
     }).eq('id', sessionId!);
 
+    // Invalidate cache for the member
+    final memberId = Supabase.instance.client.auth.currentUser?.id;
+    if (memberId != null) {
+      MasterDataProvider.instance.invalidateCache(memberId);
+    }
     setState(() {
       sessionStatus = 'completed';
       savedElapsedSeconds = total;

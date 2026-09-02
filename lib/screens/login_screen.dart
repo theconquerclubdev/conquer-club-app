@@ -40,7 +40,14 @@ class _LoginScreenState extends State<LoginScreen> {
           .from('profiles')
           .select('role, is_active')
           .eq('id', userId)
-          .single();
+          .maybeSingle();
+
+      if (profile == null) {
+        setState(() {
+          errorMessage = 'Profile not found. Please contact admin.';
+        });
+        return;
+      }
 
       if (profile['is_active'] == false) {
         await Supabase.instance.client.auth.signOut();

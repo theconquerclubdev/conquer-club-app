@@ -283,10 +283,12 @@ class _OffersTab extends StatefulWidget {
 
 class _OffersTabState extends State<_OffersTab> {
   List<Map<String, dynamic>> offers = [];
+  List<Map<String, dynamic>> filteredOffers = [];
   List<Map<String, dynamic>> allMembers = [];
   List<Map<String, dynamic>> filteredMembers = [];
   bool isLoading = true;
   String searchQuery = '';
+  String offerSearchQuery = '';
   bool isMultiSelectMode = false;
   final Set<String> _selectedMemberIds = {};
 
@@ -320,6 +322,7 @@ class _OffersTabState extends State<_OffersTab> {
 
       setState(() {
         offers = List<Map<String, dynamic>>.from(offersData);
+        filteredOffers = List<Map<String, dynamic>>.from(offersData);
         allMembers = List<Map<String, dynamic>>.from(membersData);
         filteredMembers = List<Map<String, dynamic>>.from(membersData);
         isLoading = false;
@@ -344,6 +347,23 @@ class _OffersTabState extends State<_OffersTab> {
         final name = (m['full_name'] ?? '').toString().toLowerCase();
         final email = (m['email'] ?? '').toString().toLowerCase();
         return name.contains(q) || email.contains(q);
+      }).toList();
+    });
+  }
+
+  void _applyOfferSearch() {
+    if (offerSearchQuery.isEmpty) {
+      setState(() {
+        filteredOffers = List<Map<String, dynamic>>.from(offers);
+      });
+      return;
+    }
+
+    final q = offerSearchQuery.toLowerCase();
+    setState(() {
+      filteredOffers = offers.where((o) {
+        final name = (o['name'] ?? '').toString().toLowerCase();
+        return name.contains(q);
       }).toList();
     });
   }
@@ -469,8 +489,31 @@ class _OffersTabState extends State<_OffersTab> {
             ],
           ),
         ),
+        // Offer Search Bar
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: TextField(
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              hintText: 'Search offers...',
+              prefixIcon: Icon(Icons.search, color: Colors.grey),
+              isDense: true,
+              contentPadding: EdgeInsets.symmetric(vertical: 8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.all(Radius.circular(8)),
+              ),
+            ),
+            onChanged: (v) {
+              setState(() {
+                offerSearchQuery = v.trim();
+                _applyOfferSearch();
+              });
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
         Expanded(
-          child: offers.isEmpty
+          child: filteredOffers.isEmpty
               ? const Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -479,7 +522,7 @@ class _OffersTabState extends State<_OffersTab> {
                           color: Colors.grey, size: 48),
                       SizedBox(height: 12),
                       Text(
-                        'No offers created yet',
+                        'No offers found',
                         style: TextStyle(color: Colors.grey, fontSize: 16),
                       ),
                       SizedBox(height: 8),
@@ -491,9 +534,9 @@ class _OffersTabState extends State<_OffersTab> {
                   ),
                 )
               : ListView.builder(
-                  itemCount: offers.length,
+                  itemCount: filteredOffers.length,
                   itemBuilder: (context, index) {
-                    final offer = offers[index];
+                    final offer = filteredOffers[index];
                     final memberCount =
                         (offer['offer_members'] as List?)?.length ?? 0;
                     return _OfferCard(
@@ -539,9 +582,11 @@ class _OfferCard extends StatefulWidget {
 class _OfferCardState extends State<_OfferCard> {
   bool isExpanded = false;
   bool isEditing = false;
+  bool isMultiSelectMode = false;
   final Map<String, TextEditingController> _controllers = {};
   final List<String> _assignedMemberIds = [];
   final List<Map<String, dynamic>> _assignedMembers = [];
+  final Set<String> _selectedMemberIds = {};
 
   @override
   void initState() {
@@ -750,6 +795,78 @@ class _OfferCardState extends State<_OfferCard> {
     widget.onRefresh();
   }
 
+  Future<void> _removeSelectedMembers() async {
+    if (_selectedMemberIds.isEmpty) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: const Text(
+          'Remove Members?',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Text(
+          'Remove ${_selectedMemberIds.length} selected member${_selectedMemberIds.length > 1 ? 's' : ''} from this offer?',
+          style: const TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      for (final memberId in _selectedMemberIds) {
+        await Supabase.instance.client
+            .from('offer_members')
+            .delete()
+            .eq('offer_id', widget.offer['id'])
+            .eq('member_id', memberId);
+      }
+      setState(() {
+        _selectedMemberIds.clear();
+        isMultiSelectMode = false;
+      });
+      _loadAssignedMembers();
+      widget.onRefresh();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${_selectedMemberIds.length} members removed'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to remove members: $e')),
+        );
+      }
+    }
+  }
+
+  void _toggleMemberSelection(String memberId) {
+    setState(() {
+      if (_selectedMemberIds.contains(memberId)) {
+        _selectedMemberIds.remove(memberId);
+      } else {
+        _selectedMemberIds.add(memberId);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -935,18 +1052,81 @@ class _OfferCardState extends State<_OfferCard> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Assigned Members',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 14,
-                        ),
+                      Row(
+                        children: [
+                          const Text(
+                            'Assigned Members',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                          if (_selectedMemberIds.isNotEmpty)
+                            Container(
+                              margin: const EdgeInsets.only(left: 8),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.gold.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '${_selectedMemberIds.length} selected',
+                                style: TextStyle(
+                                  color: AppColors.gold,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                        ],
                       ),
-                      TextButton.icon(
-                        icon: const Icon(Icons.add, size: 16),
-                        label: const Text('Add Member'),
-                        onPressed: _addMember,
+                      Row(
+                        children: [
+                          if (_selectedMemberIds.isNotEmpty)
+                            TextButton.icon(
+                              icon: const Icon(Icons.delete,
+                                  size: 16, color: Colors.red),
+                              label: const Text(
+                                'Remove Selected',
+                                style: TextStyle(color: Colors.red),
+                              ),
+                              onPressed: _removeSelectedMembers,
+                            ),
+                          TextButton.icon(
+                            icon: Icon(
+                              isMultiSelectMode ? Icons.close : Icons.check_box,
+                              size: 16,
+                              color: isMultiSelectMode
+                                  ? AppColors.gold
+                                  : Colors.grey,
+                            ),
+                            label: Text(
+                              isMultiSelectMode ? 'Done' : 'Select',
+                              style: TextStyle(
+                                color: isMultiSelectMode
+                                    ? AppColors.gold
+                                    : Colors.grey,
+                              ),
+                            ),
+                            onPressed: () {
+                              setState(() {
+                                isMultiSelectMode = !isMultiSelectMode;
+                                if (!isMultiSelectMode) {
+                                  _selectedMemberIds.clear();
+                                }
+                              });
+                            },
+                          ),
+                          TextButton.icon(
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('Add Member'),
+                            onPressed: _addMember,
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -963,38 +1143,80 @@ class _OfferCardState extends State<_OfferCard> {
                       spacing: 8,
                       runSpacing: 8,
                       children: _assignedMembers.map((m) {
-                        return Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.1),
+                        final memberId = m['id'] as String;
+                        final isSelected =
+                            _selectedMemberIds.contains(memberId);
+                        return GestureDetector(
+                          onTap: isMultiSelectMode
+                              ? () => _toggleMemberSelection(memberId)
+                              : null,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
                             ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                m['full_name'] ?? 'Unknown',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                ),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? AppColors.gold.withOpacity(0.2)
+                                  : Colors.white.withOpacity(0.05),
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(
+                                color: isSelected
+                                    ? AppColors.gold
+                                    : Colors.white.withOpacity(0.1),
+                                width: isSelected ? 1.5 : 1,
                               ),
-                              const SizedBox(width: 4),
-                              GestureDetector(
-                                onTap: () => _removeMember(m['id']),
-                                child: const Icon(
-                                  Icons.close,
-                                  size: 14,
-                                  color: Colors.grey,
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (isMultiSelectMode)
+                                  Container(
+                                    width: 16,
+                                    height: 16,
+                                    margin: const EdgeInsets.only(right: 4),
+                                    decoration: BoxDecoration(
+                                      shape: BoxShape.circle,
+                                      color: isSelected
+                                          ? AppColors.gold
+                                          : Colors.transparent,
+                                      border: Border.all(
+                                        color: isSelected
+                                            ? AppColors.gold
+                                            : Colors.grey,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    child: isSelected
+                                        ? const Icon(
+                                            Icons.check,
+                                            size: 10,
+                                            color: Colors.black,
+                                          )
+                                        : null,
+                                  ),
+                                Text(
+                                  m['full_name'] ?? 'Unknown',
+                                  style: TextStyle(
+                                    color: isSelected
+                                        ? AppColors.gold
+                                        : Colors.white,
+                                    fontSize: 12,
+                                  ),
                                 ),
-                              ),
-                            ],
+                                if (!isMultiSelectMode) ...[
+                                  const SizedBox(width: 4),
+                                  GestureDetector(
+                                    onTap: () => _removeMember(memberId),
+                                    child: const Icon(
+                                      Icons.close,
+                                      size: 14,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
                           ),
                         );
                       }).toList(),

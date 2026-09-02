@@ -13,6 +13,7 @@ import 'screens/admin_home_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/reset_password_screen.dart';
 import 'theme/app_theme.dart';
+import 'providers/master_data_provider.dart';
 
 // ✅ Define your current app build version
 const String kCurrentAppVersion = '2.0.1';
@@ -60,6 +61,40 @@ class ResponsiveContent extends StatelessWidget {
 // Global navigator key for deep link handling
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
+// ============================================================
+// 🔄 APP LIFECYCLE OBSERVER
+// ============================================================
+class AppLifecycleObserver extends WidgetsBindingObserver {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // App opened from background - refresh cached data
+      _refreshAllCachedData();
+    }
+  }
+
+  void _refreshAllCachedData() async {
+    try {
+      // Import master_data_provider here
+      final provider = MasterDataProvider.instance;
+      final memberIds = provider.cachedMemberIds;
+
+      for (final memberId in memberIds) {
+        try {
+          // ✅ Force refresh with skipCache to get latest membership status
+          await provider.fetchMemberData(memberId,
+              force: true, skipCache: true);
+          debugPrint('✅ Refreshed $memberId on app open');
+        } catch (e) {
+          debugPrint('❌ Failed to refresh $memberId: $e');
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error refreshing cache on app open: $e');
+    }
+  }
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -70,6 +105,9 @@ void main() async {
     anonKey:
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhZmJpbnd2d3h1ZWtkb21kbXJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyNjQ2MjcsImV4cCI6MjA5ODg0MDYyN30.OpEAFP__r_lkBeih255iqHmFHW602BUHDfP_qe1iy6I',
   );
+
+  // Add lifecycle observer
+  WidgetsBinding.instance.addObserver(AppLifecycleObserver());
 
   runApp(const MyApp());
 }

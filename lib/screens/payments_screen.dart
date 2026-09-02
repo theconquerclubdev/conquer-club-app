@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../../providers/master_data_provider.dart';
 
 class PaymentsScreen extends StatefulWidget {
   const PaymentsScreen({super.key});
@@ -258,6 +259,19 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             duration: Duration(seconds: 4),
           ),
         );
+        // Invalidate cache for the user and force refresh
+        final userId = Supabase.instance.client.auth.currentUser?.id;
+        if (userId != null) {
+          MasterDataProvider.instance.invalidateCache(userId);
+          // Force refresh immediately to update membership status
+          try {
+            await MasterDataProvider.instance
+                .fetchMemberData(userId, force: true);
+            debugPrint('✅ Payment complete - refreshed member data');
+          } catch (e) {
+            debugPrint('❌ Failed to refresh after payment: $e');
+          }
+        }
         _loadData();
         setState(() {
           selectedPlan = null;

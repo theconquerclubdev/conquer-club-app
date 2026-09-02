@@ -109,7 +109,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         loadProfile();
-        // ✅ _loadTodayTaskStatus is now called inside loadProfile
+        // ✅ _loadTodayTaskStatus data is now loaded from MasterDataProvider inside loadProfile
       }
     });
     _initStepTracker();
@@ -145,7 +145,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         _lastResumeTime = now;
         // ✅ Re-initialize to fetch latest data
         _initStepTracker();
-        _loadTodayTaskStatus();
+        // ✅ Task status is loaded via MasterDataProvider in loadProfile()
+        loadProfile();
       }
     }
   }
@@ -362,66 +363,20 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     }
   }
 
-  Future<void> _loadStreak() async {
-    try {
-      final userId = Supabase.instance.client.auth.currentUser!.id;
-
-      // ✅ Use MasterDataProvider
-      final data = await MasterDataProvider.instance.fetchMemberData(userId);
-
-      if (mounted) {
-        setState(() {
-          currentStreak = data.currentStreak;
-          isLoadingStreak = false;
-        });
-      }
-    } catch (e) {
-      print('Error loading streak: $e');
-      if (mounted) {
-        setState(() => isLoadingStreak = false);
-      }
-    }
-  }
-
+  // _loadStreak() removed - streak data is loaded via loadProfile()
   // ============================================================
-  // TODAY'S TASK STATUS - Load data
+  // TODAY'S TASK STATUS - Data is loaded via MasterDataProvider in loadProfile()
   // ============================================================
-  bool _isLoadingTaskStatus = false;
-
-  Future<void> _loadTodayTaskStatus() async {
-    // ✅ Guard against overlapping calls (fixes runaway loop)
-    if (_isLoadingTaskStatus) return;
-    _isLoadingTaskStatus = true;
-
-    try {
-      final userId = Supabase.instance.client.auth.currentUser!.id;
-
-      // ✅ Use MasterDataProvider (data already cached)
-      final data = await MasterDataProvider.instance.fetchMemberData(userId);
-
-      if (mounted) {
-        setState(() {
-          _workoutCompletedToday = data.workoutCompletedToday;
-          _measurementsUpdatedToday = data.measurementUpdatedToday;
-          _photoStatus['front'] = data.photoFrontUpdated;
-          _photoStatus['back'] = data.photoBackUpdated;
-        });
-      }
-    } catch (e) {
-      print('Error loading task status: $e');
-    } finally {
-      _isLoadingTaskStatus = false;
-    }
-  }
-
+  // Method removed - task status is loaded from MasterDataProvider
   Future<void> loadProfile() async {
     if (!mounted) return;
     final userId = Supabase.instance.client.auth.currentUser!.id;
 
     try {
-      // ✅ Use MasterDataProvider for all data
-      final data = await MasterDataProvider.instance.fetchMemberData(userId);
-
+      // ✅ Force refresh and skip cache to get latest membership status
+      // This ensures admin-verified payments are reflected immediately
+      final data = await MasterDataProvider.instance
+          .fetchMemberData(userId, force: true, skipCache: true);
       final profile = data.profile;
       fullName = profile?['full_name'] ?? '';
       membershipEndDate = profile?['membership_end_date'] ?? '';
@@ -621,7 +576,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
         MasterDataProvider.instance.invalidateCache(userId);
-        _loadStreak();
+        loadProfile();
       }
     });
   }
@@ -647,7 +602,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
         MasterDataProvider.instance.invalidateCache(userId);
-        _loadTodayTaskStatus();
+        loadProfile();
       }
     });
   }
@@ -661,7 +616,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
         MasterDataProvider.instance.invalidateCache(userId);
-        _loadTodayTaskStatus();
+        loadProfile();
       }
     });
   }
@@ -674,7 +629,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
         MasterDataProvider.instance.invalidateCache(userId);
-        _loadTodayTaskStatus();
+        loadProfile();
       }
     });
   }
@@ -1592,7 +1547,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
               () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const MeasurementsScreen()),
-              ).then((_) => _loadTodayTaskStatus()),
+              ).then((_) => loadProfile()),
             ),
             _buildQuickActionIcon(
               Icons.show_chart,
@@ -1609,7 +1564,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
               () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => const MemberProgressScreen()),
-              ).then((_) => _loadTodayTaskStatus()),
+              ).then((_) => loadProfile()),
             ),
             _buildQuickActionIcon(
               Icons.payment,
@@ -1730,11 +1685,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final url =
           Uri.parse('https://main.conquer-club-app.pages.dev/version.json');
       final response = await http.get(url);
+      setState(() => _isCheckingUpdate = false);
+
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final hasUpdate = data['version'] != _currentVersion;
-
-        setState(() => _isCheckingUpdate = false);
 
         if (hasUpdate) {
           _showUpdateDialog(
@@ -1744,12 +1699,13 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
             const SnackBar(content: Text('✅ You have the latest version')),
           );
         }
+      } else {
+        // ✅ Silently fail — don't show error to user
+        // Just do nothing
       }
     } catch (e) {
+      // ✅ Silently fail — don't show error to user
       setState(() => _isCheckingUpdate = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Update check failed: $e')),
-      );
     }
   }
 

@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import '../utils/cache_manager.dart';
 import 'diet_preview_page.dart';
+import '../providers/master_data_provider.dart';
 // import 'package:reorderables/reorderables.dart'; // Temporarily disabled
 
 // Remove DietFoodItem and kDietSections from here
@@ -514,6 +515,8 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
       }
 
       if (mounted) {
+        // Invalidate cache for the member
+        MasterDataProvider.instance.invalidateCache(widget.memberId);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
               content: Text('${widget.dietType} Diet saved successfully!')),

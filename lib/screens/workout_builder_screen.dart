@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import '../providers/master_data_provider.dart';
 
 class WorkoutBuilderScreen extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -332,6 +333,8 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
       );
 
       if (mounted) {
+        // Invalidate cache for the member
+        MasterDataProvider.instance.invalidateCache(widget.memberId);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('${widget.dayOfWeek} workout saved!')),
         );

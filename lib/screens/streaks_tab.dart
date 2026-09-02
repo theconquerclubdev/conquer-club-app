@@ -178,12 +178,12 @@ class _StreaksTabState extends State<StreaksTab> {
       }
 
       // Determine if streak is met — same formula as the backend cron:
-      // Sunday = steps + photos + measurements; weekday = workout + steps.
+      // Sunday = photos + measurements; weekday = workout only.
       bool isStreakMet;
       if (isSunday) {
-        isStreakMet = stepsCompleted && photosUploaded && measurementsUpdated;
+        isStreakMet = photosUploaded && measurementsUpdated;
       } else {
-        isStreakMet = workoutCompleted && stepsCompleted;
+        isStreakMet = workoutCompleted;
       }
 
       // Upsert today's streak record
@@ -201,12 +201,14 @@ class _StreaksTabState extends State<StreaksTab> {
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }, onConflict: 'member_id,date');
 
-      // 2. Get current streak from MasterDataProvider (single source of truth)
-      // ✅ Force refresh to get the newly upserted streak data
-      final dashboardData = await MasterDataProvider.instance
-          .fetchMemberData(userId, force: true);
-      final int currentStreak = dashboardData.currentStreak;
-      print('🔍 MasterDataProvider currentStreak: $currentStreak');
+      // 2. Get current streak from RPC function (server-side calculation)
+      // This correctly handles consecutive days and doesn't have the .limit(5) bug
+      final currentStreakResponse = await Supabase.instance.client.rpc(
+        'get_current_streak',
+        params: {'p_member_id': userId},
+      );
+      final int currentStreak = (currentStreakResponse as num?)?.toInt() ?? 0;
+      print('🔍 RPC get_current_streak: $currentStreak');
 
       // 3. Get history for UI cards & highest streak
       final response = await Supabase.instance.client
@@ -228,7 +230,8 @@ class _StreaksTabState extends State<StreaksTab> {
         currentStreakStart = today.subtract(Duration(days: currentStreak - 1));
       }
 
-      // Calculate highest streak
+      // Calculate highest streak from history (client-side)
+      // This is still needed for the "Best Streak" display
       final sortedHistory = List<StreakModel>.from(history)
         ..sort((a, b) => a.date.compareTo(b.date));
 
@@ -256,9 +259,8 @@ class _StreaksTabState extends State<StreaksTab> {
         }
       }
 
-      if (currentStreak > highestStreak) {
-        highestStreak = currentStreak;
-      }
+      // Use RPC result for current streak, but keep best streak from history
+      // The RPC gives us the accurate current streak (no .limit(5) bug)
 
       final totalStreaks = history.where((s) => s.isStreakMet).length;
       final totalDays = history.length;

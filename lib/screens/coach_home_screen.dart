@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import 'login_screen.dart';
 import 'member_profile_coach_view_screen.dart';
+import '../providers/master_data_provider.dart';
 
 class CoachHomeScreen extends StatefulWidget {
   const CoachHomeScreen({super.key});
@@ -24,6 +25,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   List<Map<String, dynamic>> allMembers = [];
   List<Map<String, dynamic>> filteredMembers = [];
   bool isLoading = true;
+  final MasterDataProvider _dataProvider = MasterDataProvider.instance;
 
   // ✅ Pagination variables — now backed by real server-side LIMIT/OFFSET
   bool isLoadingMore = false;
@@ -818,6 +820,12 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                         canEditDiet: canEditDiet,
                         canEditWorkout: canEditWorkout,
                         onTap: () async {
+                          final memberId =
+                              filteredMembers[index]['id'] as String?;
+                          // ✅ Invalidate cache BEFORE opening the profile
+                          if (memberId != null) {
+                            _dataProvider.invalidateCache(memberId);
+                          }
                           await Navigator.push(
                             context,
                             MaterialPageRoute(

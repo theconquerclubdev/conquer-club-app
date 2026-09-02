@@ -22,6 +22,7 @@ dependencies:
 
   # Supabase
   supabase_flutter: ^2.15.4
+  realtime_client: ^2.10.0
 
   # Other packages
   url_launcher: ^6.3.0

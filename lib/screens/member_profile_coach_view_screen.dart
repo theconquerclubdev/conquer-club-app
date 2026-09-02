@@ -75,9 +75,9 @@ class _MemberProfileCoachViewScreenState
     try {
       final memberId = widget.member['id'];
 
-      // ✅ Use MasterDataProvider (single source of truth)
+      // Use MasterDataProvider with cache
       final dashboardData = await MasterDataProvider.instance
-          .fetchMemberData(memberId, force: true);
+          .fetchMemberData(memberId, force: false);
 
       final profile = dashboardData.profile;
 
@@ -140,6 +140,12 @@ class _MemberProfileCoachViewScreenState
         setState(() {
           isLoading = false;
         });
+        // ✅ DEBUG: Print membership values
+        print('🔍 Member: ${widget.member['full_name']}');
+        print('🔍 daysLeft from dashboard: $daysLeft');
+        print('🔍 isMembershipActive from dashboard: $isMembershipActive');
+        print(
+            '🔍 membership_end_date from profile: ${profile?['membership_end_date']}');
       }
     } catch (err, stack) {
       debugPrint('Error in loadData(): $err\n$stack');

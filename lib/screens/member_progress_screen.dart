@@ -12,6 +12,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../theme/app_theme.dart';
+import '../providers/master_data_provider.dart';
 
 // ============================================================
 // BODY TRANSFORMATION — before/after progress photos
@@ -137,7 +138,8 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
           final exp = row['${slot.col}_url_expiry'] as String?;
           _urlExpiresAt[slot] = exp == null ? null : DateTime.tryParse(exp);
           final updated = row['${slot.col}_updated_at'] as String?;
-          _updatedAt[slot] = updated == null ? null : DateTime.tryParse(updated);
+          _updatedAt[slot] =
+              updated == null ? null : DateTime.tryParse(updated);
         }
       }
 
@@ -180,7 +182,8 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
     if (slot.isBefore) {
       if (!hasExisting) return true;
       final uploadedAt = _updatedAt[slot];
-      if (uploadedAt == null) return false; // no timestamp on record: play safe, treat as locked
+      if (uploadedAt == null)
+        return false; // no timestamp on record: play safe, treat as locked
       return _isSameDay(uploadedAt, DateTime.now());
     }
     if (!hasExisting) return true;
@@ -193,7 +196,8 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
 
   String? _blockedReason(_Slot slot) {
     if (_canUpload(slot)) return null;
-    if (slot.isBefore) return 'Before photos can only be replaced on the day you first uploaded them.';
+    if (slot.isBefore)
+      return 'Before photos can only be replaced on the day you first uploaded them.';
     return 'After photos can only be updated on Sundays.';
   }
 
@@ -357,6 +361,8 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
       });
 
       if (mounted) {
+        // Invalidate cache for the member
+        MasterDataProvider.instance.invalidateCache(_memberId);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('${slot.label} uploaded successfully!'),

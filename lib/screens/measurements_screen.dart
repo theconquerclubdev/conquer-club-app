@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import 'member_home_screen.dart';
+import '../providers/master_data_provider.dart';
 
 class MeasurementsScreen extends StatefulWidget {
   final bool isOnboarding;
@@ -324,6 +325,11 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
 
     if (saved == true) {
       await loadHistory();
+      // Invalidate cache for the current user
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId != null) {
+        MasterDataProvider.instance.invalidateCache(userId);
+      }
       if (widget.isOnboarding && mounted) {
         Navigator.pushReplacement(
           context,
