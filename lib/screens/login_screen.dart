@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import '../utils/responsive.dart';
 import 'signup_screen.dart';
+import 'otp_reset_screen.dart';
 import 'admin_home_screen.dart';
 import 'coach_home_screen.dart';
 import 'member_home_screen.dart';
@@ -173,31 +174,26 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _isResetting = true);
 
     try {
-      // Platform-specific redirect URLs
-      String? redirectUrl;
-
-      if (kIsWeb) {
-        // Web: use your web app URL with reset-password path
-        redirectUrl = 'https://main.conquer-club-app.pages.dev/reset-password';
-      } else {
-        // Mobile (Android/iOS): use deep link scheme
-        redirectUrl = 'conquerclub://reset-password';
-      }
-
+      // Send OTP via email using Supabase's OTP method
       await Supabase.instance.client.auth.resetPasswordForEmail(
         email,
-        redirectTo: redirectUrl,
       );
 
       if (mounted) {
         Navigator.pop(dialogContext);
-        _showResetSuccessDialog();
+        // Navigate to OTP verification screen
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OtpResetScreen(email: email),
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Failed to send reset email: $e'),
+            content: Text('Failed to send verification code: $e'),
             backgroundColor: Colors.red,
           ),
         );

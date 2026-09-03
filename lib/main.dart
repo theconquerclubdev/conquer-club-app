@@ -5,14 +5,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
-import 'package:app_links/app_links.dart';
 import 'screens/login_screen.dart';
 import 'screens/get_started_screen.dart';
 import 'screens/coach_home_screen.dart';
 import 'screens/member_home_screen.dart';
 import 'screens/admin_home_screen.dart';
 import 'screens/onboarding_screen.dart';
-import 'screens/reset_password_screen.dart';
 import 'theme/app_theme.dart';
 import 'providers/master_data_provider.dart';
 
@@ -169,25 +167,6 @@ class MyApp extends StatelessWidget {
         ),
       ),
       home: const AuthWrapper(),
-      onGenerateRoute: (settings) {
-        final uri = Uri.parse(settings.name ?? '/');
-        if (uri.path.contains('reset-password')) {
-          final queryParams = uri.queryParameters;
-          return MaterialPageRoute(
-            builder: (_) => ResetPasswordScreen(
-              accessToken: queryParams['access_token'],
-              isExpiredOrInvalid: queryParams.containsKey('error') ||
-                  queryParams.containsKey('error_code'),
-              errorMessage: queryParams['error_description'],
-            ),
-            settings: settings,
-          );
-        }
-        return MaterialPageRoute(
-          builder: (_) => const AuthWrapper(),
-          settings: settings,
-        );
-      },
       debugShowCheckedModeBanner: false,
 
       // Responsive foundation: allows the app to receive its actual
@@ -215,7 +194,6 @@ class AuthWrapper extends StatefulWidget {
 class _AuthWrapperState extends State<AuthWrapper> {
   bool _isLoading = true;
   Widget? _initialScreen;
-  AppLinks? _appLinks;
 
   static const String _currentVersion = '2.0.0';
 
@@ -223,160 +201,10 @@ class _AuthWrapperState extends State<AuthWrapper> {
   void initState() {
     super.initState();
     _checkAuth();
-    _initDeepLinks();
-  }
-
-  Future<void> _initDeepLinks() async {
-    try {
-      _appLinks = AppLinks();
-
-      // Handle initial link (app opened via deep link)
-      final initialLink = await _appLinks!.getInitialLink();
-      if (initialLink != null) {
-        _handleDeepLink(initialLink);
-      }
-
-      // Listen for future deep links
-      _appLinks!.uriLinkStream.listen(
-        (Uri uri) {
-          _handleDeepLink(uri);
-        },
-        onError: (err) {
-          print('Error listening to deep links: $err');
-        },
-      );
-    } catch (e) {
-      print('Error initializing deep links: $e');
-    }
-  }
-
-  void _handleDeepLink(Uri uri) {
-    // Check if it's a password reset link
-    final link = uri.toString();
-    if (link.contains('reset-password')) {
-      try {
-        final fragment = uri.fragment;
-
-        // Parse the fragment parameters (access_token=xyz&refresh_token=abc)
-        final params = <String, String>{};
-        if (fragment.isNotEmpty) {
-          for (final pair in fragment.split('&')) {
-            final parts = pair.split('=');
-            if (parts.length == 2) {
-              params[parts[0]] = parts[1];
-            }
-          }
-        }
-
-        final accessToken = params['access_token'];
-        if (accessToken != null && accessToken.isNotEmpty) {
-          // Navigate to reset password screen
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            navigatorKey.currentState?.pushReplacement(
-              MaterialPageRoute(
-                builder: (context) =>
-                    ResetPasswordScreen(accessToken: accessToken),
-              ),
-            );
-          });
-        }
-      } catch (e) {
-        print('Error handling deep link: $e');
-      }
-    }
   }
 
   Future<void> _checkAuth() async {
-    // 1. CRITICAL: Handle web password reset FIRST - check path before anything else
-    // This must happen BEFORE version check or any other logic
-    if (kIsWeb) {
-      final uri = Uri.base;
-      final path = uri.path;
-
-      // FIRST: If the URL contains reset-password, ALWAYS show the reset screen
-      if (path.contains('reset-password')) {
-        final queryParams = uri.queryParameters;
-        final fragment = uri.fragment;
-        final fragParams = fragment.isNotEmpty
-            ? Uri.splitQueryString(fragment)
-            : <String, String>{};
-
-        // Check for error parameters (otp_expired, access_denied, etc.)
-        final errorCode = queryParams['error_code'] ?? fragParams['error_code'];
-        final error = queryParams['error'] ?? fragParams['error'];
-        final errorDesc =
-            queryParams['error_description'] ?? fragParams['error_description'];
-
-        // If there's an error, show the expired link view
-        if (errorCode != null || error != null) {
-          debugPrint('🔍 Password reset error detected: $errorCode');
-          String message = 'The password reset link is invalid or has expired.';
-          if (errorDesc != null && errorDesc.isNotEmpty) {
-            message = Uri.decodeComponent(errorDesc.replaceAll('+', ' '));
-          }
-          setState(() {
-            _initialScreen = ResetPasswordScreen(
-              isExpiredOrInvalid: true,
-              errorMessage: message,
-            );
-            _isLoading = false;
-          });
-          return;
-        }
-
-        // Pass the code to ResetPasswordScreen for PKCE exchange
-        final fragAccessToken = fragParams['access_token'];
-        final queryAccessToken = queryParams['access_token'];
-
-        setState(() {
-          _initialScreen = ResetPasswordScreen(
-            accessToken: fragAccessToken ?? queryAccessToken,
-          );
-          _isLoading = false;
-        });
-        return;
-      }
-
-      // Handle Supabase PKCE password reset code (for other redirects)
-      final queryParams = uri.queryParameters;
-      final fragment = uri.fragment;
-      final code = queryParams['code'] ?? queryParams['refresh_token'];
-      if (code != null && code.isNotEmpty) {
-        try {
-          await Supabase.instance.client.auth.exchangeCodeForSession(code);
-          setState(() {
-            _initialScreen = const ResetPasswordScreen();
-            _isLoading = false;
-          });
-          return;
-        } catch (e) {
-          debugPrint('❌ Error exchanging password reset code: $e');
-        }
-      }
-
-      // Handle access token in fragment (fallback)
-      String? accessToken;
-      if (fragment.isNotEmpty && fragment.contains('access_token')) {
-        final params = <String, String>{};
-        for (final pair in fragment.split('&')) {
-          final parts = pair.split('=');
-          if (parts.length == 2) {
-            params[parts[0]] = parts[1];
-          }
-        }
-        accessToken = params['access_token'];
-      }
-
-      if (accessToken != null && accessToken.isNotEmpty) {
-        setState(() {
-          _initialScreen = ResetPasswordScreen(accessToken: accessToken);
-          _isLoading = false;
-        });
-        return;
-      }
-    }
-
-    // 2. Check Android version (skip on web since reset is handled above)
+    // Check Android version (skip on web)
     if (!kIsWeb) {
       if (!await _checkAppVersion()) {
         setState(() {
@@ -386,7 +214,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
       }
     }
 
-    // 3. Continue with normal auth flow for non-web or non-reset routes
+    // Continue with normal auth flow
     try {
       final session = Supabase.instance.client.auth.currentSession;
 
