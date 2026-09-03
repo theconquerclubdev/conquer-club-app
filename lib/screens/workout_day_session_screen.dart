@@ -263,7 +263,7 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
             'member_id': memberId,
             'day_of_week': widget.workout['day_of_week'],
             'status': 'in_progress',
-            'started_at': DateTime.now().toIso8601String(),
+            'started_at': DateTime.now().toUtc().toIso8601String(),
             'elapsed_seconds': 0,
           })
           .select()
@@ -343,9 +343,9 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
       'workout_exercise_id': workoutExerciseId,
       'set_number': set['set_number'],
       'completed': nowCompleted,
-      'completed_at': nowCompleted ? DateTime.now().toIso8601String() : null,
+      'completed_at':
+          nowCompleted ? DateTime.now().toUtc().toIso8601String() : null,
     };
-
     if (inputType == 'kg × reps') {
       upsertData['actual_kg'] = set['actual_kg'];
       upsertData['actual_reps'] = set['actual_reps'];
@@ -387,10 +387,9 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
 
     await Supabase.instance.client.from('workout_sessions').update({
       'status': 'completed',
-      'ended_at': DateTime.now().toIso8601String(),
+      'ended_at': DateTime.now().toUtc().toIso8601String(),
       'elapsed_seconds': total,
     }).eq('id', sessionId!);
-
     // Invalidate cache for the member
     final memberId = Supabase.instance.client.auth.currentUser?.id;
     if (memberId != null) {

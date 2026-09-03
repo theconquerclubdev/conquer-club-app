@@ -347,8 +347,8 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
         'member_id': _memberId,
         '${slot.col}_path': path,
         '${slot.col}_url': signed,
-        '${slot.col}_url_expiry': expiry.toIso8601String(),
-        '${slot.col}_updated_at': DateTime.now().toIso8601String(),
+        '${slot.col}_url_expiry': expiry.toUtc().toIso8601String(),
+        '${slot.col}_updated_at': DateTime.now().toUtc().toIso8601String(),
       });
 
       if (!mounted) return;

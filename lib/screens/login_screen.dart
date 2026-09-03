@@ -177,8 +177,8 @@ class _LoginScreenState extends State<LoginScreen> {
       String? redirectUrl;
 
       if (kIsWeb) {
-        // Web: use your web app URL
-        redirectUrl = 'https://main.conquer-club-app.pages.dev';
+        // Web: use your web app URL with reset-password path
+        redirectUrl = 'https://main.conquer-club-app.pages.dev/reset-password';
       } else {
         // Mobile (Android/iOS): use deep link scheme
         redirectUrl = 'conquerclub://reset-password';

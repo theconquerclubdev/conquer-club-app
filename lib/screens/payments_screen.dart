@@ -241,7 +241,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         'plan_key': selectedPlan,
         'months': months,
         'status': 'pending',
-        'payment_date': DateTime.now().toIso8601String(),
+        'payment_date': DateTime.now().toUtc().toIso8601String(),
         'notes': _notesController.text.trim(),
         'is_cash': false,
         'offer_used':

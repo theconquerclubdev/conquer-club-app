@@ -328,7 +328,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           'member_id': userId,
           'log_date': date,
           'steps': steps,
-          'updated_at': DateTime.now().toIso8601String(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
         },
         onConflict: 'member_id,log_date',
       );

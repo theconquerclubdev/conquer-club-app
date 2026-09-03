@@ -289,10 +289,11 @@ class MasterDataProvider extends ChangeNotifier {
       if (streakResponse.isNotEmpty) {
         final history = List<Map<String, dynamic>>.from(streakResponse);
 
-        // Calculate current streak
-        final today = DateTime.now();
+        // Calculate current streak using IST date
+        final nowUtc = DateTime.now().toUtc();
+        final today = nowUtc.add(const Duration(hours: 5, minutes: 30));
         final todayStr =
-            '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+            '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
         // Check today's streak
         bool todayStreakMet = false;
@@ -374,10 +375,11 @@ class MasterDataProvider extends ChangeNotifier {
         }
       }
 
-      // Fetch other data
-      final today = DateTime.now();
+      // Fetch other data using IST date
+      final nowUtc = DateTime.now().toUtc();
+      final today = nowUtc.add(const Duration(hours: 5, minutes: 30));
       final todayStr =
-          '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+          '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
       final stepLog = await Supabase.instance.client
           .from('step_logs')
@@ -410,8 +412,10 @@ class MasterDataProvider extends ChangeNotifier {
           .limit(1)
           .maybeSingle();
 
-      // Fetch workout status for today
-      final startOfDay = DateTime(today.year, today.month, today.day);
+      // Fetch workout status for today using IST boundaries
+      // Convert IST midnight to UTC for querying timestamptz columns
+      final startOfDay = DateTime.utc(today.year, today.month, today.day)
+          .subtract(const Duration(hours: 5, minutes: 30));
       final endOfDay = startOfDay.add(const Duration(days: 1));
 
       final workoutSession = await Supabase.instance.client

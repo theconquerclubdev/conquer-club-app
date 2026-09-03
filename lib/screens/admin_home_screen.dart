@@ -1911,7 +1911,7 @@ class _AdminPaymentsTabState extends State<AdminPaymentsTab> {
       // 1. Mark the payment verified
       await Supabase.instance.client.from('payments').update({
         'status': 'completed',
-        'verified_at': DateTime.now().toIso8601String(),
+        'verified_at': DateTime.now().toUtc().toIso8601String(),
         'verified_by': adminId,
       }).eq('id', paymentId);
 
@@ -1974,7 +1974,7 @@ class _AdminPaymentsTabState extends State<AdminPaymentsTab> {
       final adminId = Supabase.instance.client.auth.currentUser!.id;
       await Supabase.instance.client.from('payments').update({
         'status': 'rejected',
-        'verified_at': DateTime.now().toIso8601String(),
+        'verified_at': DateTime.now().toUtc().toIso8601String(),
         'verified_by': adminId,
       }).eq('id', paymentId);
 
@@ -2014,8 +2014,7 @@ class _AdminPaymentsTabState extends State<AdminPaymentsTab> {
               physics: const AlwaysScrollableScrollPhysics(),
               children: const [
                 SizedBox(height: 120),
-                Icon(Icons.check_circle_outline,
-                    color: Colors.grey, size: 48),
+                Icon(Icons.check_circle_outline, color: Colors.grey, size: 48),
                 SizedBox(height: 12),
                 Center(
                   child: Text(
@@ -2360,7 +2359,7 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
         'plan_key': selectedPlan ?? 'custom',
         'months': months,
         'status': 'completed',
-        'payment_date': DateTime.now().toIso8601String(),
+        'payment_date': DateTime.now().toUtc().toIso8601String(),
         'notes': _notesController.text.trim(),
         'is_cash': isCashPayment,
         'start_date': startDate.toIso8601String().substring(0, 10),

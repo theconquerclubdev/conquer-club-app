@@ -725,6 +725,8 @@ class _OfferCardState extends State<_OfferCard> {
 
     final Set<String> selectedMemberIds = {};
     bool isSelectAll = false;
+    String memberSearchQuery = '';
+    List<Map<String, dynamic>> filteredMembers = List.from(availableMembers);
 
     showModalBottomSheet(
       context: context,
@@ -732,14 +734,9 @@ class _OfferCardState extends State<_OfferCard> {
       isScrollControlled: true,
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) {
-          String memberSearchQuery = '';
-          List<Map<String, dynamic>> filteredMembers =
-              List.from(availableMembers);
-
           void applyMemberSearch(String query) {
             final q = query.toLowerCase().trim();
             setSheetState(() {
-              memberSearchQuery = query;
               if (q.isEmpty) {
                 filteredMembers = List.from(availableMembers);
               } else {
@@ -847,9 +844,7 @@ class _OfferCardState extends State<_OfferCard> {
                   child: filteredMembers.isEmpty
                       ? Center(
                           child: Text(
-                            memberSearchQuery.isEmpty
-                                ? 'No members available'
-                                : 'No members found',
+                            'No members found',
                             style: TextStyle(color: Colors.grey),
                           ),
                         )

@@ -302,6 +302,7 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
                           Supabase.instance.client.auth.currentUser!.id;
                       final values = <String, dynamic>{
                         'member_id': userId,
+                        'recorded_at': DateTime.now().toUtc().toIso8601String(),
                       };
                       for (var f in fieldsMeta) {
                         values[f['key']!] = double.tryParse(

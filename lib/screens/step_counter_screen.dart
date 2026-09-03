@@ -81,7 +81,7 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
             'member_id': userId,
             'log_date': todayKey,
             'steps': widget.liveTodaySteps,
-            'updated_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
           }, onConflict: 'member_id,log_date');
           print('✅ StepCounterScreen: Saved $widget.liveTodaySteps steps');
         } catch (e) {

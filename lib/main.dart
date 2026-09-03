@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:app_links/app_links.dart';
 import 'screens/login_screen.dart';
 import 'screens/get_started_screen.dart';
@@ -98,6 +99,11 @@ class AppLifecycleObserver extends WidgetsBindingObserver {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // Use path URL strategy on Web so /reset-password routes cleanly
+  if (kIsWeb) {
+    usePathUrlStrategy();
+  }
+
   await SharedPreferences.getInstance();
 
   await Supabase.initialize(
@@ -163,6 +169,25 @@ class MyApp extends StatelessWidget {
         ),
       ),
       home: const AuthWrapper(),
+      onGenerateRoute: (settings) {
+        final uri = Uri.parse(settings.name ?? '/');
+        if (uri.path.contains('reset-password')) {
+          final queryParams = uri.queryParameters;
+          return MaterialPageRoute(
+            builder: (_) => ResetPasswordScreen(
+              accessToken: queryParams['access_token'],
+              isExpiredOrInvalid: queryParams.containsKey('error') ||
+                  queryParams.containsKey('error_code'),
+              errorMessage: queryParams['error_description'],
+            ),
+            settings: settings,
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => const AuthWrapper(),
+          settings: settings,
+        );
+      },
       debugShowCheckedModeBanner: false,
 
       // Responsive foundation: allows the app to receive its actual
@@ -262,26 +287,76 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 
   Future<void> _checkAuth() async {
-    // ✅ Check version first before anything else
-    if (!await _checkAppVersion()) {
-      setState(() {
-        _isLoading = false;
-      });
-      return;
-    }
-
-    // ✅ Handle web deep links (password reset)
+    // 1. CRITICAL: Handle web password reset FIRST - check path before anything else
+    // This must happen BEFORE version check or any other logic
     if (kIsWeb) {
       final uri = Uri.base;
-      print('🔍 Web URL: $uri');
-      print('🔍 Fragment: ${uri.fragment}');
-      print('🔍 Query: ${uri.queryParameters}');
+      final path = uri.path;
 
-      String? accessToken;
+      // FIRST: If the URL contains reset-password, ALWAYS show the reset screen
+      if (path.contains('reset-password')) {
+        final queryParams = uri.queryParameters;
+        final fragment = uri.fragment;
+        final fragParams = fragment.isNotEmpty
+            ? Uri.splitQueryString(fragment)
+            : <String, String>{};
 
-      // First check fragment (for deep links)
+        // Check for error parameters (otp_expired, access_denied, etc.)
+        final errorCode = queryParams['error_code'] ?? fragParams['error_code'];
+        final error = queryParams['error'] ?? fragParams['error'];
+        final errorDesc =
+            queryParams['error_description'] ?? fragParams['error_description'];
+
+        // If there's an error, show the expired link view
+        if (errorCode != null || error != null) {
+          debugPrint('🔍 Password reset error detected: $errorCode');
+          String message = 'The password reset link is invalid or has expired.';
+          if (errorDesc != null && errorDesc.isNotEmpty) {
+            message = Uri.decodeComponent(errorDesc.replaceAll('+', ' '));
+          }
+          setState(() {
+            _initialScreen = ResetPasswordScreen(
+              isExpiredOrInvalid: true,
+              errorMessage: message,
+            );
+            _isLoading = false;
+          });
+          return;
+        }
+
+        // Pass the code to ResetPasswordScreen for PKCE exchange
+        final fragAccessToken = fragParams['access_token'];
+        final queryAccessToken = queryParams['access_token'];
+
+        setState(() {
+          _initialScreen = ResetPasswordScreen(
+            accessToken: fragAccessToken ?? queryAccessToken,
+          );
+          _isLoading = false;
+        });
+        return;
+      }
+
+      // Handle Supabase PKCE password reset code (for other redirects)
+      final queryParams = uri.queryParameters;
       final fragment = uri.fragment;
-      if (fragment.contains('access_token')) {
+      final code = queryParams['code'] ?? queryParams['refresh_token'];
+      if (code != null && code.isNotEmpty) {
+        try {
+          await Supabase.instance.client.auth.exchangeCodeForSession(code);
+          setState(() {
+            _initialScreen = const ResetPasswordScreen();
+            _isLoading = false;
+          });
+          return;
+        } catch (e) {
+          debugPrint('❌ Error exchanging password reset code: $e');
+        }
+      }
+
+      // Handle access token in fragment (fallback)
+      String? accessToken;
+      if (fragment.isNotEmpty && fragment.contains('access_token')) {
         final params = <String, String>{};
         for (final pair in fragment.split('&')) {
           final parts = pair.split('=');
@@ -292,14 +367,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
         accessToken = params['access_token'];
       }
 
-      // If not in fragment, check query parameters (for direct URL)
-      if (accessToken == null || accessToken.isEmpty) {
-        final query = uri.queryParameters;
-        accessToken = query['access_token'];
-      }
-
       if (accessToken != null && accessToken.isNotEmpty) {
-        // Show reset screen immediately
         setState(() {
           _initialScreen = ResetPasswordScreen(accessToken: accessToken);
           _isLoading = false;
@@ -308,20 +376,25 @@ class _AuthWrapperState extends State<AuthWrapper> {
       }
     }
 
-    // ✅ Also check if we have a reset token in the session
+    // 2. Check Android version (skip on web since reset is handled above)
+    if (!kIsWeb) {
+      if (!await _checkAppVersion()) {
+        setState(() {
+          _isLoading = false;
+        });
+        return;
+      }
+    }
+
+    // 3. Continue with normal auth flow for non-web or non-reset routes
     try {
-      // Check if there's a pending recovery from the URL
       final session = Supabase.instance.client.auth.currentSession;
 
       if (session != null) {
-        // ✅ Always try to refresh token if needed
         try {
           await Supabase.instance.client.auth.refreshSession();
-        } catch (_) {
-          // If refresh fails, still try to use existing session
-        }
+        } catch (_) {}
 
-        // ✅ Get user role
         try {
           final profile = await Supabase.instance.client
               .from('profiles')
@@ -341,7 +414,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
           final role = profile['role'] as String? ?? 'member';
 
-          // ✅ Check if profile is complete
           final isProfileComplete = profile['weight_kg'] != null &&
               profile['height_cm'] != null &&
               profile['goal'] != null &&
@@ -349,7 +421,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
               profile['gender'] != null &&
               (profile['goal'] as String?)?.isNotEmpty == true;
 
-          // ✅ For members only - check onboarding
           if (role == 'member' && !isProfileComplete) {
             setState(() {
               _initialScreen = const OnboardingScreen();
@@ -363,21 +434,20 @@ class _AuthWrapperState extends State<AuthWrapper> {
             _isLoading = false;
           });
         } catch (e) {
-          print('❌ Error checking profile: $e');
+          debugPrint('❌ Error checking profile: $e');
           setState(() {
             _initialScreen = const LoginScreen();
             _isLoading = false;
           });
         }
       } else {
-        // ✅ NO SESSION - Show GetStartedScreen first, then Login
         setState(() {
           _initialScreen = const GetStartedScreen();
           _isLoading = false;
         });
       }
     } catch (e) {
-      print('❌ Auth check error: $e');
+      debugPrint('❌ Auth check error: $e');
       setState(() {
         _initialScreen = const GetStartedScreen();
         _isLoading = false;

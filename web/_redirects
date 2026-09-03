@@ -1,2 +1,2 @@
 # Create the file
-echo "/* /index.html 200" > web/_redirects
+/* /index.html 200
