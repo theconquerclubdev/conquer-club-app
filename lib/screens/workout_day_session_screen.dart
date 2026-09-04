@@ -328,6 +328,22 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     return exercise['input_type'] ?? 'Reps';
   }
 
+  Future<void> _upsertSetLogWithRetry(Map<String, dynamic> upsertData) async {
+    const maxAttempts = 3;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await Supabase.instance.client.from('session_set_logs').upsert(
+              upsertData,
+              onConflict: 'session_id,workout_exercise_id,set_number',
+            );
+        return;
+      } catch (e) {
+        if (attempt == maxAttempts) rethrow;
+        await Future.delayed(Duration(seconds: attempt * 2));
+      }
+    }
+  }
+
   Future<void> toggleSetDone(String workoutExerciseId, int setIndex) async {
     if (widget.isViewOnly) return;
 
@@ -358,10 +374,7 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     }
 
     try {
-      await Supabase.instance.client.from('session_set_logs').upsert(
-            upsertData,
-            onConflict: 'session_id,workout_exercise_id,set_number',
-          );
+      await _upsertSetLogWithRetry(upsertData);
 
       setState(() => set['completed'] = nowCompleted);
 
@@ -370,9 +383,17 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to update set: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Connection issue — could not save this set. Check your internet and tap Retry.',
+            ),
+            action: SnackBarAction(
+              label: 'Retry',
+              onPressed: () => toggleSetDone(workoutExerciseId, setIndex),
+            ),
+          ),
+        );
       }
     }
   }
