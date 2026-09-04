@@ -412,6 +412,12 @@ class MasterDataProvider extends ChangeNotifier {
           .limit(1)
           .maybeSingle();
 
+      final measurementHistory = await Supabase.instance.client
+          .from('measurement_logs')
+          .select('*')
+          .eq('member_id', memberId)
+          .order('recorded_at', ascending: false);
+
       // Fetch workout status for today using IST boundaries
       // Convert IST midnight to UTC for querying timestamptz columns
       final startOfDay = DateTime.utc(today.year, today.month, today.day)
@@ -438,7 +444,7 @@ class MasterDataProvider extends ChangeNotifier {
         heightCm: (profile?['height_cm'] as num?)?.toDouble(),
         profile: profile,
         measurements: measurements,
-        measurementHistory: [],
+        measurementHistory: List<Map<String, dynamic>>.from(measurementHistory),
         progressPhotos: null,
         tasksToday: {
           'workout_completed': workoutSession != null,

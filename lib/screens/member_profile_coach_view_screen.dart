@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import '../theme/app_theme.dart';
 import 'workout_builder_screen.dart';
 import 'diet_builder_screen.dart';
+import 'coach_diet_preview_screen.dart';
+import 'coach_workout_preview_screen.dart';
 import 'workout_progress_screen.dart';
 import 'streaks_tab.dart';
 import 'step_counter_screen.dart';
@@ -1015,11 +1017,11 @@ class _MemberProfileCoachViewScreenState
                           style: TextStyle(color: AppColors.gold),
                         ),
                         onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content:
-                                  Text('Workout plan preview coming soon!'),
-                              backgroundColor: Colors.orange,
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  CoachWorkoutPreviewScreen(member: m),
                             ),
                           );
                         },
@@ -1068,10 +1070,11 @@ class _MemberProfileCoachViewScreenState
                           style: TextStyle(color: AppColors.gold),
                         ),
                         onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Diet plan preview coming soon!'),
-                              backgroundColor: Colors.orange,
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  CoachDietPreviewScreen(member: m),
                             ),
                           );
                         },
