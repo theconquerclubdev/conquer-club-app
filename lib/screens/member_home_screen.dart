@@ -75,8 +75,9 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   Timer? _healthPollTimer;
   bool _usingHealthSource = false;
 
-  // Manual step entry
-  final TextEditingController _manualStepController = TextEditingController();
+  // Concrete reason step tracking isn't live right now (null = working fine)
+  String? stepIssueMessage;
+  bool stepIssueCanOpenSettings = false;
 
   // Today's Tasks Data
   bool _workoutCompletedToday = false;
@@ -117,7 +118,6 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
   @override
   void dispose() {
-    _manualStepController.dispose();
     WidgetsBinding.instance.removeObserver(this);
     tabController.dispose();
     _stepSub?.cancel();
@@ -156,8 +156,17 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
   Future<void> _initStepTracker() async {
     if (kIsWeb) {
-      // ⚠️ Web browsers don't support step tracking
-      print('🌐 Web platform - step tracking not supported');
+      // ⚠️ Web browsers don't support step tracking — show a clear message
+      // instead of a blank/frozen step bar.
+      if (mounted) {
+        setState(() {
+          stepPermissionDenied = true;
+          stepPermanentlyDenied = false;
+          stepIssueCanOpenSettings = false;
+          stepIssueMessage =
+              "Step counting isn't available on web. Use the Android or iPhone app to track steps.";
+        });
+      }
       return;
     }
     if (_stepTrackerStarting) return;
@@ -191,6 +200,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         setState(() {
           stepPermissionDenied = false;
           stepPermanentlyDenied = false;
+          stepIssueMessage = null;
+          stepIssueCanOpenSettings = false;
         });
       }
       _healthPollTimer?.cancel();
@@ -235,6 +246,12 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         setState(() {
           stepPermissionDenied = true;
           stepPermanentlyDenied = status.isPermanentlyDenied;
+          stepIssueCanOpenSettings = true;
+          stepIssueMessage = status.isPermanentlyDenied
+              ? (Platform.isIOS
+                  ? 'Motion & Fitness access is off. Turn it on in Settings > Privacy > Motion & Fitness to see your steps.'
+                  : 'Physical activity permission is off. Turn it on in Settings > Apps > Conquer Club > Permissions to see your steps.')
+              : 'Step tracking needs motion/activity permission. Tap below to allow it.';
         });
       }
       return;
@@ -243,6 +260,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       setState(() {
         stepPermissionDenied = false;
         stepPermanentlyDenied = false;
+        stepIssueMessage = null;
+        stepIssueCanOpenSettings = false;
       });
     }
     _stepSub?.cancel();
@@ -265,9 +284,22 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
             setState(() {
               stepPermissionDenied = true;
               stepPermanentlyDenied = status.isPermanentlyDenied;
+              stepIssueCanOpenSettings = true;
+              stepIssueMessage = status.isPermanentlyDenied
+                  ? (Platform.isIOS
+                      ? 'Motion & Fitness access is off. Turn it on in Settings > Privacy > Motion & Fitness to see your steps.'
+                      : 'Physical activity permission is off. Turn it on in Settings > Apps > Conquer Club > Permissions to see your steps.')
+                  : 'Step tracking needs motion/activity permission. Tap below to allow it.';
             });
           }
           return;
+        }
+        if (mounted) {
+          setState(() {
+            stepIssueCanOpenSettings = false;
+            stepIssueMessage =
+                'Step sensor is not responding right now. Retrying...';
+          });
         }
         await Future.delayed(const Duration(seconds: 5));
         if (mounted) _initRawSensorTracker();
@@ -634,44 +666,6 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     });
   }
 
-  // ============================================================
-  // MANUAL STEP ENTRY - When step tracking is not available
-  // ============================================================
-  Future<void> _updateManualSteps() async {
-    final value = _manualStepController.text.trim();
-    if (value.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter step count')),
-      );
-      return;
-    }
-
-    final steps = int.tryParse(value);
-    if (steps == null || steps < 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a valid number')),
-      );
-      return;
-    }
-
-    setState(() {
-      todaySteps = steps;
-    });
-
-    // Save to Supabase
-    await _saveTodaySteps();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('✅ Steps updated to $steps'),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 2),
-      ),
-    );
-
-    _manualStepController.clear();
-  }
-
   @override
   Widget build(BuildContext context) {
     final userId = Supabase.instance.client.auth.currentUser!.id;
@@ -718,10 +712,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     final progress = (todaySteps / stepGoal).clamp(0.0, 1.0);
     final screenWidth = MediaQuery.of(context).size.width;
     final isCompact = screenWidth < 360;
+    final hasIssue = stepIssueMessage != null;
 
     return GestureDetector(
-      onTap: stepPermissionDenied
-          ? null // Don't navigate to step counter if permission denied
+      onTap: hasIssue
+          ? (stepIssueCanOpenSettings ? _retryStepPermission : null)
           : () async {
               await Navigator.push(
                 context,
@@ -754,8 +749,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
             ),
           ],
         ),
-        child: stepPermissionDenied
-            ? _buildManualStepEntry() // Show manual entry when permission denied
+        child: hasIssue
+            ? _buildStepIssueCard() // Exact reason instead of a fake/manual step bar
             : Row(
                 children: [
                   Expanded(
@@ -808,7 +803,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     );
   }
 
-  Widget _buildManualStepEntry() {
+  Widget _buildStepIssueCard() {
     final isCompact = MediaQuery.of(context).size.width < 360;
 
     return Row(
@@ -828,78 +823,46 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         ),
         const SizedBox(width: 8),
 
-        // Manual entry
+        // Concrete reason + one-tap fix — no manual number entry
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                'Manual Step Entry',
+                stepIssueMessage ?? '',
                 style: TextStyle(
                   color: Colors.orange,
-                  fontSize: isCompact ? 9 : 10,
+                  fontSize: isCompact ? 10 : 11,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const SizedBox(height: 3),
-              Row(
-                children: [
-                  // Input field
-                  Expanded(
-                    child: Container(
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: Colors.grey.shade900,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: AppColors.gold.withOpacity(0.3),
-                        ),
-                      ),
-                      child: TextField(
-                        controller: _manualStepController,
-                        keyboardType: TextInputType.number,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: isCompact ? 11 : 12,
-                        ),
-                        decoration: const InputDecoration(
-                          hintText: 'Enter steps',
-                          hintStyle:
-                              TextStyle(color: Colors.grey, fontSize: 10),
-                          contentPadding:
-                              EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          border: InputBorder.none,
-                        ),
-                        onSubmitted: (value) => _updateManualSteps(),
+              if (stepIssueCanOpenSettings) ...[
+                const SizedBox(height: 6),
+                GestureDetector(
+                  onTap: _retryStepPermission,
+                  child: Container(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: isCompact ? 8 : 10,
+                      vertical: isCompact ? 4 : 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.gold,
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      stepPermanentlyDenied
+                          ? 'Open Settings'
+                          : 'Allow Permission',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontSize: isCompact ? 9 : 10,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  // Update button
-                  GestureDetector(
-                    onTap: _updateManualSteps,
-                    child: Container(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: isCompact ? 8 : 10,
-                        vertical: isCompact ? 4 : 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.gold,
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        'Update',
-                        style: TextStyle(
-                          color: Colors.black,
-                          fontWeight: FontWeight.bold,
-                          fontSize: isCompact ? 9 : 10,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ],
           ),
         ),

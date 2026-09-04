@@ -416,7 +416,8 @@ class MasterDataProvider extends ChangeNotifier {
           .from('measurement_logs')
           .select('*')
           .eq('member_id', memberId)
-          .order('recorded_at', ascending: false);
+          .order('recorded_at', ascending: false)
+          .limit(16);
 
       // Fetch workout status for today using IST boundaries
       // Convert IST midnight to UTC for querying timestamptz columns
