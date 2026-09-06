@@ -313,6 +313,78 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
   }
 
+  String _fmtDateKey(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  // ✅ Runs once per app-open. Catches any day(s) whose final step count
+  // never got saved (net was off at 11PM cutoff, app killed, etc).
+  // Works identically on Android (Health Connect) and iOS (HealthKit) —
+  // both support historical range queries via the same Health() API.
+  // Egress: 1 select total (covers all missing days) + upsert only for
+  // days whose value actually changed. Zero extra calls on a normal day.
+  Future<void> _backfillMissingStepDays(String userId) async {
+    if (!isMembershipActive) return;
+    final prefs = await SharedPreferences.getInstance();
+    final lastSynced = prefs.getString('last_step_sync_date');
+    final nowIst =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    final todayIst = DateTime.utc(nowIst.year, nowIst.month, nowIst.day);
+
+    if (lastSynced == null) {
+      await prefs.setString('last_step_sync_date', _fmtDateKey(todayIst));
+      return;
+    }
+
+    final parts = lastSynced.split('-');
+    final lastDate = DateTime.utc(
+        int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+    var cursor = lastDate.add(const Duration(days: 1));
+    final earliestAllowed = todayIst.subtract(const Duration(days: 30));
+    if (cursor.isBefore(earliestAllowed)) cursor = earliestAllowed;
+    if (!cursor.isBefore(todayIst)) return;
+
+    final missingDates = <DateTime>[];
+    for (var d = cursor;
+        d.isBefore(todayIst);
+        d = d.add(const Duration(days: 1))) {
+      missingDates.add(d);
+    }
+
+    try {
+      final existingRows = await Supabase.instance.client
+          .from('step_logs')
+          .select('log_date, steps')
+          .eq('member_id', userId)
+          .gte('log_date', _fmtDateKey(missingDates.first))
+          .lt('log_date', _fmtDateKey(todayIst));
+      final existingMap = <String, int>{
+        for (final r in List<Map<String, dynamic>>.from(existingRows))
+          r['log_date'].toString().substring(0, 10):
+              (r['steps'] as num?)?.toInt() ?? 0
+      };
+
+      for (final d in missingDates) {
+        final dateKey = _fmtDateKey(d);
+        final dayStartUtc = d.subtract(const Duration(hours: 5, minutes: 30));
+        final dayEndUtc = dayStartUtc.add(const Duration(days: 1));
+        int steps;
+        try {
+          steps =
+              await Health().getTotalStepsInInterval(dayStartUtc, dayEndUtc) ??
+                  0;
+        } catch (_) {
+          return; // Health/network failure — retry remaining dates next open.
+        }
+        if (existingMap[dateKey] != steps) {
+          await _upsertStepLog(userId, dateKey, steps);
+        }
+      }
+      await prefs.setString('last_step_sync_date', _fmtDateKey(todayIst));
+    } catch (_) {
+      // Network failure — last_step_sync_date left untouched, retries next open.
+    }
+  }
+
   Future<void> _resolveBaseline(int cumulativeSteps) async {
     if (_stepsAtMidnight != null && _baselineDate == _todayKey()) return;
     final prefs = await SharedPreferences.getInstance();
@@ -436,6 +508,9 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           DateTime.tryParse(profile?['created_at'] ?? '') ?? signupDate;
 
       isMembershipActive = data.isMembershipActive;
+      // ✅ Backfill any missed step-log days (net-off protection) —
+      // fire-and-forget, active members only, only writes days that changed.
+      _backfillMissingStepDays(userId);
       isMembershipExpiringSoon = daysLeft > 0 && daysLeft <= 30;
       isNewMember = membershipEndDate.isEmpty || daysLeft <= 0;
 

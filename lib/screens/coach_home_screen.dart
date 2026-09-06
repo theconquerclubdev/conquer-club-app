@@ -1024,8 +1024,7 @@ class _MemberCard extends StatelessWidget {
     final memberId = member['id'] as String?;
     final masterData =
         memberId != null ? MasterDataProvider.instance.getData(memberId) : null;
-    final currentStreak =
-        masterData?.currentStreak ?? (member['current_streak'] as int?) ?? 0;
+    final currentStreak = masterData?.currentStreak ?? 0;
     if (memberId != null && masterData == null) {
       MasterDataProvider.instance.fetchMemberData(memberId);
     }
