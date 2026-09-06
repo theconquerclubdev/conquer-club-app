@@ -275,164 +275,89 @@ class MasterDataProvider extends ChangeNotifier {
         return fallback;
       }
 
-      // Fetch streak history and calculate streak
+      // Fetch current streak from the single source-of-truth RPC — computes
+      // live off workout_sessions / measurement_logs / member_progress_photos.
+      // No member_streaks table read, no client-side recalculation.
       int currentStreak = 0;
-      int highestStreak = 0;
 
-      final streakResponse = await Supabase.instance.client
-          .from('member_streaks')
-          .select('date, is_streak_met')
-          .eq('member_id', memberId)
-          .order('date', ascending: false)
-          .limit(90);
+      final streakRpcResponse = await Supabase.instance.client
+          .rpc('get_current_streak', params: {'p_member_id': memberId});
 
-      if (streakResponse.isNotEmpty) {
-        final history = List<Map<String, dynamic>>.from(streakResponse);
-
-        // Calculate current streak using IST date
-        final nowUtc = DateTime.now().toUtc();
-        final today = nowUtc.add(const Duration(hours: 5, minutes: 30));
-        final todayStr =
-            '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-
-        // Check today's streak
-        bool todayStreakMet = false;
-        for (final record in history) {
-          if (record['date'] == todayStr) {
-            todayStreakMet = record['is_streak_met'] as bool;
-            break;
-          }
-        }
-
-        if (todayStreakMet) {
-          currentStreak = 1;
-          DateTime checkDate = today.subtract(const Duration(days: 1));
-          while (true) {
-            final dateStr =
-                '${checkDate.year}-${checkDate.month.toString().padLeft(2, '0')}-${checkDate.day.toString().padLeft(2, '0')}';
-            bool found = false;
-            for (final record in history) {
-              if (record['date'] == dateStr) {
-                if (record['is_streak_met'] as bool) {
-                  currentStreak++;
-                  checkDate = checkDate.subtract(const Duration(days: 1));
-                  found = true;
-                }
-                break;
-              }
-            }
-            if (!found) break;
-          }
-        } else {
-          // Check yesterday
-          final yesterday = today.subtract(const Duration(days: 1));
-          final yesterdayStr =
-              '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}';
-          bool yesterdayStreakMet = false;
-          for (final record in history) {
-            if (record['date'] == yesterdayStr) {
-              yesterdayStreakMet = record['is_streak_met'] as bool;
-              break;
-            }
-          }
-          if (yesterdayStreakMet) {
-            currentStreak = 1;
-            DateTime checkDate = yesterday.subtract(const Duration(days: 1));
-            while (true) {
-              final dateStr =
-                  '${checkDate.year}-${checkDate.month.toString().padLeft(2, '0')}-${checkDate.day.toString().padLeft(2, '0')}';
-              bool found = false;
-              for (final record in history) {
-                if (record['date'] == dateStr) {
-                  if (record['is_streak_met'] as bool) {
-                    currentStreak++;
-                    checkDate = checkDate.subtract(const Duration(days: 1));
-                    found = true;
-                  }
-                  break;
-                }
-              }
-              if (!found) break;
-            }
-          }
-        }
-
-        // Calculate highest streak
-        final sortedHistory = List<Map<String, dynamic>>.from(history)
-          ..sort(
-              (a, b) => (a['date'] as String).compareTo(b['date'] as String));
-
-        int running = 0;
-        for (final record in sortedHistory) {
-          if (record['is_streak_met'] as bool) {
-            running++;
-            if (running > highestStreak) {
-              highestStreak = running;
-            }
-          } else {
-            running = 0;
-          }
-        }
+      if (streakRpcResponse != null) {
+        currentStreak =
+            (streakRpcResponse['current_streak'] as num?)?.toInt() ?? 0;
       }
-
       // Fetch other data using IST date
       final nowUtc = DateTime.now().toUtc();
       final today = nowUtc.add(const Duration(hours: 5, minutes: 30));
       final todayStr =
           '${today.year.toString().padLeft(4, '0')}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
-      final stepLog = await Supabase.instance.client
-          .from('step_logs')
-          .select('steps')
-          .eq('member_id', memberId)
-          .eq('log_date', todayStr)
-          .maybeSingle();
-
-      final todaySteps = (stepLog?['steps'] as num?)?.toInt() ?? 0;
-      final stepGoal = (profile?['step_goal'] as num?)?.toInt() ?? 10000;
-
-      // Calculate days left
+      // Calculate days left using IST "today" (the same Asia/Kolkata date the
+      // streak RPC uses) instead of the device's local DateTime.now().
       int daysLeft = -1;
       bool isMembershipActive = false;
       if (profile != null && profile['membership_end_date'] != null) {
         try {
           final endDate = DateTime.parse(profile['membership_end_date']);
-          final now = DateTime.now();
-          daysLeft = endDate.difference(now).inDays;
+          daysLeft = endDate.difference(today).inDays;
           isMembershipActive = daysLeft >= 0;
         } catch (_) {}
       }
 
-      // Fetch measurements
-      final measurements = await Supabase.instance.client
-          .from('measurement_logs')
-          .select('*')
-          .eq('member_id', memberId)
-          .order('recorded_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
+      // ✅ Everything below is wrapped so that if ANY of these queries fail,
+      // it can NEVER wipe out the currentStreak we already fetched above.
+      int todaySteps = 0;
+      final stepGoal = (profile?['step_goal'] as num?)?.toInt() ?? 10000;
+      Map<String, dynamic>? measurements;
+      List<Map<String, dynamic>> measurementHistory = [];
+      bool workoutCompletedToday = false;
 
-      final measurementHistory = await Supabase.instance.client
-          .from('measurement_logs')
-          .select('*')
-          .eq('member_id', memberId)
-          .order('recorded_at', ascending: false)
-          .limit(16);
+      try {
+        final stepLog = await Supabase.instance.client
+            .from('step_logs')
+            .select('steps')
+            .eq('member_id', memberId)
+            .eq('log_date', todayStr)
+            .maybeSingle();
+        todaySteps = (stepLog?['steps'] as num?)?.toInt() ?? 0;
 
-      // Fetch workout status for today using IST boundaries
-      // Convert IST midnight to UTC for querying timestamptz columns
-      final startOfDay = DateTime.utc(today.year, today.month, today.day)
-          .subtract(const Duration(hours: 5, minutes: 30));
-      final endOfDay = startOfDay.add(const Duration(days: 1));
+        measurements = await Supabase.instance.client
+            .from('measurement_logs')
+            .select('*')
+            .eq('member_id', memberId)
+            .order('recorded_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
 
-      final workoutSession = await Supabase.instance.client
-          .from('workout_sessions')
-          .select('status')
-          .eq('member_id', memberId)
-          .eq('status', 'completed')
-          .gte('started_at', startOfDay.toIso8601String())
-          .lt('started_at', endOfDay.toIso8601String())
-          .maybeSingle();
+        measurementHistory = List<Map<String, dynamic>>.from(
+          await Supabase.instance.client
+              .from('measurement_logs')
+              .select('*')
+              .eq('member_id', memberId)
+              .order('recorded_at', ascending: false)
+              .limit(16),
+        );
+
+        // Fetch workout status for today using IST boundaries
+        // Convert IST midnight to UTC for querying timestamptz columns
+        final startOfDay = DateTime.utc(today.year, today.month, today.day)
+            .subtract(const Duration(hours: 5, minutes: 30));
+        final endOfDay = startOfDay.add(const Duration(days: 1));
+
+        final workoutSession = await Supabase.instance.client
+            .from('workout_sessions')
+            .select('status')
+            .eq('member_id', memberId)
+            .eq('status', 'completed')
+            .gte('started_at', startOfDay.toIso8601String())
+            .lt('started_at', endOfDay.toIso8601String())
+            .maybeSingle();
+        workoutCompletedToday = workoutSession != null;
+      } catch (e) {
+        debugPrint(
+            '⚠️ Non-streak data fetch failed for $memberId (streak kept intact): $e');
+      }
 
       final dashboardData = MemberDashboardData(
         memberId: memberId,
@@ -445,10 +370,10 @@ class MasterDataProvider extends ChangeNotifier {
         heightCm: (profile?['height_cm'] as num?)?.toDouble(),
         profile: profile,
         measurements: measurements,
-        measurementHistory: List<Map<String, dynamic>>.from(measurementHistory),
+        measurementHistory: measurementHistory,
         progressPhotos: null,
         tasksToday: {
-          'workout_completed': workoutSession != null,
+          'workout_completed': workoutCompletedToday,
           'after_front_updated_at': null,
           'after_back_updated_at': null,
         },

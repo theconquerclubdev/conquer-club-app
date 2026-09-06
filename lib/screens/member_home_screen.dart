@@ -411,6 +411,23 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           .fetchMemberData(userId, force: true, skipCache: true);
       final profile = data.profile;
       fullName = profile?['full_name'] ?? '';
+
+      // ✅ If fullName is still "Unknown", try direct Supabase query
+      if (fullName == 'Unknown' || fullName.isEmpty) {
+        try {
+          final directProfile = await Supabase.instance.client
+              .from('profiles')
+              .select('full_name')
+              .eq('id', userId)
+              .maybeSingle();
+          if (directProfile != null && directProfile['full_name'] != null) {
+            fullName = directProfile['full_name'] as String;
+          }
+        } catch (_) {
+          // Silently fall back to existing name
+        }
+      }
+
       membershipEndDate = profile?['membership_end_date'] ?? '';
       daysLeft = data.daysLeft;
       stepGoal = data.stepGoal;

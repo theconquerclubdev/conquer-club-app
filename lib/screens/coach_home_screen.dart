@@ -52,6 +52,8 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   int expiredLastWeek = 0;
   int expiringTomorrow = 0;
   int expiringIn7Days = 0;
+  // Not used in UI but kept for potential future use
+  int activeWithStreakCount = 0;
 
   // Coach permissions
   bool canEditDiet = false;
@@ -149,6 +151,9 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
       final currentUser = Supabase.instance.client.auth.currentUser!;
       final offset = reset ? 0 : allMembers.length;
 
+      // ⚠️ IMPORTANT: The RPC MUST return current_streak for each member.
+      // If current_streak is not in the response, check the database RPC definition.
+      // The RPC should include: (SELECT COALESCE((SELECT current_streak FROM get_current_streak(p.id)), 0)) as current_streak
       final data = await Supabase.instance.client.rpc(
         'get_members_with_latest_data',
         params: {
@@ -167,6 +172,16 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
       final total = results.isNotEmpty
           ? (results.first['total_count'] as num).toInt()
           : (reset ? 0 : totalCount);
+
+      // ✅ DEBUG: Check if current_streak is in the data
+      if (results.isNotEmpty) {
+        final firstMember = results.first;
+        print('🔍 First member keys: ${firstMember.keys}');
+        print('🔍 current_streak value: ${firstMember['current_streak']}');
+        print('🔍 full_name: ${firstMember['full_name']}');
+        print('🔍 days_left: ${firstMember['days_left']}');
+        print('🔍 is_active: ${firstMember['is_active']}');
+      }
 
       if (mounted) {
         setState(() {
@@ -1006,11 +1021,23 @@ class _MemberCard extends StatelessWidget {
     final hasDiet = member['has_diet'] ?? false;
     final hasEditPermissions = canEditDiet || canEditWorkout;
     final isSmall = MediaQuery.of(context).size.width < 360;
+    final memberId = member['id'] as String?;
+    final masterData =
+        memberId != null ? MasterDataProvider.instance.getData(memberId) : null;
+    final currentStreak =
+        masterData?.currentStreak ?? (member['current_streak'] as int?) ?? 0;
+    if (memberId != null && masterData == null) {
+      MasterDataProvider.instance.fetchMemberData(memberId);
+    }
+    final daysLeft = member['days_left'] as int?;
+
+    // ✅ DEBUG: Log streak values for this member
+    print(
+        '🔍 Member: $name, current_streak: $currentStreak, daysLeft: $daysLeft, isActive: $isActive');
 
     // ✅ Membership days left
     String membershipStatus = '';
     Color membershipColor = Colors.grey;
-    final daysLeft = member['days_left'] as int?;
     if (daysLeft != null) {
       if (daysLeft >= 0) {
         membershipStatus = '$daysLeft d left';
@@ -1044,163 +1071,208 @@ class _MemberCard extends StatelessWidget {
 
     final lastWorkoutText = formatDate(member['latest_workout']);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 4),
-      decoration: BoxDecoration(
-        color: AppColors.cardDark,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: hasEditPermissions
-              ? AppColors.gold.withOpacity(0.15)
-              : (isActive
-                  ? Colors.white.withOpacity(0.04)
-                  : Colors.red.withOpacity(0.15)),
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(8),
-        child: InkWell(
-          borderRadius: BorderRadius.circular(8),
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Row(
-              children: [
-                // Avatar
-                Stack(
+    return AnimatedBuilder(
+      animation: MasterDataProvider.instance,
+      builder: (context, _) {
+        return Container(
+          margin: const EdgeInsets.only(bottom: 4),
+          decoration: BoxDecoration(
+            color: AppColors.cardDark,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: hasEditPermissions
+                  ? AppColors.gold.withOpacity(0.15)
+                  : (isActive
+                      ? Colors.white.withOpacity(0.04)
+                      : Colors.red.withOpacity(0.15)),
+            ),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: onTap,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                child: Row(
                   children: [
-                    Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: isActive
-                              ? [
-                                  AppColors.gold,
-                                  AppColors.gold.withOpacity(0.6)
-                                ]
-                              : [Colors.grey, Colors.grey.withOpacity(0.6)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        shape: BoxShape.circle,
-                      ),
-                      child: Center(
-                        child: Text(
-                          initial,
-                          style: TextStyle(
-                            color:
-                                isActive ? Colors.black : Colors.grey.shade700,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w900,
+                    // Avatar
+                    Stack(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: isActive
+                                  ? [
+                                      AppColors.gold,
+                                      AppColors.gold.withOpacity(0.6)
+                                    ]
+                                  : [Colors.grey, Colors.grey.withOpacity(0.6)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Center(
+                            child: Text(
+                              initial,
+                              style: TextStyle(
+                                color: isActive
+                                    ? Colors.black
+                                    : Colors.grey.shade700,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 0,
-                      right: 0,
-                      child: Container(
-                        width: 10,
-                        height: 10,
-                        decoration: BoxDecoration(
-                          color: isActive ? Colors.green : Colors.red,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: AppColors.cardDark,
-                            width: 1.5,
+                        Positioned(
+                          bottom: 0,
+                          right: 0,
+                          child: Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(
+                              color: isActive ? Colors.green : Colors.red,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: AppColors.cardDark,
+                                width: 1.5,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
-                ),
-                const SizedBox(width: 8),
+                    const SizedBox(width: 8),
 
-                // Name + Goal + Membership Status
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
+                    // Name + Goal + Membership Status
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
                         children: [
+                          Row(
+                            children: [
+                              Text(
+                                name,
+                                style: TextStyle(
+                                  color: isActive
+                                      ? Colors.white
+                                      : Colors.grey.shade400,
+                                  fontSize: isSmall ? 11 : 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                              if (isActive &&
+                                  daysLeft != null &&
+                                  daysLeft >= 0) ...[
+                                const SizedBox(width: 4),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 4,
+                                    vertical: 1,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.gold.withOpacity(0.2),
+                                    borderRadius: BorderRadius.circular(4),
+                                    border: Border.all(
+                                      color: AppColors.gold.withOpacity(0.3),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Text(
+                                        '🔥',
+                                        style: TextStyle(fontSize: 8),
+                                      ),
+                                      const SizedBox(width: 2),
+                                      Text(
+                                        '$currentStreak',
+                                        style: TextStyle(
+                                          color: AppColors.gold,
+                                          fontSize: isSmall ? 7 : 9,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(width: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 4, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: membershipColor.withOpacity(0.15),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  membershipStatus,
+                                  style: TextStyle(
+                                    color: membershipColor,
+                                    fontSize: isSmall ? 7 : 9,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                           Text(
-                            name,
+                            goal,
                             style: TextStyle(
-                              color: isActive
-                                  ? Colors.white
-                                  : Colors.grey.shade400,
-                              fontSize: isSmall ? 11 : 13,
-                              fontWeight: FontWeight.w600,
+                              color: Colors.grey.shade500,
+                              fontSize: isSmall ? 8 : 10,
                             ),
                             overflow: TextOverflow.ellipsis,
                             maxLines: 1,
                           ),
-                          const SizedBox(width: 4),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 4, vertical: 1),
-                            decoration: BoxDecoration(
-                              color: membershipColor.withOpacity(0.15),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: Text(
-                              membershipStatus,
+                          if (member['coach_name'] != null)
+                            Text(
+                              'Coach: ${member['coach_name']}',
                               style: TextStyle(
-                                color: membershipColor,
+                                color: AppColors.gold.withOpacity(0.7),
                                 fontSize: isSmall ? 7 : 9,
-                                fontWeight: FontWeight.w500,
                               ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          Text(
+                            dietStatus,
+                            style: TextStyle(
+                              color: dietColor,
+                              fontSize: isSmall ? 7 : 9,
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ],
                       ),
-                      Text(
-                        goal,
-                        style: TextStyle(
-                          color: Colors.grey.shade500,
-                          fontSize: isSmall ? 8 : 10,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                      ),
-                      if (member['coach_name'] != null)
-                        Text(
-                          'Coach: ${member['coach_name']}',
-                          style: TextStyle(
-                            color: AppColors.gold.withOpacity(0.7),
-                            fontSize: isSmall ? 7 : 9,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                          maxLines: 1,
-                        ),
-                      Text(
-                        dietStatus,
-                        style: TextStyle(
-                          color: dietColor,
-                          fontSize: isSmall ? 7 : 9,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                    ),
 
-                // Stats
-                Row(
-                  children: [
-                    _buildStat('Workout', lastWorkoutText, isActive, isSmall),
-                    const SizedBox(width: 4),
-                    _buildStat('Diet', hasDiet ? '✅' : '❌', isActive, isSmall),
+                    // Stats
+                    Row(
+                      children: [
+                        _buildStat(
+                            'Workout', lastWorkoutText, isActive, isSmall),
+                        const SizedBox(width: 4),
+                        _buildStat(
+                            'Diet', hasDiet ? '✅' : '❌', isActive, isSmall),
+                      ],
+                    ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 

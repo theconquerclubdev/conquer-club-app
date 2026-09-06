@@ -292,6 +292,16 @@ class _OffersTabState extends State<_OffersTab> {
   bool isMultiSelectMode = false;
   final Set<String> _selectedMemberIds = {};
 
+  // ✅ Pagination for members
+  bool isLoadingMembers = false;
+  bool hasMoreMembers = true;
+  int memberPage = 0;
+  final int memberPageSize = 10;
+  final ScrollController _memberScrollController = ScrollController();
+
+  // ✅ Map of memberId -> offerName for assigned members
+  Map<String, String> memberOfferMap = {};
+
   final List<Map<String, dynamic>> _plans = [
     {'key': '1_month', 'label': '1 Month'},
     {'key': '3_month', 'label': '3 Months'},
@@ -314,41 +324,101 @@ class _OffersTabState extends State<_OffersTab> {
           .select('*, offer_members(count)')
           .order('created_at', ascending: false);
 
-      final membersData = await Supabase.instance.client
-          .from('profiles')
-          .select('id, full_name, email')
-          .eq('role', 'member')
-          .order('full_name');
-
       setState(() {
         offers = List<Map<String, dynamic>>.from(offersData);
         filteredOffers = List<Map<String, dynamic>>.from(offersData);
-        allMembers = List<Map<String, dynamic>>.from(membersData);
-        filteredMembers = List<Map<String, dynamic>>.from(membersData);
         isLoading = false;
       });
+
+      // ✅ Load member offer assignments
+      await _loadMemberOfferMap();
+
+      // ✅ Load members with pagination
+      await _loadMembersPaginated(reset: true);
     } catch (e) {
       print('Error loading data: $e');
       setState(() => isLoading = false);
     }
   }
 
-  void _applySearch() {
-    if (searchQuery.isEmpty) {
+  // ✅ Load all member -> offer assignments
+  Future<void> _loadMemberOfferMap() async {
+    try {
+      final data = await Supabase.instance.client
+          .from('offer_members')
+          .select('member_id, offers(name)');
+
+      final Map<String, String> tempMap = {};
+      for (final item in data) {
+        final offer = item['offers'] as Map<String, dynamic>?;
+        if (offer != null) {
+          tempMap[item['member_id']] = offer['name'] ?? 'Unknown Offer';
+        }
+      }
       setState(() {
-        filteredMembers = List<Map<String, dynamic>>.from(allMembers);
+        memberOfferMap = tempMap;
       });
-      return;
+    } catch (e) {
+      print('Error loading member offer map: $e');
+    }
+  }
+
+  // ✅ Paginated member loading with server-side search
+  Future<void> _loadMembersPaginated({bool reset = false}) async {
+    if (isLoadingMembers || !hasMoreMembers) return;
+    if (reset) {
+      memberPage = 0;
+      allMembers.clear();
+      filteredMembers.clear();
+      hasMoreMembers = true;
     }
 
-    final q = searchQuery.toLowerCase();
-    setState(() {
-      filteredMembers = allMembers.where((m) {
-        final name = (m['full_name'] ?? '').toString().toLowerCase();
-        final email = (m['email'] ?? '').toString().toLowerCase();
-        return name.contains(q) || email.contains(q);
-      }).toList();
-    });
+    setState(() => isLoadingMembers = true);
+
+    try {
+      final offset = reset ? 0 : memberPage * memberPageSize;
+
+      var query = Supabase.instance.client
+          .from('profiles')
+          .select('id, full_name, email')
+          .eq('role', 'member')
+          .eq('is_active', true);
+
+      // ✅ Apply search filter on server side
+      if (searchQuery.isNotEmpty) {
+        query = query.or(
+          'full_name.ilike.%$searchQuery%,email.ilike.%$searchQuery%',
+        );
+      }
+
+      final data = await query
+          .order('full_name')
+          .range(offset, offset + memberPageSize - 1);
+
+      final List<Map<String, dynamic>> newMembers =
+          List<Map<String, dynamic>>.from(data);
+
+      setState(() {
+        if (reset) {
+          allMembers = newMembers;
+          filteredMembers = newMembers;
+        } else {
+          allMembers.addAll(newMembers);
+          filteredMembers.addAll(newMembers);
+        }
+        memberPage++;
+        hasMoreMembers = newMembers.length == memberPageSize;
+        isLoadingMembers = false;
+      });
+    } catch (e) {
+      print('Error loading members: $e');
+      setState(() => isLoadingMembers = false);
+    }
+  }
+
+  void _applySearch() {
+    // ✅ Reset and load with server-side search
+    _loadMembersPaginated(reset: true);
   }
 
   void _applyOfferSearch() {
@@ -424,6 +494,7 @@ class _OffersTabState extends State<_OffersTab> {
         '6_month': 0,
         '1_year': 0,
       });
+      // ✅ Close panel immediately - just refresh data
       _loadData();
     }
   }
@@ -703,21 +774,37 @@ class _OfferCardState extends State<_OfferCard> {
   }
 
   Future<void> _addMember() async {
-    // Get members NOT already assigned to ANY offer
-    final assignedMemberIds = await Supabase.instance.client
+    // ✅ Get current offer's assigned member IDs
+    final currentOfferMembers = await Supabase.instance.client
         .from('offer_members')
-        .select('member_id');
+        .select('member_id')
+        .eq('offer_id', widget.offer['id']);
 
-    final assignedIds =
-        assignedMemberIds.map((e) => e['member_id'] as String).toSet();
+    final currentAssignedIds =
+        currentOfferMembers.map((e) => e['member_id'] as String).toSet();
 
-    final availableMembers =
-        widget.allMembers.where((m) => !assignedIds.contains(m['id'])).toList();
+    // ✅ Get all assigned members (for showing offer names)
+    final allAssignedData = await Supabase.instance.client
+        .from('offer_members')
+        .select('member_id, offers(name)');
+
+    final Map<String, String> allAssignedMap = {};
+    for (final item in allAssignedData) {
+      final offer = item['offers'] as Map<String, dynamic>?;
+      if (offer != null) {
+        allAssignedMap[item['member_id']] = offer['name'] ?? 'Unknown Offer';
+      }
+    }
+
+    // ✅ Load available members (active + not already in THIS offer)
+    final availableMembers = widget.allMembers
+        .where((m) => !currentAssignedIds.contains(m['id']))
+        .toList();
 
     if (availableMembers.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('All members already have an offer assigned'),
+          content: Text('All active members already assigned to this offer'),
         ),
       );
       return;
@@ -749,6 +836,17 @@ class _OfferCardState extends State<_OfferCard> {
             });
           }
 
+          // ✅ Load more members from parent state
+          void loadMoreMembers() {
+            final parentState =
+                context.findAncestorStateOfType<_OffersTabState>();
+            if (parentState != null &&
+                parentState.hasMoreMembers &&
+                !parentState.isLoadingMembers) {
+              parentState._loadMembersPaginated(reset: false);
+            }
+          }
+
           void toggleMemberSelection(String memberId) {
             setSheetState(() {
               if (selectedMemberIds.contains(memberId)) {
@@ -761,17 +859,26 @@ class _OfferCardState extends State<_OfferCard> {
 
           void toggleSelectAll() {
             setSheetState(() {
-              final currentFiltered = filteredMembers;
-              if (selectedMemberIds.length == currentFiltered.length) {
-                selectedMemberIds.clear();
-                isSelectAll = false;
-              } else {
-                selectedMemberIds.clear();
-                for (final m in currentFiltered) {
-                  selectedMemberIds.add(m['id']);
+              final currentFiltered = filteredMembers
+                  .where((m) => !allAssignedMap.containsKey(m['id']))
+                  .toList();
+              final selectableIds = currentFiltered.map((m) => m['id']).toSet();
+              final selectedCount = selectedMemberIds
+                  .where((id) => selectableIds.contains(id))
+                  .length;
+
+              if (selectedCount == selectableIds.length) {
+                // Deselect all selectable
+                for (final id in selectableIds) {
+                  selectedMemberIds.remove(id);
                 }
-                isSelectAll = true;
+              } else {
+                // Select all selectable
+                for (final id in selectableIds) {
+                  selectedMemberIds.add(id);
+                }
               }
+              isSelectAll = !isSelectAll;
             });
           }
 
@@ -828,7 +935,11 @@ class _OfferCardState extends State<_OfferCard> {
                       TextButton(
                         onPressed: toggleSelectAll,
                         child: Text(
-                          selectedMemberIds.length == filteredMembers.length
+                          selectedMemberIds.length ==
+                                  filteredMembers
+                                      .where((m) =>
+                                          !allAssignedMap.containsKey(m['id']))
+                                      .length
                               ? 'Deselect All'
                               : 'Select All',
                           style: TextStyle(
@@ -854,23 +965,31 @@ class _OfferCardState extends State<_OfferCard> {
                             final m = filteredMembers[index];
                             final isSelected =
                                 selectedMemberIds.contains(m['id']);
+                            final isAssignedElsewhere =
+                                allAssignedMap.containsKey(m['id']);
+                            final assignedOfferName = isAssignedElsewhere
+                                ? allAssignedMap[m['id']]
+                                : null;
+
                             return ListTile(
                               leading: Container(
                                 width: 24,
                                 height: 24,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: isSelected
+                                  color: isSelected && !isAssignedElsewhere
                                       ? AppColors.gold
                                       : Colors.transparent,
                                   border: Border.all(
-                                    color: isSelected
+                                    color: isSelected && !isAssignedElsewhere
                                         ? AppColors.gold
-                                        : Colors.grey,
+                                        : isAssignedElsewhere
+                                            ? Colors.grey.withOpacity(0.3)
+                                            : Colors.grey,
                                     width: 1.5,
                                   ),
                                 ),
-                                child: isSelected
+                                child: isSelected && !isAssignedElsewhere
                                     ? const Icon(
                                         Icons.check,
                                         size: 16,
@@ -881,16 +1000,31 @@ class _OfferCardState extends State<_OfferCard> {
                               title: Text(
                                 m['full_name'] ?? 'Unknown',
                                 style: TextStyle(
-                                  color: isSelected
-                                      ? AppColors.gold
-                                      : Colors.white,
+                                  color: isAssignedElsewhere
+                                      ? Colors.grey.shade600
+                                      : (isSelected
+                                          ? AppColors.gold
+                                          : Colors.white),
                                 ),
                               ),
-                              subtitle: Text(
-                                m['email'] ?? '',
-                                style: const TextStyle(color: Colors.grey),
-                              ),
-                              onTap: () => toggleMemberSelection(m['id']),
+                              subtitle: isAssignedElsewhere
+                                  ? Text(
+                                      'Assigned to: $assignedOfferName',
+                                      style: const TextStyle(
+                                        color: Colors.grey,
+                                        fontStyle: FontStyle.italic,
+                                        fontSize: 12,
+                                      ),
+                                    )
+                                  : Text(
+                                      m['email'] ?? '',
+                                      style:
+                                          const TextStyle(color: Colors.grey),
+                                    ),
+                              onTap: isAssignedElsewhere
+                                  ? null
+                                  : () => toggleMemberSelection(m['id']),
+                              enabled: !isAssignedElsewhere,
                             );
                           },
                         ),

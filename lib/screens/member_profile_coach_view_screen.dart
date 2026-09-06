@@ -8,7 +8,7 @@ import 'diet_builder_screen.dart';
 import 'coach_diet_preview_screen.dart';
 import 'coach_workout_preview_screen.dart';
 import 'workout_progress_screen.dart';
-import 'streaks_tab.dart';
+// import 'streaks_tab.dart';
 import 'step_counter_screen.dart';
 import 'member_progress_screen.dart';
 import '../providers/master_data_provider.dart';
@@ -37,7 +37,6 @@ class _MemberProfileCoachViewScreenState
   List<Map<String, dynamic>> payments = [];
   bool isLoading = true;
   int currentStreak = 0;
-  String? streakMissedReason;
   int daysLeft = 0;
   bool isMembershipActive = false;
   bool isDietUpdateRequired = false;
@@ -538,13 +537,52 @@ class _MemberProfileCoachViewScreenState
                           ),
                         ),
                         const SizedBox(height: 8),
-                        Text(
-                          name,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              name,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (isMembershipActive) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.gold.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: AppColors.gold.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text(
+                                      '🔥',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '$currentStreak d',
+                                      style: const TextStyle(
+                                        color: AppColors.gold,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         Text(
                           m['email'] ?? '',
@@ -652,68 +690,6 @@ class _MemberProfileCoachViewScreenState
                     ),
                     child: Row(
                       children: [
-                        Expanded(
-                          child: InkWell(
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const StreaksTab(),
-                                ),
-                              );
-                            },
-                            child: Row(
-                              children: [
-                                Text(
-                                  currentStreak > 0 ? '🔥' : '⏳',
-                                  style: const TextStyle(fontSize: 18),
-                                ),
-                                const SizedBox(width: 8),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      'Streak',
-                                      style: TextStyle(
-                                        color: Colors.grey.shade500,
-                                        fontSize: 9,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                    ),
-                                    Text(
-                                      '$currentStreak d',
-                                      style: TextStyle(
-                                        color: currentStreak > 0
-                                            ? AppColors.gold
-                                            : Colors.grey,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                                if (streakMissedReason != null &&
-                                    currentStreak == 0)
-                                  Padding(
-                                    padding: const EdgeInsets.only(left: 6),
-                                    child: Text(
-                                      '⚠️',
-                                      style: TextStyle(
-                                        color: Colors.red,
-                                        fontSize: 12,
-                                      ),
-                                    ),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 30,
-                          color: Colors.white.withOpacity(0.1),
-                        ),
                         Expanded(
                           child: InkWell(
                             onTap: () {
@@ -1073,8 +1049,7 @@ class _MemberProfileCoachViewScreenState
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (_) =>
-                                  CoachDietPreviewScreen(member: m),
+                              builder: (_) => CoachDietPreviewScreen(member: m),
                             ),
                           );
                         },

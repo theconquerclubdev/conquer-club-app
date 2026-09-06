@@ -77,6 +77,18 @@ class _StreaksTabState extends State<StreaksTab> {
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
 
+      // ✅ Get current streak from MasterDataProvider (cached, no extra egress)
+      final masterData = MasterDataProvider.instance;
+      final dashboardData = await masterData.fetchMemberData(userId);
+      final currentStreak = dashboardData.currentStreak;
+
+      // Calculate start date for current streak
+      DateTime? currentStreakStart;
+      if (currentStreak > 0) {
+        // Need to find when streak started from history
+        // We still need history for the week view, so fetch it
+      }
+
       // ✅ Always compute "today" in IST, regardless of device timezone,
       // so this matches the backend cron (which also runs on IST days).
       final nowUtc = DateTime.now().toUtc();
@@ -164,7 +176,7 @@ class _StreaksTabState extends State<StreaksTab> {
         isStreakMet = workoutCompleted;
       }
 
-      // Upsert today's streak record
+      // Upsert today's streak record (needed for history)
       await Supabase.instance.client.from('member_streaks').upsert({
         'member_id': userId,
         'date': todayStr,
@@ -177,7 +189,7 @@ class _StreaksTabState extends State<StreaksTab> {
         'updated_at': DateTime.now().toUtc().toIso8601String(),
       }, onConflict: 'member_id,date');
 
-      // 2. Get history for UI cards & streak calculation
+      // 2. Get history for UI cards & week view (limit to 90 days)
       final response = await Supabase.instance.client
           .from('member_streaks')
           .select(
@@ -191,87 +203,7 @@ class _StreaksTabState extends State<StreaksTab> {
         history.add(StreakModel.fromJson(record));
       }
 
-      // Calculate current streak from history
-      int currentStreak = 0;
-      DateTime? currentStreakStart;
-
-      if (history.isNotEmpty) {
-        // Sort by date ascending for streak calculation
-        final sortedHistory = List<StreakModel>.from(history)
-          ..sort((a, b) => a.date.compareTo(b.date));
-
-        // Check today's streak
-        final todayStr =
-            '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-
-        bool todayStreakMet = false;
-        for (final streak in sortedHistory.reversed) {
-          final dateStr =
-              '${streak.date.year}-${streak.date.month.toString().padLeft(2, '0')}-${streak.date.day.toString().padLeft(2, '0')}';
-          if (dateStr == todayStr) {
-            todayStreakMet = streak.isStreakMet;
-            break;
-          }
-        }
-
-        // Start counting from today or yesterday
-        DateTime checkDate = today;
-        if (todayStreakMet) {
-          currentStreak = 1;
-          checkDate = today.subtract(const Duration(days: 1));
-        } else {
-          // Check yesterday
-          final yesterday = today.subtract(const Duration(days: 1));
-          final yesterdayStr =
-              '${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}';
-          bool yesterdayStreakMet = false;
-          for (final streak in sortedHistory.reversed) {
-            final dateStr =
-                '${streak.date.year}-${streak.date.month.toString().padLeft(2, '0')}-${streak.date.day.toString().padLeft(2, '0')}';
-            if (dateStr == yesterdayStr) {
-              yesterdayStreakMet = streak.isStreakMet;
-              break;
-            }
-          }
-
-          if (!yesterdayStreakMet) {
-            currentStreak = 0;
-          } else {
-            currentStreak = 1;
-            checkDate = yesterday.subtract(const Duration(days: 1));
-          }
-        }
-
-        // Count consecutive streak days backwards
-        if (currentStreak > 0) {
-          final streakMap = <String, bool>{};
-          for (final streak in sortedHistory) {
-            final dateStr =
-                '${streak.date.year}-${streak.date.month.toString().padLeft(2, '0')}-${streak.date.day.toString().padLeft(2, '0')}';
-            streakMap[dateStr] = streak.isStreakMet;
-          }
-
-          while (true) {
-            final dateStr =
-                '${checkDate.year}-${checkDate.month.toString().padLeft(2, '0')}-${checkDate.day.toString().padLeft(2, '0')}';
-            if (streakMap[dateStr] == true) {
-              currentStreak++;
-              checkDate = checkDate.subtract(const Duration(days: 1));
-            } else {
-              break;
-            }
-          }
-
-          // Calculate start date
-          currentStreakStart = today;
-          for (int i = 0; i < currentStreak - 1; i++) {
-            currentStreakStart =
-                currentStreakStart!.subtract(const Duration(days: 1));
-          }
-        }
-      }
-
-      // Calculate highest streak from history
+      // ✅ Calculate highest streak from history (still needed)
       final sortedHistory = List<StreakModel>.from(history)
         ..sort((a, b) => a.date.compareTo(b.date));
 
@@ -299,12 +231,36 @@ class _StreaksTabState extends State<StreaksTab> {
         }
       }
 
+      // ✅ Calculate streak start date from history
+      if (currentStreak > 0 && history.isNotEmpty) {
+        final sortedAsc = List<StreakModel>.from(history)
+          ..sort((a, b) => a.date.compareTo(b.date));
+
+        // Find the most recent streak break
+        DateTime? breakDate;
+        for (int i = sortedAsc.length - 1; i >= 0; i--) {
+          if (!sortedAsc[i].isStreakMet) {
+            breakDate = sortedAsc[i].date;
+            break;
+          }
+        }
+
+        if (breakDate != null) {
+          // Start date is the day after the break
+          currentStreakStart = breakDate.add(const Duration(days: 1));
+        } else if (sortedAsc.isNotEmpty) {
+          // No breaks found, streak started from the earliest record
+          currentStreakStart = sortedAsc.first.date;
+        }
+      }
+
       final totalStreaks = history.where((s) => s.isStreakMet).length;
       final totalDays = history.length;
       final streakRate =
           totalDays > 0 ? (totalStreaks / totalDays * 100).round() : 0;
+
       if (mounted) {
-        print('🔍 Calculated currentStreak: $currentStreak');
+        print('🔍 Current streak from MasterDataProvider: $currentStreak');
         print('🔍 Calculated highestStreak: $highestStreak');
         setState(() {
           _streaks = history;
@@ -330,11 +286,11 @@ class _StreaksTabState extends State<StreaksTab> {
   }
 
   List<StreakModel> get _filteredStreaks {
-    if (_filter == 'all') return _streaks.take(5).toList();
+    if (_filter == 'all') return _streaks.take(7).toList();
     if (_filter == 'streak') {
-      return _streaks.where((s) => s.isStreakMet).take(5).toList();
+      return _streaks.where((s) => s.isStreakMet).take(7).toList();
     }
-    return _streaks.where((s) => !s.isStreakMet).take(5).toList();
+    return _streaks.where((s) => !s.isStreakMet).take(7).toList();
   }
 
   void _shareStreak(BuildContext context) {
@@ -913,6 +869,73 @@ THE CONQUER CLUB
     });
   }
 
+  // Get this week's streaks (Mon-Sun)
+  List<StreakModel> _getThisWeekStreaks() {
+    final nowUtc = DateTime.now().toUtc();
+    final istNow = nowUtc.add(const Duration(hours: 5, minutes: 30));
+
+    // Get Monday of this week (IST)
+    int daysFromMonday = istNow.weekday - DateTime.monday;
+    if (daysFromMonday < 0) daysFromMonday += 7;
+    final monday =
+        DateTime(istNow.year, istNow.month, istNow.day - daysFromMonday);
+
+    // Get Sunday of this week
+    final sunday = monday.add(const Duration(days: 6));
+
+    // Filter streaks that fall within this week
+    return _streaks.where((s) {
+      final sDate = DateTime(s.date.year, s.date.month, s.date.day);
+      return !sDate.isBefore(monday) && !sDate.isAfter(sunday);
+    }).toList();
+  }
+
+  // Build week days with 3D-like styling
+  List<Widget> _buildWeekDays(List<StreakModel> weekStreaks) {
+    final nowUtc = DateTime.now().toUtc();
+    final istNow = nowUtc.add(const Duration(hours: 5, minutes: 30));
+    final today = DateTime(istNow.year, istNow.month, istNow.day);
+
+    // Build map of date -> isStreakMet
+    final streakMap = <String, bool>{};
+    for (final s in weekStreaks) {
+      final key =
+          '${s.date.year}-${s.date.month.toString().padLeft(2, '0')}-${s.date.day.toString().padLeft(2, '0')}';
+      streakMap[key] = s.isStreakMet;
+    }
+
+    final weekDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final List<Widget> dayWidgets = [];
+
+    // Get Monday of this week
+    int daysFromMonday = istNow.weekday - DateTime.monday;
+    if (daysFromMonday < 0) daysFromMonday += 7;
+    final monday =
+        DateTime(istNow.year, istNow.month, istNow.day - daysFromMonday);
+
+    for (int i = 0; i < 7; i++) {
+      final date = monday.add(Duration(days: i));
+      final dateKey =
+          '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+      final isMet = streakMap[dateKey] ?? false;
+      final isToday = date.year == today.year &&
+          date.month == today.month &&
+          date.day == today.day;
+      final isFuture = date.isAfter(today);
+
+      dayWidgets.add(
+        _WeekDayChip(
+          day: weekDays[i],
+          isMet: isMet,
+          isToday: isToday,
+          isFuture: isFuture,
+        ),
+      );
+    }
+
+    return dayWidgets;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1031,6 +1054,9 @@ THE CONQUER CLUB
     final totalStreaks = _stats['totalStreaks'] ?? 0;
     final currentStreakStart = _stats['currentStreakStart'] as DateTime?;
 
+    // Get this week's streak data (Mon-Sun)
+    final List<StreakModel> weekStreaks = _getThisWeekStreaks();
+
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
       padding: const EdgeInsets.all(16),
@@ -1091,16 +1117,17 @@ THE CONQUER CLUB
 
           const SizedBox(height: 16),
 
-          // Stats Row - Only Best Streak in center
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _statItem(
-                '🏆',
-                '$highestStreak',
-                'Best Streak',
-              ),
-            ],
+          // Week View - Mon to Sun
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.2),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              children: _buildWeekDays(weekStreaks),
+            ),
           ),
 
           const SizedBox(height: 12),
@@ -1225,7 +1252,13 @@ class _StreakCard extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: isSuccess
                       ? Colors.green
-                      : (isToday ? Colors.orange : Colors.red),
+                      : (isToday
+                          ? (isSunday
+                              ? Colors.orange
+                              : streak.workoutMinutes >= 45
+                                  ? Colors.green
+                                  : Colors.orange)
+                          : Colors.red),
                   shape: BoxShape.circle,
                 ),
               ),
@@ -1279,8 +1312,8 @@ class _StreakCard extends StatelessWidget {
                       : (isToday
                           ? (isSunday
                               ? '⏳ Pending'
-                              : streak.isWorkoutCompleted
-                                  ? '❌ Missed'
+                              : streak.workoutMinutes >= 45
+                                  ? '✅ Streak!'
                                   : '⏳ Pending')
                           : '❌ Missed'),
                   style: TextStyle(
@@ -1289,8 +1322,8 @@ class _StreakCard extends StatelessWidget {
                         : (isToday
                             ? (isSunday
                                 ? Colors.orange
-                                : streak.isWorkoutCompleted
-                                    ? Colors.red
+                                : streak.workoutMinutes >= 45
+                                    ? Colors.green
                                     : Colors.orange)
                             : Colors.red),
                     fontSize: 11,
@@ -1311,7 +1344,7 @@ class _StreakCard extends StatelessWidget {
               if (!isSunday)
                 _detailChip(
                   '🏋️ ${streak.workoutMinutes} min',
-                  streak.isWorkoutCompleted,
+                  streak.workoutMinutes >= 45,
                 ),
               if (isSunday) ...[
                 _detailChip(
@@ -1406,4 +1439,104 @@ class _ConquerFramePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// Week Day Chip with 3D-like styling
+class _WeekDayChip extends StatelessWidget {
+  final String day;
+  final bool isMet;
+  final bool isToday;
+  final bool isFuture;
+
+  const _WeekDayChip({
+    required this.day,
+    required this.isMet,
+    required this.isToday,
+    required this.isFuture,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isSmall = MediaQuery.of(context).size.width < 360;
+    final double size = isSmall ? 32 : 38;
+    final double fontSize = isSmall ? 8 : 10;
+
+    Color backgroundColor;
+    Color borderColor;
+    Color textColor;
+    String icon = '';
+
+    if (isFuture) {
+      // Future days - greyed out
+      backgroundColor = Colors.grey.withOpacity(0.15);
+      borderColor = Colors.grey.withOpacity(0.1);
+      textColor = Colors.grey.shade600;
+      icon = '';
+    } else if (isMet) {
+      // Streak met - gold with glow
+      backgroundColor = AppColors.gold.withOpacity(0.2);
+      borderColor = AppColors.gold.withOpacity(0.5);
+      textColor = AppColors.gold;
+      icon = '✅';
+    } else if (isToday) {
+      // Today - pending (not yet completed)
+      backgroundColor = Colors.orange.withOpacity(0.15);
+      borderColor = Colors.orange.withOpacity(0.3);
+      textColor = Colors.orange;
+      icon = '⏳';
+    } else {
+      // Past day - missed (red)
+      backgroundColor = Colors.red.withOpacity(0.15);
+      borderColor = Colors.red.withOpacity(0.3);
+      textColor = Colors.red;
+      icon = '❌';
+    }
+
+    // Today indicator
+    if (isToday && !isFuture) {
+      borderColor = AppColors.gold;
+      borderColor = AppColors.gold.withOpacity(0.8);
+    }
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: borderColor,
+          width: isToday && !isFuture ? 2 : 1.5,
+        ),
+        boxShadow: isMet && !isFuture
+            ? [
+                BoxShadow(
+                  color: AppColors.gold.withOpacity(0.3),
+                  blurRadius: 8,
+                  spreadRadius: 1,
+                ),
+              ]
+            : [],
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            icon,
+            style: TextStyle(
+              fontSize: isSmall ? 10 : 12,
+            ),
+          ),
+          Text(
+            day,
+            style: TextStyle(
+              color: textColor,
+              fontSize: fontSize,
+              fontWeight: isToday ? FontWeight.bold : FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
