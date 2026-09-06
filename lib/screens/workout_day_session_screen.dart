@@ -151,13 +151,16 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
       // Keep the member's completed workout records available for the
       // current weekly cycle. Sunday starts a new cycle, so sessions from
       // the previous week are not loaded after the Sunday reset.
-      final now = DateTime.now();
+      final now =
+          DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
       final daysSinceSunday = now.weekday % 7;
-      final weekStart = DateTime(
+      final weekStart = DateTime.utc(
         now.year,
         now.month,
         now.day,
-      ).subtract(Duration(days: daysSinceSunday));
+      )
+          .subtract(Duration(days: daysSinceSunday))
+          .subtract(const Duration(hours: 5, minutes: 30));
 
       final existing = await Supabase.instance.client
           .from('workout_sessions')

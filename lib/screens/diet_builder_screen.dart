@@ -484,7 +484,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
             'carbs_target': carbsTarget,
             'fats_target': fatsTarget,
             'diet_type_preset': selectedDietType,
-            'updated_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
           }, onConflict: 'member_id,slot')
           .select()
           .single();

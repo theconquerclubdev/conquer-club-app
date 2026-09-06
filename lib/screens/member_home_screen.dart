@@ -308,7 +308,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   String _todayKey() {
-    final now = DateTime.now();
+    final now =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
     return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
   }
 
@@ -1876,11 +1877,13 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList> {
 
     final todayWorkout = map[widget.todayName];
     if (todayWorkout != null) {
-      final startOfDay = DateTime(
-        DateTime.now().year,
-        DateTime.now().month,
-        DateTime.now().day,
-      );
+      final istNow =
+          DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+      final startOfDay = DateTime.utc(
+        istNow.year,
+        istNow.month,
+        istNow.day,
+      ).subtract(const Duration(hours: 5, minutes: 30));
       final session = await Supabase.instance.client
           .from('workout_sessions')
           .select()

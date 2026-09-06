@@ -26,7 +26,8 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
   bool isLoading = true;
   Map<String, int> dailySteps = {};
   Map<String, int> dailyGoals = {};
-  DateTime today = DateTime.now();
+  DateTime today =
+      DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
   late DateTime monthCursor;
   late DateTime signupMonth;
   DateTime? _loadedStart;

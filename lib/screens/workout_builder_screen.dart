@@ -297,7 +297,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
             'coach_id': coachId,
             'day_of_week': widget.dayOfWeek,
             'workout_name': nameController.text.trim(),
-            'updated_at': DateTime.now().toIso8601String(),
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
           }, onConflict: 'member_id,day_of_week')
           .select()
           .single();

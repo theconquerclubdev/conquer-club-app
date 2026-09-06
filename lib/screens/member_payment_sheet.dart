@@ -173,7 +173,7 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
         'plan_key': selectedPlan,
         'months': months,
         'status': 'pending', // Admin must verify before it counts
-        'payment_date': DateTime.now().toIso8601String(),
+        'payment_date': DateTime.now().toUtc().toIso8601String(),
         'notes': _notesController.text.trim(),
         'is_cash': false,
         'offer_used': hasOffer ? offerName : null,
