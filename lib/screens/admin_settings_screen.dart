@@ -1538,6 +1538,10 @@ class _ExercisesTab extends StatefulWidget {
 
 class _ExercisesTabState extends State<_ExercisesTab> {
   bool isLoading = true;
+  bool isLoadingMore = false;
+  bool hasMoreData = false;
+  int currentOffset = 0;
+  final int pageSize = 20;
   List<Map<String, dynamic>> exercises = [];
   String search = '';
 
@@ -1547,21 +1551,46 @@ class _ExercisesTabState extends State<_ExercisesTab> {
     load();
   }
 
-  Future<void> load() async {
-    setState(() => isLoading = true);
-    try {
-      final data = await Supabase.instance.client
-          .from('exercises')
-          .select()
-          .order('body_part')
-          .order('name');
+  Future<void> load({bool reset = true}) async {
+    if (reset) {
       setState(() {
-        exercises = List<Map<String, dynamic>>.from(data);
+        isLoading = true;
+        currentOffset = 0;
+        exercises = [];
+      });
+    } else {
+      if (isLoadingMore || !hasMoreData) return;
+      setState(() => isLoadingMore = true);
+    }
+    try {
+      var query = Supabase.instance.client.from('exercises').select();
+      if (search.isNotEmpty) {
+        query = query.or(
+          'name.ilike.%$search%,body_part.ilike.%$search%',
+        );
+      }
+      final data = await query
+          .order('body_part')
+          .order('name')
+          .range(currentOffset, currentOffset + pageSize - 1);
+      final items = List<Map<String, dynamic>>.from(data);
+      setState(() {
+        if (reset) {
+          exercises = items;
+        } else {
+          exercises.addAll(items);
+        }
+        currentOffset += items.length;
+        hasMoreData = items.length == pageSize;
         isLoading = false;
+        isLoadingMore = false;
       });
     } catch (e) {
       print('Error loading exercises: $e');
-      setState(() => isLoading = false);
+      setState(() {
+        isLoading = false;
+        isLoadingMore = false;
+      });
     }
   }
 
@@ -1791,22 +1820,8 @@ class _ExercisesTabState extends State<_ExercisesTab> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = search.isEmpty
-        ? exercises
-        : exercises
-            .where((e) =>
-                (e['name'] ?? '')
-                    .toString()
-                    .toLowerCase()
-                    .contains(search.toLowerCase()) ||
-                (e['body_part'] ?? '')
-                    .toString()
-                    .toLowerCase()
-                    .contains(search.toLowerCase()))
-            .toList();
-
     final Map<String, List<Map<String, dynamic>>> grouped = {};
-    for (final e in filtered) {
+    for (final e in exercises) {
       grouped.putIfAbsent(e['body_part'] ?? 'Other', () => []).add(e);
     }
 
@@ -1838,7 +1853,10 @@ class _ExercisesTabState extends State<_ExercisesTab> {
                         filled: true,
                         fillColor: AppColors.cardDark,
                       ),
-                      onChanged: (v) => setState(() => search = v.trim()),
+                      onChanged: (v) {
+                        search = v.trim();
+                        load(reset: true);
+                      },
                     ),
                   ),
                   Expanded(
@@ -1849,43 +1867,71 @@ class _ExercisesTabState extends State<_ExercisesTab> {
                           )
                         : ListView(
                             padding: const EdgeInsets.symmetric(horizontal: 16),
-                            children: grouped.entries
-                                .map((entry) => Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Padding(
-                                          padding: const EdgeInsets.symmetric(
-                                              vertical: 8),
-                                          child: Text(
-                                            entry.key.toUpperCase(),
-                                            style: const TextStyle(
-                                                color: AppColors.gold,
-                                                fontWeight: FontWeight.bold,
-                                                fontSize: 12,
-                                                letterSpacing: 1),
+                            children: [
+                              ...grouped.entries
+                                  .map((entry) => Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                                vertical: 8),
+                                            child: Text(
+                                              entry.key.toUpperCase(),
+                                              style: const TextStyle(
+                                                  color: AppColors.gold,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 12,
+                                                  letterSpacing: 1),
+                                            ),
                                           ),
-                                        ),
-                                        ...entry.value.map((ex) => Card(
-                                              color: AppColors.cardDark,
-                                              margin: const EdgeInsets.only(
-                                                  bottom: 8),
-                                              child: ListTile(
-                                                title: Text(ex['name'] ?? '',
-                                                    style: const TextStyle(
-                                                        color: Colors.white)),
-                                                trailing: IconButton(
-                                                  icon: const Icon(
-                                                      Icons.delete_outline,
-                                                      color: Colors.redAccent),
-                                                  onPressed: () =>
-                                                      deleteExercise(ex['id']),
+                                          ...entry.value.map((ex) => Card(
+                                                color: AppColors.cardDark,
+                                                margin: const EdgeInsets.only(
+                                                    bottom: 8),
+                                                child: ListTile(
+                                                  title: Text(ex['name'] ?? '',
+                                                      style: const TextStyle(
+                                                          color: Colors.white)),
+                                                  trailing: IconButton(
+                                                    icon: const Icon(
+                                                        Icons.delete_outline,
+                                                        color:
+                                                            Colors.redAccent),
+                                                    onPressed: () =>
+                                                        deleteExercise(
+                                                            ex['id']),
+                                                  ),
                                                 ),
-                                              ),
-                                            )),
-                                      ],
-                                    ))
-                                .toList(),
+                                              )),
+                                        ],
+                                      ))
+                                  .toList(),
+                              if (hasMoreData)
+                                Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  child: Center(
+                                    child: isLoadingMore
+                                        ? const SizedBox(
+                                            height: 24,
+                                            width: 24,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2,
+                                              color: AppColors.gold,
+                                            ),
+                                          )
+                                        : TextButton(
+                                            onPressed: () => load(reset: false),
+                                            child: const Text(
+                                              'Load More...',
+                                              style:
+                                                  TextStyle(color: Colors.grey),
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                            ],
                           ),
                   ),
                 ],

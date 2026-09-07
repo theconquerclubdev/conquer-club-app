@@ -738,9 +738,10 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
   int currentOffset = 0;
   final int pageSize = 20;
 
-  // Threshold: If total members <= 200, use instant client-side mode
+  // Always use server-side 20/page pagination (egress control) — client-side
+  // full-table fetch mode disabled.
   static const int kPaginationThreshold = 200;
-  bool get isClientSideMode => totalCount <= kPaginationThreshold;
+  bool get isClientSideMode => false;
 
   String searchQuery = '';
   String selectedCategory = 'All';
@@ -778,17 +779,17 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
             .inFilter('role', ['coach', 'head_coach'])
             .eq('is_active', true)
             .order('full_name'),
-
-        // Total count of members
-        Supabase.instance.client
-            .from('profiles')
-            .select('id')
-            .eq('role', 'member'),
       ]);
 
       categories = List<Map<String, dynamic>>.from(results[0]);
       coaches = List<Map<String, dynamic>>.from(results[1]);
-      totalCount = (results[2] as List).length;
+
+      // Total count of members — head-only request, fetches ONLY the number,
+      // not the actual member rows (egress control).
+      totalCount = await Supabase.instance.client
+          .from('profiles')
+          .count(CountOption.exact)
+          .eq('role', 'member');
 
       await _fetchMembers(reset: true);
     } catch (e) {
