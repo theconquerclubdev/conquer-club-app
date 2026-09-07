@@ -904,11 +904,9 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
       // Instant in-memory search
       setState(() {});
     } else {
-      // Debounced server search
+      // Instant server search - results appear immediately
       _searchDebounce?.cancel();
-      _searchDebounce = Timer(const Duration(milliseconds: 350), () {
-        _fetchMembers(reset: true);
-      });
+      _fetchMembers(reset: true);
     }
   }
 

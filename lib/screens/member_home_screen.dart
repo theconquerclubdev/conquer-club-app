@@ -478,10 +478,10 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     final userId = Supabase.instance.client.auth.currentUser!.id;
 
     try {
-      // ✅ Force refresh and skip cache to get latest membership status
-      // This ensures admin-verified payments are reflected immediately
-      final data = await MasterDataProvider.instance
-          .fetchMemberData(userId, force: true, skipCache: true);
+      // Respect the in-memory cache — every write path already calls
+      // MasterDataProvider.instance.invalidateCache(userId) right before
+      // this runs, so this still gets fresh data whenever it truly changed.
+      final data = await MasterDataProvider.instance.fetchMemberData(userId);
       final profile = data.profile;
       fullName = profile?['full_name'] ?? '';
 

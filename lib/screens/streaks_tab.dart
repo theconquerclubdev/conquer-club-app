@@ -1502,21 +1502,38 @@ class _WeekDayChip extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(10),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            backgroundColor.withOpacity(backgroundColor.opacity + 0.25),
+            backgroundColor,
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: borderColor,
-          width: isToday && !isFuture ? 2 : 1.5,
+          width: isToday && !isFuture ? 2.2 : 1.5,
         ),
-        boxShadow: isMet && !isFuture
-            ? [
+        boxShadow: isFuture
+            ? []
+            : [
                 BoxShadow(
-                  color: AppColors.gold.withOpacity(0.3),
-                  blurRadius: 8,
-                  spreadRadius: 1,
+                  color: Colors.black.withOpacity(0.35),
+                  blurRadius: 6,
+                  offset: const Offset(0, 3),
                 ),
-              ]
-            : [],
+                BoxShadow(
+                  color: (isMet ? AppColors.gold : textColor).withOpacity(0.35),
+                  blurRadius: 10,
+                  spreadRadius: isMet ? 1.5 : 0.5,
+                ),
+                BoxShadow(
+                  color: Colors.white.withOpacity(0.06),
+                  blurRadius: 2,
+                  offset: const Offset(-1, -1),
+                ),
+              ],
       ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1524,7 +1541,15 @@ class _WeekDayChip extends StatelessWidget {
           Text(
             icon,
             style: TextStyle(
-              fontSize: isSmall ? 10 : 12,
+              fontSize: isSmall ? 13 : 15,
+              shadows: isMet
+                  ? [
+                      Shadow(
+                        color: AppColors.gold.withOpacity(0.6),
+                        blurRadius: 6,
+                      ),
+                    ]
+                  : null,
             ),
           ),
           Text(

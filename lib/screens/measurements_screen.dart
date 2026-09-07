@@ -676,14 +676,48 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
       appBar: AppBar(
         title: const Text('Body Progress'),
         actions: [
-          Tooltip(
-            message: _addMeasurementBlockReason ?? 'Add new measurement',
-            child: IconButton(
-              icon: Icon(
-                Icons.add,
-                color: _canAddMeasurement ? Colors.white : Colors.grey,
+          Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Tooltip(
+              message: _addMeasurementBlockReason ?? 'Add new measurement',
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: _canAddMeasurement ? openNewEntryForm : null,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _canAddMeasurement
+                          ? AppColors.gold
+                          : Colors.grey.withOpacity(0.25),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.add,
+                          size: 18,
+                          color:
+                              _canAddMeasurement ? Colors.black : Colors.grey,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Add',
+                          style: TextStyle(
+                            color:
+                                _canAddMeasurement ? Colors.black : Colors.grey,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
-              onPressed: _canAddMeasurement ? openNewEntryForm : null,
             ),
           ),
         ],

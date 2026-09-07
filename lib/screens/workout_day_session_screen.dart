@@ -179,7 +179,8 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
 
         final logs = await Supabase.instance.client
             .from('session_set_logs')
-            .select()
+            .select(
+                'workout_exercise_id, set_number, completed, actual_kg, actual_reps, actual_minutes, actual_seconds')
             .eq('session_id', sessionId!);
 
         for (final log in logs) {
@@ -1036,6 +1037,12 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
                       fontWeight: FontWeight.bold,
                     ),
                   ),
+                ),
+              if (!widget.isViewOnly) const SizedBox(height: 8),
+              if (!widget.isViewOnly)
+                Text(
+                  'Total time: ${formatDuration(savedElapsedSeconds)}',
+                  style: TextStyle(color: AppColors.gold, fontSize: 13),
                 ),
             ],
           ),

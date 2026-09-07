@@ -84,7 +84,7 @@ class MemberDashboardData {
 
   bool isFresh() {
     if (fetchedAt == null) return false;
-    return DateTime.now().difference(fetchedAt!) < const Duration(seconds: 30);
+    return DateTime.now().difference(fetchedAt!) < const Duration(minutes: 3);
   }
 
   // Common Field Getters
@@ -133,15 +133,30 @@ class MasterDataProvider extends ChangeNotifier {
   RealtimeChannel? _paymentsChannel;
 
   void _initRealtimeSubscription() {
-    // Realtime temporarily disabled - will re-enable after Flutter SDK upgrade
-    // The app still works perfectly with 30-second cache + refresh on app open
-    return;
+    final client = Supabase.instance.client;
+
+    _profilesChannel = client
+        .channel('public:profiles')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'profiles',
+          callback: (payload) => _handleProfileChange(payload.newRecord),
+        )
+        .subscribe();
+
+    _paymentsChannel = client
+        .channel('public:payments')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'payments',
+          callback: (payload) => _handlePaymentChange(payload.newRecord),
+        )
+        .subscribe();
   }
 
-  void _handleProfileChange(Map<String, dynamic> payload) {
-    final newRecord = payload['new'] as Map<String, dynamic>?;
-    if (newRecord == null) return;
-
+  void _handleProfileChange(Map<String, dynamic> newRecord) {
     final memberId = newRecord['id'] as String?;
     if (memberId == null) return;
 
@@ -149,10 +164,7 @@ class MasterDataProvider extends ChangeNotifier {
     _refreshMemberOnChange(memberId);
   }
 
-  void _handlePaymentChange(Map<String, dynamic> payload) {
-    final newRecord = payload['new'] as Map<String, dynamic>?;
-    if (newRecord == null) return;
-
+  void _handlePaymentChange(Map<String, dynamic> newRecord) {
     final memberId = newRecord['member_id'] as String?;
     if (memberId == null) return;
 
@@ -177,8 +189,8 @@ class MasterDataProvider extends ChangeNotifier {
   }
 
   void dispose() {
-    // _profilesChannel?.unsubscribe();
-    // _paymentsChannel?.unsubscribe();
+    _profilesChannel?.unsubscribe();
+    _paymentsChannel?.unsubscribe();
     super.dispose();
   }
 
@@ -246,7 +258,8 @@ class MasterDataProvider extends ChangeNotifier {
       // Fetch profile directly
       final profile = await Supabase.instance.client
           .from('profiles')
-          .select('*')
+          .select(
+              'id, full_name, email, is_active, membership_end_date, step_goal, height_cm, weight_kg, created_at, assigned_coach_id, goal, date_of_birth, gender')
           .eq('id', memberId)
           .maybeSingle();
 

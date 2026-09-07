@@ -80,9 +80,9 @@ class AppLifecycleObserver extends WidgetsBindingObserver {
 
       for (final memberId in memberIds) {
         try {
-          // ✅ Force refresh with skipCache to get latest membership status
-          await provider.fetchMemberData(memberId,
-              force: true, skipCache: true);
+          // Respect cache freshness — real changes already invalidate cache
+          // via invalidateCache(), so a forced refetch here is wasted egress.
+          await provider.fetchMemberData(memberId);
           debugPrint('✅ Refreshed $memberId on app open');
         } catch (e) {
           debugPrint('❌ Failed to refresh $memberId: $e');
