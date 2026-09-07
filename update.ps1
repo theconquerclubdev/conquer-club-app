@@ -1,7 +1,38 @@
 ﻿# update.ps1 - Auto-deployment with version management
 #Requires -Version 5.0
+param(
+    [switch]$DeepClean  # pass -DeepClean to also wipe android/.gradle, Pods, wrangler cache (slower next build, smaller folder)
+)
+
+function Clean-Project {
+    param([switch]$Deep)
+
+    function Remove-IfExists {
+        param([string]$Path, [string]$Label)
+        if (Test-Path $Path) {
+            Remove-Item $Path -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Host "  ✅ Removed $Label" -ForegroundColor Green
+        }
+    }
+
+    Write-Host "🧹 Cleaning project (light)..." -ForegroundColor Cyan
+    Remove-IfExists "build" "build/"
+    Remove-IfExists ".dart_tool" ".dart_tool/"
+
+    if ($Deep) {
+        Write-Host "🧹 Deep clean (android/ios/wrangler cache)..." -ForegroundColor Cyan
+        Remove-IfExists "android\.gradle" "android/.gradle"
+        Remove-IfExists "android\app\build" "android/app/build"
+        Remove-IfExists "ios\Pods" "ios/Pods"
+        Remove-IfExists "macos\Pods" "macos/Pods"
+        Remove-IfExists ".wrangler\cache" ".wrangler/cache"
+    }
+}
 
 Write-Host "🚀 Auto-deploy started..." -ForegroundColor Yellow
+
+# Clean BEFORE build - removes stale build/ output from previous runs
+Clean-Project -Deep:$DeepClean
 
 # Read current version from pubspec.yaml
 $pubspec = Get-Content "pubspec.yaml" | Select-String 'version: (\d+\.\d+\.\d+)\+(\d+)'
@@ -36,7 +67,7 @@ Write-Host "✅ version.json created" -ForegroundColor Green
 
 # Build APK
 Write-Host "📱 Building APK..." -ForegroundColor Yellow
-$apkBuild = flutter build apk --release --dart-define=BUILD_VERSION="$version"
+$apkBuild = flutter build apk --release --target-platform android-arm64 --dart-define=BUILD_VERSION="$version"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "❌ APK build failed!" -ForegroundColor Red
     exit 1
@@ -68,6 +99,10 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "❌ Cloudflare deployment failed!" -ForegroundColor Red
     exit 1
 }
+
+# Clean AFTER deployment - build/ output already copied/deployed, safe to remove now
+Write-Host "`n🧹 Cleaning up after deployment..." -ForegroundColor Cyan
+Clean-Project -Deep:$DeepClean
 
 Write-Host ""
 Write-Host "✅ Deployment complete!" -ForegroundColor Green

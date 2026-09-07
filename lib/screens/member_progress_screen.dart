@@ -263,14 +263,21 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
       }
 
       // Use FlutterImageCompress for web as well
-      final compressed = await FlutterImageCompress.compressWithList(
-        bytes,
-        format: CompressFormat.webp,
-        quality: 65,
-        minWidth: newWidth,
-        minHeight: newHeight,
-        keepExif: false,
-      );
+      const _maxBytes = 80 * 1024; // 80 KB cap
+      Uint8List? compressed;
+      int quality = 65;
+      do {
+        compressed = await FlutterImageCompress.compressWithList(
+          bytes,
+          format: CompressFormat.webp,
+          quality: quality,
+          minWidth: newWidth,
+          minHeight: newHeight,
+          keepExif: false,
+        );
+        quality -= 10;
+      } while (
+          compressed != null && compressed.length > _maxBytes && quality >= 20);
 
       return compressed ?? bytes;
     } catch (e) {
@@ -388,14 +395,20 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
 
   Future<Uint8List?> _compressToWebp(String sourcePath) async {
     try {
-      final result = await FlutterImageCompress.compressWithFile(
-        sourcePath,
-        format: CompressFormat.webp,
-        quality: 65,
-        minWidth: 1080,
-        minHeight: 1350,
-        keepExif: false,
-      );
+      const _maxBytes = 80 * 1024; // 80 KB cap
+      Uint8List? result;
+      int quality = 65;
+      do {
+        result = await FlutterImageCompress.compressWithFile(
+          sourcePath,
+          format: CompressFormat.webp,
+          quality: quality,
+          minWidth: 1080,
+          minHeight: 1350,
+          keepExif: false,
+        );
+        quality -= 10;
+      } while (result != null && result.length > _maxBytes && quality >= 20);
       return result;
     } catch (e) {
       print('Compression error: $e');

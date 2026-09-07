@@ -1,0 +1,16 @@
+﻿{
+  "name": "supabase-photo-cleanup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "One-time script to shrink existing Supabase Storage photos over 80KB",
+  "main": "index.js",
+  "scripts": {
+    "dry-run": "node -r dotenv/config index.js",
+    "apply": "node -r dotenv/config index.js --apply"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.5",
+    "sharp": "^0.33.5"
+  }
+}
