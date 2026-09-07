@@ -1,5 +1,5 @@
 import 'dart:convert';
-import 'dart:io';
+import '../utils/platform_helper.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -85,6 +85,9 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   Map<String, bool> _photoStatus = {'front': false, 'back': false};
 
   int _lastSavedSteps = -1;
+  DateTime? _lastStepSaveTime;
+  static const Duration _stepSaveThrottle = Duration(minutes: 5);
+  static const int _stepSaveThreshold = 50;
 
   // Update checker - auto-generated from build time
   bool _isCheckingUpdate = false;
@@ -248,7 +251,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           stepPermanentlyDenied = status.isPermanentlyDenied;
           stepIssueCanOpenSettings = true;
           stepIssueMessage = status.isPermanentlyDenied
-              ? (Platform.isIOS
+              ? (PlatformHelper.isIOS
                   ? 'Motion & Fitness access is off. Turn it on in Settings > Privacy > Motion & Fitness to see your steps.'
                   : 'Physical activity permission is off. Turn it on in Settings > Apps > Conquer Club > Permissions to see your steps.')
               : 'Step tracking needs motion/activity permission. Tap below to allow it.';
@@ -286,7 +289,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
               stepPermanentlyDenied = status.isPermanentlyDenied;
               stepIssueCanOpenSettings = true;
               stepIssueMessage = status.isPermanentlyDenied
-                  ? (Platform.isIOS
+                  ? (PlatformHelper.isIOS
                       ? 'Motion & Fitness access is off. Turn it on in Settings > Privacy > Motion & Fitness to see your steps.'
                       : 'Physical activity permission is off. Turn it on in Settings > Apps > Conquer Club > Permissions to see your steps.')
                   : 'Step tracking needs motion/activity permission. Tap below to allow it.';
@@ -405,24 +408,81 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     await prefs.setInt('step_baseline_value', _stepsAtMidnight!);
   }
 
-  Future<void> _saveTodaySteps() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-    // ✅ Always save if steps changed OR if steps are 0 (to ensure record exists)
-    if (todaySteps == _lastSavedSteps && todaySteps > 0) return;
-    final logDate = _todayKey();
+  Future<bool> _doSaveStep(String userId, String logDate) async {
     final ok = await _upsertStepLog(userId, logDate, todaySteps);
     final prefs = await SharedPreferences.getInstance();
     if (!ok) {
       // ✅ Store pending save locally (works even if app is killed)
       await prefs.setString('pending_step_log_date', logDate);
       await prefs.setInt('pending_step_log_value', todaySteps);
+      return false;
     } else {
-      _lastSavedSteps = todaySteps;
       if (prefs.getString('pending_step_log_date') == logDate) {
         await prefs.remove('pending_step_log_date');
         await prefs.remove('pending_step_log_value');
       }
+      return true;
+    }
+  }
+
+  Future<void> _saveTodaySteps() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final pendingDate = prefs.getString('pending_step_log_date');
+    final pendingSteps = prefs.getInt('pending_step_log_value');
+    final todayKey = _todayKey();
+
+    // ✅ Try to flush pending first if it exists
+    if (pendingDate != null && pendingSteps != null) {
+      final ok = await _upsertStepLog(userId, pendingDate, pendingSteps);
+      if (ok) {
+        // Pending flushed successfully - remove it
+        await prefs.remove('pending_step_log_date');
+        await prefs.remove('pending_step_log_value');
+        // ✅ ONLY update throttle state if pending is from TODAY
+        if (pendingDate == todayKey) {
+          // Today's pending was flushed - use its value as baseline
+          _lastSavedSteps = pendingSteps;
+          _lastStepSaveTime = DateTime.now();
+        }
+        // If pending is from yesterday or older, DON'T update _lastSavedSteps
+        // because mixing dates would corrupt the throttle calculation
+      } else {
+        // Pending still failing - don't proceed with today's save
+        // to avoid creating another pending record for the same day
+        return;
+      }
+    }
+
+    final now = DateTime.now();
+    final logDate = _todayKey();
+
+    // ✅ First save of the day - always save
+    if (_lastSavedSteps == -1) {
+      final success = await _doSaveStep(userId, logDate);
+      if (success) {
+        _lastSavedSteps = todaySteps;
+        _lastStepSaveTime = now;
+      }
+      return;
+    }
+
+    // ✅ Throttle: Save only if enough steps changed OR enough time passed
+    final timeSinceLastSave = _lastStepSaveTime == null
+        ? Duration.zero
+        : now.difference(_lastStepSaveTime!);
+    final stepsSinceLastSave = (todaySteps - _lastSavedSteps).abs();
+    if (stepsSinceLastSave < _stepSaveThreshold &&
+        timeSinceLastSave < _stepSaveThrottle) {
+      return; // Skip write - not enough change
+    }
+
+    final success = await _doSaveStep(userId, logDate);
+    if (success) {
+      _lastSavedSteps = todaySteps;
+      _lastStepSaveTime = now;
     }
   }
 
@@ -1925,7 +1985,11 @@ class _WeekWorkoutList extends StatefulWidget {
   State<_WeekWorkoutList> createState() => _WeekWorkoutListState();
 }
 
-class _WeekWorkoutListState extends State<_WeekWorkoutList> {
+class _WeekWorkoutListState extends State<_WeekWorkoutList>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   Map<String, Map<String, dynamic>> workouts = {};
   Map<String, String> todaySessionStatus = {};
   bool isLoading = true;
@@ -1982,6 +2046,7 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (isLoading) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.gold),
@@ -2241,7 +2306,11 @@ class _MyDietsList extends StatefulWidget {
   State<_MyDietsList> createState() => _MyDietsListState();
 }
 
-class _MyDietsListState extends State<_MyDietsList> {
+class _MyDietsListState extends State<_MyDietsList>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
   bool isLoading = true;
   List<Map<String, dynamic>> diets = [];
 
@@ -2266,6 +2335,7 @@ class _MyDietsListState extends State<_MyDietsList> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (isLoading) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.gold),
