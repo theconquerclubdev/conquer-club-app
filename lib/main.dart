@@ -13,6 +13,7 @@ import 'screens/admin_home_screen.dart';
 import 'screens/onboarding_screen.dart';
 import 'theme/app_theme.dart';
 import 'providers/master_data_provider.dart';
+import 'utils/platform_helper.dart';
 
 // ✅ Define your current app build version
 const String kCurrentAppVersion = '2.0.1';
@@ -288,9 +289,8 @@ class _AuthWrapperState extends State<AuthWrapper> {
       final res = await Supabase.instance.client
           .from('app_versions')
           .select('minimum_version, download_url')
-          .eq('platform', 'android')
+          .eq('platform', PlatformHelper.isIOS ? 'ios' : 'android')
           .maybeSingle();
-
       if (res != null) {
         final minVersion = res['minimum_version'] as String;
         final downloadUrl = res['download_url'] as String? ?? '';
