@@ -1535,32 +1535,35 @@ class _WeekDayChip extends StatelessWidget {
                 ),
               ],
       ),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text(
-            icon,
-            style: TextStyle(
-              fontSize: isSmall ? 13 : 15,
-              shadows: isMet
-                  ? [
-                      Shadow(
-                        color: AppColors.gold.withOpacity(0.6),
-                        blurRadius: 6,
-                      ),
-                    ]
-                  : null,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              icon,
+              style: TextStyle(
+                fontSize: isSmall ? 13 : 15,
+                shadows: isMet
+                    ? [
+                        Shadow(
+                          color: AppColors.gold.withOpacity(0.6),
+                          blurRadius: 6,
+                        ),
+                      ]
+                    : null,
+              ),
             ),
-          ),
-          Text(
-            day,
-            style: TextStyle(
-              color: textColor,
-              fontSize: fontSize,
-              fontWeight: isToday ? FontWeight.bold : FontWeight.w500,
+            Text(
+              day,
+              style: TextStyle(
+                color: textColor,
+                fontSize: fontSize,
+                fontWeight: isToday ? FontWeight.bold : FontWeight.w500,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

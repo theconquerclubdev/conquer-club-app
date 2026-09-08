@@ -1,5 +1,6 @@
 // lib/screens/member/payments_screen.dart
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -216,6 +217,19 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       final upiUri = Uri.parse(
         'upi://pay?pa=$upiId&pn=Conquer%20Club&am=${amount.toStringAsFixed(2)}&cu=INR&tn=$note',
       );
+
+      if (kIsWeb) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  "UPI payment isn't available on web. Please use the Android app to pay, or contact your coach."),
+            ),
+          );
+        }
+        setState(() => isProcessing = false);
+        return;
+      }
 
       final launched =
           await launchUrl(upiUri, mode: LaunchMode.externalApplication);

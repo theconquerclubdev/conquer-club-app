@@ -14,9 +14,7 @@ import 'screens/onboarding_screen.dart';
 import 'theme/app_theme.dart';
 import 'providers/master_data_provider.dart';
 import 'utils/platform_helper.dart';
-
-// ✅ Define your current app build version
-const String kCurrentAppVersion = '2.0.1';
+import 'utils/app_version.dart';
 
 /// Responsive breakpoints used by the app.
 ///
@@ -181,6 +179,24 @@ class MyApp extends StatelessWidget {
           PointerDeviceKind.trackpad,
         },
       ),
+
+      // 🔒 App-wide dynamic scaling safety net: keeps text within a safe
+      // size range on every screen (iOS, Android, web), regardless of the
+      // device's own font-size/accessibility setting. This does NOT change
+      // any screen's layout code — it only stops text from ever being
+      // scaled bigger or smaller than what fits safely.
+      builder: (context, child) {
+        final mediaQuery = MediaQuery.of(context);
+        return MediaQuery(
+          data: mediaQuery.copyWith(
+            textScaler: mediaQuery.textScaler.clamp(
+              minScaleFactor: 0.85,
+              maxScaleFactor: 1.15,
+            ),
+          ),
+          child: child!,
+        );
+      },
     );
   }
 }
@@ -196,7 +212,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
   bool _isLoading = true;
   Widget? _initialScreen;
 
-  static const String _currentVersion = '2.0.0';
+  static const String _currentVersion = kCurrentAppVersion;
 
   @override
   void initState() {

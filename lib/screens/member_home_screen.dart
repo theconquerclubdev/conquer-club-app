@@ -1,5 +1,6 @@
 import 'dart:convert';
 import '../utils/platform_helper.dart';
+import '../utils/app_version.dart';
 import 'package:intl/intl.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -89,12 +90,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   static const Duration _stepSaveThrottle = Duration(hours: 4);
   // Update checker - auto-generated from build time
   bool _isCheckingUpdate = false;
-  String get _currentVersion {
-    // Read from build environment variable
-    const version = String.fromEnvironment('BUILD_VERSION');
-    // If not set during build, use a fallback
-    return version.isNotEmpty ? version : '1.0.0';
-  }
+  String get _currentVersion => kCurrentAppVersion;
 
   String get firstName {
     final trimmed = fullName.trim();
@@ -343,6 +339,18 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   // days whose value actually changed. Zero extra calls on a normal day.
   Future<void> _backfillMissingStepDays(String userId) async {
     if (!isMembershipActive) return;
+
+    // ✅ Don't backfill if Health permission isn't currently granted — avoids
+    // writing a false "0 steps" day when we simply can't read real data.
+    // Silent check only (no prompt) — the existing step card already handles
+    // asking the member to grant/open settings.
+    final hasStepPermission = await Health().hasPermissions(
+          const [HealthDataType.STEPS],
+          permissions: const [HealthDataAccess.READ],
+        ) ??
+        false;
+    if (!hasStepPermission) return; // retries automatically next app open
+
     final prefs = await SharedPreferences.getInstance();
     final lastSynced = prefs.getString('last_step_sync_date');
     final nowIst =

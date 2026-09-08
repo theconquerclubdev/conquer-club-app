@@ -48,38 +48,41 @@ class GetStartedScreen extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 24),
-                RichText(
-                  textAlign: TextAlign.center,
-                  text: TextSpan(
-                    children: [
-                      TextSpan(
-                        text: 'THE ',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: titleSize,
-                          fontWeight: FontWeight.w900,
-                          height: 1.2,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: RichText(
+                    textAlign: TextAlign.center,
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: 'THE ',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: titleSize,
+                            fontWeight: FontWeight.w900,
+                            height: 1.2,
+                          ),
                         ),
-                      ),
-                      TextSpan(
-                        text: 'CONQUER',
-                        style: TextStyle(
-                          color: AppColors.gold,
-                          fontSize: titleSize,
-                          fontWeight: FontWeight.w900,
-                          height: 1.2,
+                        TextSpan(
+                          text: 'CONQUER',
+                          style: TextStyle(
+                            color: AppColors.gold,
+                            fontSize: titleSize,
+                            fontWeight: FontWeight.w900,
+                            height: 1.2,
+                          ),
                         ),
-                      ),
-                      TextSpan(
-                        text: ' CLUB',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: titleSize,
-                          fontWeight: FontWeight.w900,
-                          height: 1.2,
+                        TextSpan(
+                          text: ' CLUB',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: titleSize,
+                            fontWeight: FontWeight.w900,
+                            height: 1.2,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 4),

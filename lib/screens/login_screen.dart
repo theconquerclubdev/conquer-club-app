@@ -271,35 +271,38 @@ class _LoginScreenState extends State<LoginScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                RichText(
-                  textAlign: TextAlign.center,
-                  text: TextSpan(
-                    children: [
-                      TextSpan(
-                        text: 'THE ',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: titleSize,
-                          fontWeight: FontWeight.w900,
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: RichText(
+                    textAlign: TextAlign.center,
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: 'THE ',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: titleSize,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
-                      ),
-                      TextSpan(
-                        text: 'CONQUER',
-                        style: TextStyle(
-                          color: AppColors.gold,
-                          fontSize: titleSize,
-                          fontWeight: FontWeight.w900,
+                        TextSpan(
+                          text: 'CONQUER',
+                          style: TextStyle(
+                            color: AppColors.gold,
+                            fontSize: titleSize,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
-                      ),
-                      TextSpan(
-                        text: ' CLUB',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: titleSize,
-                          fontWeight: FontWeight.w900,
+                        TextSpan(
+                          text: ' CLUB',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: titleSize,
+                            fontWeight: FontWeight.w900,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: 8),
