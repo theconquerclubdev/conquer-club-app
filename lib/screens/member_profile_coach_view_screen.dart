@@ -66,9 +66,26 @@ class _MemberProfileCoachViewScreenState
     {'key': 'right_thigh', 'label': 'Right Thigh', 'unit': 'in'},
   ];
 
+  MemberDashboardData? _lastAppliedData;
+
   @override
   void initState() {
     super.initState();
+    loadData();
+    MasterDataProvider.instance.addListener(_onMasterDataChanged);
+  }
+
+  @override
+  void dispose() {
+    MasterDataProvider.instance.removeListener(_onMasterDataChanged);
+    super.dispose();
+  }
+
+  void _onMasterDataChanged() {
+    if (!mounted) return;
+    final memberId = widget.member['id'];
+    final latest = MasterDataProvider.instance.getData(memberId);
+    if (latest == null || identical(latest, _lastAppliedData)) return;
     loadData();
   }
 
@@ -79,6 +96,7 @@ class _MemberProfileCoachViewScreenState
       // Use MasterDataProvider with cache
       final dashboardData = await MasterDataProvider.instance
           .fetchMemberData(memberId, force: false);
+      _lastAppliedData = dashboardData;
 
       final profile = dashboardData.profile;
 

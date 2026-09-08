@@ -1110,13 +1110,12 @@ class _OfferCardState extends State<_OfferCard> {
     if (confirm != true) return;
 
     try {
-      for (final memberId in _selectedMemberIds) {
-        await Supabase.instance.client
-            .from('offer_members')
-            .delete()
-            .eq('offer_id', widget.offer['id'])
-            .eq('member_id', memberId);
-      }
+      await Supabase.instance.client
+          .from('offer_members')
+          .delete()
+          .eq('offer_id', widget.offer['id'])
+          .inFilter('member_id', _selectedMemberIds.toList());
+      final removedCount = _selectedMemberIds.length;
       setState(() {
         _selectedMemberIds.clear();
         isMultiSelectMode = false;
@@ -1126,7 +1125,7 @@ class _OfferCardState extends State<_OfferCard> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('${_selectedMemberIds.length} members removed'),
+            content: Text('$removedCount members removed'),
             backgroundColor: Colors.green,
           ),
         );

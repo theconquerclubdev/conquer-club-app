@@ -51,11 +51,14 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
 
   bool _hasLoggedToday() {
     if (allHistory.isEmpty) return false;
-    final today = DateTime.now();
+    final today =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
     final todayStr = DateFormat('yyyy-MM-dd').format(today);
 
     for (final log in allHistory) {
-      final logDate = DateTime.parse(log['recorded_at']);
+      final logDate = DateTime.parse(log['recorded_at'])
+          .toUtc()
+          .add(const Duration(hours: 5, minutes: 30));
       final logStr = DateFormat('yyyy-MM-dd').format(logDate);
       if (logStr == todayStr) {
         return true;
@@ -64,7 +67,12 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
     return false;
   }
 
-  bool get _isSunday => DateTime.now().weekday == DateTime.sunday;
+  bool get _isSunday =>
+      DateTime.now()
+          .toUtc()
+          .add(const Duration(hours: 5, minutes: 30))
+          .weekday ==
+      DateTime.sunday;
 
   bool get _canAddMeasurement {
     if (allHistory.isEmpty) return true;

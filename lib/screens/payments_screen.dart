@@ -56,16 +56,14 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
 
-      // Get member profile
-      final profile = await Supabase.instance.client
-          .from('profiles')
-          .select('full_name, membership_end_date')
-          .eq('id', userId)
-          .single();
+      // Get member profile — reuse MasterDataProvider cache instead of a fresh query
+      final dashboardData =
+          await MasterDataProvider.instance.fetchMemberData(userId);
+      final profile = dashboardData.profile;
 
-      memberName = profile['full_name'] ?? 'Member';
-      membershipEndDate = profile['membership_end_date'];
-      daysLeft = _getDaysLeft(membershipEndDate);
+      memberName = profile?['full_name'] ?? 'Member';
+      membershipEndDate = profile?['membership_end_date'];
+      daysLeft = dashboardData.daysLeft;
 
       // Get payment history (explicit columns + limit 20)
       final paymentData = await Supabase.instance.client

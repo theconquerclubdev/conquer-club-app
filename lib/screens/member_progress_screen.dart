@@ -108,7 +108,12 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
     return user.id;
   }
 
-  bool get _isSunday => DateTime.now().weekday == DateTime.sunday;
+  bool get _isSunday =>
+      DateTime.now()
+          .toUtc()
+          .add(const Duration(hours: 5, minutes: 30))
+          .weekday ==
+      DateTime.sunday;
 
   bool _isLoadingPhotos = false;
 
@@ -184,7 +189,11 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
       final uploadedAt = _updatedAt[slot];
       if (uploadedAt == null)
         return false; // no timestamp on record: play safe, treat as locked
-      return _isSameDay(uploadedAt, DateTime.now());
+      final nowIst =
+          DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+      final uploadedIst =
+          uploadedAt.toUtc().add(const Duration(hours: 5, minutes: 30));
+      return _isSameDay(uploadedIst, nowIst);
     }
     if (!hasExisting) return true;
     return _isSunday;

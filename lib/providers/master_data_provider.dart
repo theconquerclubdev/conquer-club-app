@@ -131,6 +131,9 @@ class MasterDataProvider extends ChangeNotifier {
   final Map<String, String?> _errorStates = {};
   RealtimeChannel? _profilesChannel;
   RealtimeChannel? _paymentsChannel;
+  RealtimeChannel? _dietsChannel;
+  RealtimeChannel? _workoutsChannel;
+  RealtimeChannel? _measurementsChannel;
 
   void _initRealtimeSubscription() {
     final client = Supabase.instance.client;
@@ -148,10 +151,40 @@ class MasterDataProvider extends ChangeNotifier {
     _paymentsChannel = client
         .channel('public:payments')
         .onPostgresChanges(
-          event: PostgresChangeEvent.update,
+          event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'payments',
           callback: (payload) => _handlePaymentChange(payload.newRecord),
+        )
+        .subscribe();
+
+    _dietsChannel = client
+        .channel('public:diets')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'diets',
+          callback: (payload) => _handleMemberTableChange(payload.newRecord),
+        )
+        .subscribe();
+
+    _workoutsChannel = client
+        .channel('public:workouts')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'workouts',
+          callback: (payload) => _handleMemberTableChange(payload.newRecord),
+        )
+        .subscribe();
+
+    _measurementsChannel = client
+        .channel('public:measurement_logs')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'measurement_logs',
+          callback: (payload) => _handleMemberTableChange(payload.newRecord),
         )
         .subscribe();
   }
@@ -169,6 +202,15 @@ class MasterDataProvider extends ChangeNotifier {
     if (memberId == null) return;
 
     // Refresh this member's data (membership status may have changed)
+    _refreshMemberOnChange(memberId);
+  }
+
+  void _handleMemberTableChange(Map<String, dynamic> newRecord) {
+    final memberId = newRecord['member_id'] as String?;
+    if (memberId == null) return;
+
+    // Diet / workout / measurement changed — refresh this member's cache
+    // so any screen watching MasterDataProvider updates within seconds.
     _refreshMemberOnChange(memberId);
   }
 
@@ -191,6 +233,9 @@ class MasterDataProvider extends ChangeNotifier {
   void dispose() {
     _profilesChannel?.unsubscribe();
     _paymentsChannel?.unsubscribe();
+    _dietsChannel?.unsubscribe();
+    _workoutsChannel?.unsubscribe();
+    _measurementsChannel?.unsubscribe();
     super.dispose();
   }
 
@@ -325,6 +370,9 @@ class MasterDataProvider extends ChangeNotifier {
       Map<String, dynamic>? measurements;
       List<Map<String, dynamic>> measurementHistory = [];
       bool workoutCompletedToday = false;
+      Map<String, dynamic>? latestDiet;
+      String? photoFrontUpdatedAt;
+      String? photoBackUpdatedAt;
 
       try {
         final stepLog = await Supabase.instance.client
@@ -367,6 +415,42 @@ class MasterDataProvider extends ChangeNotifier {
             .lt('started_at', endOfDay.toIso8601String())
             .maybeSingle();
         workoutCompletedToday = workoutSession != null;
+
+        // Fetch latest diet so coach's "diet needs update" check has real data.
+        latestDiet = await Supabase.instance.client
+            .from('diets')
+            .select()
+            .eq('member_id', memberId)
+            .order('updated_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+
+        // Fetch today's photo-upload timestamps (IST-bounded) for Sunday task card.
+        final photos = await Supabase.instance.client
+            .from('member_progress_photos')
+            .select('after_front_updated_at, after_back_updated_at')
+            .eq('member_id', memberId)
+            .maybeSingle();
+
+        if (photos != null) {
+          final frontDate = photos['after_front_updated_at'] != null
+              ? DateTime.tryParse(photos['after_front_updated_at'])
+              : null;
+          final backDate = photos['after_back_updated_at'] != null
+              ? DateTime.tryParse(photos['after_back_updated_at'])
+              : null;
+
+          if (frontDate != null &&
+              !frontDate.isBefore(startOfDay) &&
+              frontDate.isBefore(endOfDay)) {
+            photoFrontUpdatedAt = photos['after_front_updated_at'];
+          }
+          if (backDate != null &&
+              !backDate.isBefore(startOfDay) &&
+              backDate.isBefore(endOfDay)) {
+            photoBackUpdatedAt = photos['after_back_updated_at'];
+          }
+        }
       } catch (e) {
         debugPrint(
             '⚠️ Non-streak data fetch failed for $memberId (streak kept intact): $e');
@@ -387,10 +471,10 @@ class MasterDataProvider extends ChangeNotifier {
         progressPhotos: null,
         tasksToday: {
           'workout_completed': workoutCompletedToday,
-          'after_front_updated_at': null,
-          'after_back_updated_at': null,
+          'after_front_updated_at': photoFrontUpdatedAt,
+          'after_back_updated_at': photoBackUpdatedAt,
         },
-        latestDiet: null,
+        latestDiet: latestDiet,
         latestWorkout: null,
         fetchedAt: DateTime.now(),
       );

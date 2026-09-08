@@ -86,9 +86,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
   int _lastSavedSteps = -1;
   DateTime? _lastStepSaveTime;
-  static const Duration _stepSaveThrottle = Duration(minutes: 5);
-  static const int _stepSaveThreshold = 50;
-
+  static const Duration _stepSaveThrottle = Duration(hours: 4);
   // Update checker - auto-generated from build time
   bool _isCheckingUpdate = false;
   String get _currentVersion {
@@ -109,7 +107,10 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     tabController = TabController(length: 2, vsync: this, initialIndex: 0);
-    todayName = days[DateTime.now().weekday - 1];
+    todayName = days[
+        (DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30)))
+                .weekday -
+            1];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         loadProfile();
@@ -117,11 +118,22 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       }
     });
     _initStepTracker();
+    MasterDataProvider.instance.addListener(_onMasterDataChanged);
+  }
+
+  void _onMasterDataChanged() {
+    if (!mounted) return;
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    final latest = MasterDataProvider.instance.getData(userId);
+    if (latest == null || identical(latest, _lastAppliedData)) return;
+    loadProfile();
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    MasterDataProvider.instance.removeListener(_onMasterDataChanged);
     tabController.dispose();
     _stepSub?.cancel();
     _stepSaveTimer?.cancel();
@@ -130,6 +142,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   DateTime? _lastResumeTime;
+  MemberDashboardData? _lastAppliedData;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -223,9 +236,12 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
   Future<bool> _fetchHealthSteps() async {
     try {
-      final now = DateTime.now();
-      final midnight = DateTime(now.year, now.month, now.day);
-      final steps = await Health().getTotalStepsInInterval(midnight, now) ?? 0;
+      final nowUtc = DateTime.now().toUtc();
+      final now = nowUtc.add(const Duration(hours: 5, minutes: 30));
+      final istMidnightUtc = DateTime.utc(now.year, now.month, now.day)
+          .subtract(const Duration(hours: 5, minutes: 30));
+      final steps =
+          await Health().getTotalStepsInInterval(istMidnightUtc, nowUtc) ?? 0;
       if (mounted) {
         setState(() => todaySteps = steps);
         _stepSaveTimer?.cancel();
@@ -428,6 +444,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   Future<void> _saveTodaySteps() async {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
+    if (!isMembershipActive) return; // expired days: don't collect/write steps
 
     final prefs = await SharedPreferences.getInstance();
     final pendingDate = prefs.getString('pending_step_log_date');
@@ -469,14 +486,13 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       return;
     }
 
-    // ✅ Throttle: Save only if enough steps changed OR enough time passed
+    // ✅ Save to Supabase only once every 6 hours. UI stays live regardless —
+    // this only gates how often we write to the database.
     final timeSinceLastSave = _lastStepSaveTime == null
         ? Duration.zero
         : now.difference(_lastStepSaveTime!);
-    final stepsSinceLastSave = (todaySteps - _lastSavedSteps).abs();
-    if (stepsSinceLastSave < _stepSaveThreshold &&
-        timeSinceLastSave < _stepSaveThrottle) {
-      return; // Skip write - not enough change
+    if (timeSinceLastSave < _stepSaveThrottle) {
+      return; // Skip write - 6 hours haven't passed yet
     }
 
     final success = await _doSaveStep(userId, logDate);
@@ -542,6 +558,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       // MasterDataProvider.instance.invalidateCache(userId) right before
       // this runs, so this still gets fresh data whenever it truly changed.
       final data = await MasterDataProvider.instance.fetchMemberData(userId);
+      _lastAppliedData = data;
       final profile = data.profile;
       fullName = profile?['full_name'] ?? '';
 
@@ -1027,7 +1044,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   // TODAY'S TASKS CARD - Updated to remove steps from streak
   // ============================================================
   Widget _buildTodayTasksCard() {
-    final now = DateTime.now();
+    final now =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
     final isSunday = now.weekday == DateTime.sunday;
     final isAfterCutoff = isSunday && now.hour >= 21;
 
@@ -2076,10 +2094,10 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
           final isInProgress = status == 'in_progress';
 
           // Determine if workout can be started (only for today and not completed)
-          final now = DateTime.now();
+          final now =
+              DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
           final isSundayReset =
               now.weekday == DateTime.sunday && now.hour >= 21;
-
           // FIX: If there's an in-progress session, allow continuing (not view-only)
           // Also allow starting if not completed and membership is active
           final bool canStart = widget.isMembershipActive &&
