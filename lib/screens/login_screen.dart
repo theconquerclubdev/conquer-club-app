@@ -44,17 +44,21 @@ class _LoginScreenState extends State<LoginScreen> {
           .maybeSingle();
 
       if (profile == null) {
-        setState(() {
-          errorMessage = 'Profile not found. Please contact admin.';
-        });
+        if (mounted) {
+          setState(() {
+            errorMessage = 'Profile not found. Please contact admin.';
+          });
+        }
         return;
       }
 
       if (profile['is_active'] == false) {
         await Supabase.instance.client.auth.signOut();
-        setState(() {
-          errorMessage = 'Your account is inactive. Please contact admin.';
-        });
+        if (mounted) {
+          setState(() {
+            errorMessage = 'Your account is inactive. Please contact admin.';
+          });
+        }
         return;
       }
 
@@ -79,13 +83,17 @@ class _LoginScreenState extends State<LoginScreen> {
         MaterialPageRoute(builder: (_) => nextScreen),
       );
     } catch (e) {
-      setState(() {
-        errorMessage = 'Login failed: $e';
-      });
+      if (mounted) {
+        setState(() {
+          errorMessage = 'Login failed: $e';
+        });
+      }
     } finally {
-      setState(() {
-        isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
     }
   }
 
@@ -160,7 +168,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ],
       ),
-    );
+    ).then((_) => emailCtrl.dispose());
   }
 
   Future<void> _sendResetEmail(String email, BuildContext dialogContext) async {

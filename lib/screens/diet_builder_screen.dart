@@ -1642,6 +1642,7 @@ class _FoodPickerSheetState extends State<_FoodPickerSheet> {
       await CacheManager.saveGeneric('cached_foods', data,
           duration: const Duration(hours: 1));
     }
+    if (!mounted) return;
     setState(() {
       allFoods = data;
       for (final f in allFoods) {

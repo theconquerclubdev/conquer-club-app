@@ -1458,14 +1458,21 @@ class _AdminCoachesTabState extends State<AdminCoachesTab> {
       ),
     );
 
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
+    final fullName = nameController.text.trim();
+    emailController.dispose();
+    passwordController.dispose();
+    nameController.dispose();
+
     if (result == true) {
       try {
         await Supabase.instance.client.functions.invoke(
           'create-coach',
           body: {
-            'email': emailController.text.trim(),
-            'password': passwordController.text.trim(),
-            'fullName': nameController.text.trim(),
+            'email': email,
+            'password': password,
+            'fullName': fullName,
           },
         );
 

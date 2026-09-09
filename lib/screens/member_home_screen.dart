@@ -23,6 +23,7 @@ import 'member_payment_sheet.dart';
 import 'streaks_tab.dart';
 import 'payments_screen.dart';
 import '../providers/master_data_provider.dart';
+import '../widgets/plan_update_popup.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:path_provider/path_provider.dart';
@@ -139,6 +140,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
   DateTime? _lastResumeTime;
   MemberDashboardData? _lastAppliedData;
+  String? _dietStatusText;
+  String? _workoutStatusText;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -646,10 +649,106 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         WidgetsBinding.instance
             .addPostFrameCallback((_) => _showCompleteProfilePrompt());
       }
+
+      // 🔔 Real-time + on-open popup: coach assigned/updated diet or workout.
+      // Only for active-membership members, and only when the value truly
+      // changed since we last showed it (so it never repeats itself).
+      if (isMembershipActive && mounted) {
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _checkPlanUpdatePopups(data, userId));
+      }
     } catch (e) {
       print('Error loading profile: $e');
       if (mounted) {
         setState(() => isLoadingProfile = false);
+      }
+    }
+  }
+
+  /// Compares the member's latest diet/workout `updated_at` against what we
+  /// last showed them (stored locally), and pops up an attractive 3D
+  /// notification if it's new — "assigned" the very first time, "updated"
+  /// every time after that. Also keeps `_dietStatusText` / `_workoutStatusText`
+  /// in sync so the coach banner always shows the current "Assigned on /
+  /// Updated on" date, not just at the moment it changes. Runs after
+  /// realtime pushes AND on app open.
+  Future<void> _checkPlanUpdatePopups(
+      MemberDashboardData data, String userId) async {
+    if (!mounted) return;
+    final prefs = await SharedPreferences.getInstance();
+
+    final dietUpdatedAt = data.latestDiet?['updated_at'] as String?;
+    final workoutUpdatedAt = data.latestWorkout?['updated_at'] as String?;
+
+    // First time this device has EVER tracked this member: silently
+    // remember whatever diet/workout state already exists right now
+    // (no popup) instead of treating both as "brand new" and firing two
+    // notifications at once. From this point on, only a real future
+    // change to either one will trigger its own popup.
+    final initKey = 'plan_tracking_initialized_$userId';
+    if ((prefs.getBool(initKey) ?? false) == false) {
+      if (dietUpdatedAt != null) {
+        await prefs.setString('diet_last_seen_$userId', dietUpdatedAt);
+      }
+      if (workoutUpdatedAt != null) {
+        await prefs.setString('workout_last_seen_$userId', workoutUpdatedAt);
+      }
+      await prefs.setBool(initKey, true);
+    }
+
+    if (dietUpdatedAt != null) {
+      final dietKey = 'diet_last_seen_$userId';
+      final dietKindKey = 'diet_last_kind_$userId';
+      final lastSeenDiet = prefs.getString(dietKey);
+      if (lastSeenDiet != dietUpdatedAt) {
+        final isFirstTime = lastSeenDiet == null;
+        await prefs.setString(dietKey, dietUpdatedAt);
+        await prefs.setString(
+            dietKindKey, isFirstTime ? 'assigned' : 'updated');
+        if (mounted) {
+          await showPlanUpdatePopup(
+            context,
+            isDiet: true,
+            isFirstTime: isFirstTime,
+          );
+        }
+      }
+      final dietDate = DateTime.tryParse(dietUpdatedAt);
+      if (mounted && dietDate != null) {
+        final dietDateIst =
+            dietDate.toUtc().add(const Duration(hours: 5, minutes: 30));
+        setState(() {
+          _dietStatusText = DateFormat('dd/MM/yy h:mm a').format(dietDateIst);
+        });
+      }
+    }
+
+    if (!mounted) return;
+    if (workoutUpdatedAt != null) {
+      final workoutKey = 'workout_last_seen_$userId';
+      final workoutKindKey = 'workout_last_kind_$userId';
+      final lastSeenWorkout = prefs.getString(workoutKey);
+      if (lastSeenWorkout != workoutUpdatedAt) {
+        final isFirstTime = lastSeenWorkout == null;
+        await prefs.setString(workoutKey, workoutUpdatedAt);
+        await prefs.setString(
+            workoutKindKey, isFirstTime ? 'assigned' : 'updated');
+        if (mounted) {
+          await showPlanUpdatePopup(
+            context,
+            isDiet: false,
+            isFirstTime: isFirstTime,
+          );
+        }
+      }
+      final workoutDate = DateTime.tryParse(workoutUpdatedAt);
+      if (mounted && workoutDate != null) {
+        final workoutDateIst =
+            workoutDate.toUtc().add(const Duration(hours: 5, minutes: 30));
+        setState(() {
+          _workoutStatusText =
+              DateFormat('dd/MM/yy h:mm a').format(workoutDateIst);
+        });
       }
     }
   }
@@ -850,11 +949,12 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
     return Scaffold(
       backgroundColor: AppColors.background,
+      bottomNavigationBar:
+          !isLoadingProfile ? _buildQuickActions(context) : null,
       body: SafeArea(
         child: Column(
           children: [
             _buildHeader(context),
-            if (!isLoadingProfile) _buildQuickActions(context),
             _buildStepTrackerCard(),
             // Today's Tasks Card
             _buildTodayTasksCard(),
@@ -1664,12 +1764,18 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   Widget _buildQuickActions(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+    return SafeArea(
+      top: false,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: AppColors.background,
+          border: Border(
+            top: BorderSide(color: AppColors.gold.withOpacity(0.12)),
+          ),
+        ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
             _buildQuickActionIcon(
               Icons.person_outline,
@@ -1773,7 +1879,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
         color: AppColors.cardDark,
         borderRadius: BorderRadius.circular(12),
@@ -1786,31 +1892,73 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           ),
         ],
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.gold.withOpacity(0.3),
-                  AppColors.gold.withOpacity(0.1),
+          Row(
+            children: [
+              Icon(Icons.sports, color: AppColors.gold, size: 14),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  coach == null
+                      ? 'No coach assigned yet — contact admin.'
+                      : 'Your Coach: ${coach!['full_name'] ?? coach!['email']}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_dietStatusText != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 3),
+              child: Row(
+                children: [
+                  Icon(Icons.restaurant_menu,
+                      color: AppColors.gold.withOpacity(0.85), size: 13),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Diet Updated on $_dietStatusText',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.grey.shade400,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
-            child: Icon(Icons.sports, color: AppColors.gold, size: 15),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              coach == null
-                  ? 'No coach assigned yet — contact admin.'
-                  : 'Your Coach: ${coach!['full_name'] ?? coach!['email']}',
-              style: const TextStyle(color: Colors.white, fontSize: 13),
+          if (_workoutStatusText != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Row(
+                children: [
+                  Icon(Icons.fitness_center,
+                      color: AppColors.gold.withOpacity(0.85), size: 13),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Workout Updated on $_workoutStatusText',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.grey.shade400,
+                        fontSize: 11,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -1827,6 +1975,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final url =
           Uri.parse('https://main.conquer-club-app.pages.dev/version.json');
       final response = await http.get(url);
+      if (!mounted) return;
       setState(() => _isCheckingUpdate = false);
 
       if (response.statusCode == 200) {
@@ -1847,7 +1996,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       }
     } catch (e) {
       // ✅ Silently fail — don't show error to user
-      setState(() => _isCheckingUpdate = false);
+      if (mounted) setState(() => _isCheckingUpdate = false);
     }
   }
 
@@ -2148,7 +2297,7 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
           }
 
           return Container(
-            margin: const EdgeInsets.only(bottom: 12),
+            margin: const EdgeInsets.only(bottom: 9),
             decoration: BoxDecoration(
               color: AppColors.cardDark,
               borderRadius: BorderRadius.circular(14),
@@ -2179,11 +2328,13 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
                   Container(width: 4, color: accent.withOpacity(0.7)),
                   Expanded(
                     child: ListTile(
+                      dense: true,
+                      visualDensity: const VisualDensity(vertical: -3),
                       contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 4),
+                          horizontal: 14, vertical: 0),
                       leading: Container(
-                        width: 40,
-                        height: 40,
+                        width: 34,
+                        height: 34,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           gradient: LinearGradient(
@@ -2215,7 +2366,7 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
                               : isInProgress
                                   ? AppColors.gold
                                   : (isToday ? AppColors.gold : Colors.grey),
-                          size: 20,
+                          size: 18,
                         ),
                       ),
                       title: Text(

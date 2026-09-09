@@ -66,6 +66,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
         ],
       ),
     );
+    controller.dispose();
 
     if (newPassword == null || newPassword.length < 6) return;
 
@@ -92,7 +93,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     await Supabase.instance.client
         .from('profiles')
         .update({'assigned_coach_id': coachId}).eq('id', widget.member['id']);
-    setState(() => selectedCoachId = coachId);
+    if (mounted) setState(() => selectedCoachId = coachId);
     if (mounted) {
       ScaffoldMessenger.of(
         context,

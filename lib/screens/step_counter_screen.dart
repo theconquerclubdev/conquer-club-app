@@ -409,6 +409,7 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
         ],
       ),
     );
+    controller.dispose();
     if (result != null && result > 0 && mounted) {
       setState(() => stepGoal = result);
       final userId = Supabase.instance.client.auth.currentUser?.id;

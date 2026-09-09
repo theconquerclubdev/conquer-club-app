@@ -300,7 +300,7 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     await Supabase.instance.client
         .from('workout_sessions')
         .update({'elapsed_seconds': total}).eq('id', sessionId!);
-    setState(() => savedElapsedSeconds = total);
+    if (mounted) setState(() => savedElapsedSeconds = total);
     stopwatch.reset();
   }
 
@@ -380,7 +380,7 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     try {
       await _upsertSetLogWithRetry(upsertData);
 
-      setState(() => set['completed'] = nowCompleted);
+      if (mounted) setState(() => set['completed'] = nowCompleted);
 
       if (completedSetsCount == totalSetsCount && totalSetsCount > 0) {
         await finishWorkout();

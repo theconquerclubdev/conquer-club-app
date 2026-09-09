@@ -77,6 +77,9 @@ serve(async (req) => {
       .eq("id", newUser.user.id);
 
     if (updateError) {
+      // Roll back the auth user so a retry with the same email doesn't fail
+      // with "already registered" while leaving a broken/incomplete account behind.
+      await adminClient.auth.admin.deleteUser(newUser.user.id);
       return new Response(JSON.stringify({ error: updateError.message }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

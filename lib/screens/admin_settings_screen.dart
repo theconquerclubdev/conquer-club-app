@@ -324,11 +324,13 @@ class _OffersTabState extends State<_OffersTab> {
           .select('*, offer_members(count)')
           .order('created_at', ascending: false);
 
-      setState(() {
-        offers = List<Map<String, dynamic>>.from(offersData);
-        filteredOffers = List<Map<String, dynamic>>.from(offersData);
-        isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          offers = List<Map<String, dynamic>>.from(offersData);
+          filteredOffers = List<Map<String, dynamic>>.from(offersData);
+          isLoading = false;
+        });
+      }
 
       // ✅ Load member offer assignments
       await _loadMemberOfferMap();
@@ -337,7 +339,7 @@ class _OffersTabState extends State<_OffersTab> {
       await _loadMembersPaginated(reset: true);
     } catch (e) {
       print('Error loading data: $e');
-      setState(() => isLoading = false);
+      if (mounted) setState(() => isLoading = false);
     }
   }
 
@@ -1994,6 +1996,7 @@ class _FoodTabState extends State<_FoodTab> {
       final data =
           await Supabase.instance.client.from('foods').select().order('name');
 
+      if (!mounted) return;
       setState(() {
         foods = List<Map<String, dynamic>>.from(data);
         isLoading = false;

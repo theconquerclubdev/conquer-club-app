@@ -146,6 +146,18 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
         'upi://pay?pa=$upiId&pn=Conquer%20Club&am=${amount.toStringAsFixed(2)}&cu=INR&tn=$note',
       );
 
+      if (kIsWeb) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+                content: Text(
+                    "UPI payment isn't available on web. Please use the Android app to pay, or contact your coach.")),
+          );
+        }
+        setState(() => isProcessing = false);
+        return;
+      }
+
       final launched =
           await launchUrl(upiUri, mode: LaunchMode.externalApplication);
       if (!launched) {

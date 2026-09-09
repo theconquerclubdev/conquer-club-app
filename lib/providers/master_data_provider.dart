@@ -371,6 +371,7 @@ class MasterDataProvider extends ChangeNotifier {
       List<Map<String, dynamic>> measurementHistory = [];
       bool workoutCompletedToday = false;
       Map<String, dynamic>? latestDiet;
+      Map<String, dynamic>? latestWorkout;
       String? photoFrontUpdatedAt;
       String? photoBackUpdatedAt;
 
@@ -419,6 +420,16 @@ class MasterDataProvider extends ChangeNotifier {
         // Fetch latest diet so coach's "diet needs update" check has real data.
         latestDiet = await Supabase.instance.client
             .from('diets')
+            .select()
+            .eq('member_id', memberId)
+            .order('updated_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+
+        // Fetch latest workout the same way, so the member-side popup can
+        // detect a new/updated workout plan too.
+        latestWorkout = await Supabase.instance.client
+            .from('workouts')
             .select()
             .eq('member_id', memberId)
             .order('updated_at', ascending: false)
@@ -475,7 +486,7 @@ class MasterDataProvider extends ChangeNotifier {
           'after_back_updated_at': photoBackUpdatedAt,
         },
         latestDiet: latestDiet,
-        latestWorkout: null,
+        latestWorkout: latestWorkout,
         fetchedAt: DateTime.now(),
       );
 

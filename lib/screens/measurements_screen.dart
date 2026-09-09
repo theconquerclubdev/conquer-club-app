@@ -332,6 +332,10 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
       ),
     );
 
+    for (final c in controllers.values) {
+      c.dispose();
+    }
+
     if (saved == true) {
       await loadHistory();
       // Invalidate cache for the current user
