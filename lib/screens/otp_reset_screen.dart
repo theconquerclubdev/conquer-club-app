@@ -62,9 +62,21 @@ class _OtpResetScreenState extends State<OtpResetScreen> {
           ),
         );
       }
+    } on AuthException catch (e) {
+      setState(() {
+        if (e.message.contains('Invalid OTP')) {
+          _errorMessage =
+              'Invalid verification code. Please check and try again.';
+        } else if (e.message.contains('Expired')) {
+          _errorMessage = 'This code has expired. Please request a new one.';
+        } else {
+          _errorMessage = 'Verification failed. Please try again.';
+        }
+      });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Invalid or expired code. Please try again.';
+        _errorMessage =
+            'Unable to connect. Please check your internet connection.';
       });
     } finally {
       if (mounted) {
@@ -94,11 +106,21 @@ class _OtpResetScreenState extends State<OtpResetScreen> {
         _otpController.clear();
         _otpFocusNode.requestFocus();
       }
+    } on AuthException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to resend code. Please try again later.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to resend code: $e'),
+          const SnackBar(
+            content:
+                Text('Network error. Please check your internet connection.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -332,9 +354,17 @@ class _SetNewPasswordScreenState extends State<SetNewPasswordScreen> {
           );
         }
       }
+    } on AuthException catch (e) {
+      setState(() {
+        if (e.message.contains('Password should be at least 6 characters')) {
+          _errorMessage = 'Password must be at least 6 characters long.';
+        } else {
+          _errorMessage = 'Failed to reset password. Please try again.';
+        }
+      });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to reset password: $e';
+        _errorMessage = 'Network error. Please check your internet connection.';
       });
     } finally {
       if (mounted) {

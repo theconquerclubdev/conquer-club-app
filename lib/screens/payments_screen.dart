@@ -116,10 +116,29 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       if (mounted) {
         setState(() => isLoading = false);
       }
+    } on PostgrestException catch (e) {
+      print('Error loading payment data: $e');
+      if (mounted) {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Unable to load payment data. Please check your connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } catch (e) {
       print('Error loading payment data: $e');
       if (mounted) {
         setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Network error. Please check your internet connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
       }
     } finally {
       _isLoadingPayments = false;
@@ -316,7 +335,11 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
+            onPressed: () {
+              if (!isLoading) {
+                _loadData();
+              }
+            },
           ),
         ],
       ),

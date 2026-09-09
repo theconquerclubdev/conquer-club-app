@@ -166,10 +166,29 @@ class _MemberProfileCoachViewScreenState
         print(
             '🔍 membership_end_date from profile: ${profile?['membership_end_date']}');
       }
-    } catch (err, stack) {
-      debugPrint('Error in loadData(): $err\n$stack');
+    } on PostgrestException catch (err) {
+      debugPrint('Error in loadData(): $err');
       if (mounted) {
         setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Unable to load profile data. Please check your connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (err) {
+      debugPrint('Error in loadData(): $err');
+      if (mounted) {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Network error. Please check your internet connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
       }
     }
   }
@@ -512,6 +531,15 @@ class _MemberProfileCoachViewScreenState
           style: const TextStyle(color: Colors.white),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.white70),
+            onPressed: () {
+              if (!isLoading) {
+                loadData();
+              }
+            },
+            tooltip: 'Refresh',
+          ),
           IconButton(
             icon: const Icon(Icons.lock_reset, color: Colors.white70),
             onPressed: _resetPassword,

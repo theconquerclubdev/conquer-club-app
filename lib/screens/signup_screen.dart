@@ -50,10 +50,27 @@ class _SignupScreenState extends State<SignupScreen> {
           );
         }
       }
+    } on AuthException catch (e) {
+      if (mounted) {
+        String message = 'Signup failed. Please try again.';
+        if (e.message.contains('User already registered')) {
+          message = 'This email is already registered. Please login instead.';
+        } else if (e.message
+            .contains('Password should be at least 6 characters')) {
+          message = 'Password must be at least 6 characters long.';
+        } else if (e.message.contains('Invalid email')) {
+          message = 'Please enter a valid email address.';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(message)),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Signup failed: ${e.toString()}')),
+          const SnackBar(
+              content: Text(
+                  'Unable to connect. Please check your internet connection.')),
         );
       }
     } finally {

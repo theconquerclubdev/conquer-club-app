@@ -8,6 +8,7 @@ import 'otp_reset_screen.dart';
 import 'admin_home_screen.dart';
 import 'coach_home_screen.dart';
 import 'member_home_screen.dart';
+import '../providers/master_data_provider.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -76,16 +77,38 @@ class _LoginScreenState extends State<LoginScreen> {
           break;
         default:
           nextScreen = const MemberHomeScreen();
+          // 🚀 Start fetching dashboard data now, in parallel with the
+          // screen transition, so it's ready (or already in flight) by the
+          // time MemberHomeScreen asks for it — cuts the post-login wait.
+          MasterDataProvider.instance.fetchMemberData(userId);
       }
 
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => nextScreen),
       );
+    } on AuthException catch (e) {
+      if (mounted) {
+        setState(() {
+          if (e.message.contains('Invalid login credentials')) {
+            errorMessage = 'Incorrect email or password. Please try again.';
+          } else if (e.message.contains('Email not confirmed')) {
+            errorMessage =
+                'Please verify your email address before logging in.';
+          } else if (e.message.contains('User not found')) {
+            errorMessage =
+                'No account found with this email. Please sign up first.';
+          } else {
+            errorMessage =
+                'Login failed. Please check your credentials and try again.';
+          }
+        });
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
-          errorMessage = 'Login failed: $e';
+          errorMessage =
+              'Unable to connect. Please check your internet connection and try again.';
         });
       }
     } finally {

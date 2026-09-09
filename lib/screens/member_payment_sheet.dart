@@ -100,9 +100,30 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
       }
 
       setState(() => isLoading = false);
+    } on PostgrestException catch (e) {
+      print('❌ Error loading pricing: $e');
+      setState(() => isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Unable to load payment data. Please check your connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } catch (e) {
       print('❌ Error loading pricing: $e');
       setState(() => isLoading = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Network error. Please check your internet connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     }
   }
 

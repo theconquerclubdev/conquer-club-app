@@ -657,10 +657,40 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         WidgetsBinding.instance
             .addPostFrameCallback((_) => _checkPlanUpdatePopups(data, userId));
       }
+    } on AuthException catch (e) {
+      print('Error loading profile: $e');
+      if (mounted) {
+        setState(() => isLoadingProfile = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Session expired. Please login again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } on PostgrestException catch (e) {
+      print('Error loading profile: $e');
+      if (mounted) {
+        setState(() => isLoadingProfile = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Unable to load profile. Please check your connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } catch (e) {
       print('Error loading profile: $e');
       if (mounted) {
         setState(() => isLoadingProfile = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Network error. Please check your internet connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
       }
     }
   }
@@ -1412,7 +1442,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     Color membershipColor;
     IconData membershipIcon;
 
-    if (isMembershipActive) {
+    if (isLoadingProfile) {
+      membershipText = 'Loading...';
+      membershipColor = Colors.grey;
+      membershipIcon = Icons.hourglass_empty;
+    } else if (isMembershipActive) {
       membershipText = '$daysLeft d left';
       membershipColor = isMembershipExpiringSoon ? Colors.orange : Colors.green;
       membershipIcon = isMembershipExpiringSoon
@@ -1526,7 +1560,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
                                   style: TextStyle(color: Colors.white),
                                 ),
                                 TextSpan(
-                                  text: '$firstName!',
+                                  text:
+                                      isLoadingProfile ? '...' : '$firstName!',
                                   style: const TextStyle(color: AppColors.gold),
                                 ),
                               ],

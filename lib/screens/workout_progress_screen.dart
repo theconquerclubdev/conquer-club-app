@@ -87,12 +87,22 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
           _isLoading = false;
         });
       }
+    } on PostgrestException catch (e) {
+      print('Error loading strength records: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage =
+              'Unable to load strength records. Please check your internet connection and try again.';
+        });
+      }
     } catch (e) {
       print('Error loading strength records: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = e.toString();
+          _errorMessage =
+              'Unable to connect. Please check your internet connection and try again.';
         });
       }
     } finally {
@@ -159,7 +169,8 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
       Map<String, dynamic> latestRow = variantRows.first;
       Map<String, dynamic> bestRow = variantRows.first;
       for (final row in variantRows) {
-        final rowLastDate = DateTime.tryParse(row['last_date'] as String? ?? '');
+        final rowLastDate =
+            DateTime.tryParse(row['last_date'] as String? ?? '');
         final latestDate =
             DateTime.tryParse(latestRow['last_date'] as String? ?? '');
         if (rowLastDate != null &&
@@ -192,7 +203,6 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
 
     return records;
   }
-
 
   Map<String, dynamic> _emptyRecord(String displayName) {
     return {

@@ -115,9 +115,14 @@ class _MemberDietPreviewLoaderState extends State<MemberDietPreviewLoader> {
         sections = grouped;
         isLoading = false;
       });
+    } on PostgrestException catch (e) {
+      setState(() {
+        error = 'Unable to load diet. Please check your connection.';
+        isLoading = false;
+      });
     } catch (e) {
       setState(() {
-        error = e.toString();
+        error = 'Unable to connect. Please check your internet connection.';
         isLoading = false;
       });
     }
@@ -144,12 +149,46 @@ class _MemberDietPreviewLoaderState extends State<MemberDietPreviewLoader> {
             icon: const Icon(Icons.arrow_back, color: Colors.black),
             onPressed: () => Navigator.pop(context),
           ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.refresh, color: Colors.black),
+              onPressed: () {
+                if (!isLoading) {
+                  _load();
+                }
+              },
+            ),
+          ],
         ),
         body: Center(
-          child: Text(
-            error != null ? 'Failed to load diet: $error' : 'Diet not found.',
-            style: const TextStyle(color: Colors.black54),
-            textAlign: TextAlign.center,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.error_outline,
+                color: Colors.grey.shade400,
+                size: 48,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                error != null ? error! : 'Diet not found.',
+                style: const TextStyle(color: Colors.black54),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: () {
+                  if (!isLoading) {
+                    _load();
+                  }
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.gold,
+                  foregroundColor: Colors.black,
+                ),
+                child: const Text('RETRY'),
+              ),
+            ],
           ),
         ),
       );

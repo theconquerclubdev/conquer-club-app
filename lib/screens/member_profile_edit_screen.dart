@@ -110,10 +110,20 @@ class _MemberProfileEditScreenState extends State<MemberProfileEditScreen> {
         );
         Navigator.pop(context, true);
       }
+    } on PostgrestException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text(
+                  'Unable to update profile. Please check your connection.')),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Update failed: $e')),
+          const SnackBar(
+              content: Text(
+                  'Network error. Please check your internet connection.')),
         );
       }
     } finally {
@@ -132,7 +142,19 @@ class _MemberProfileEditScreenState extends State<MemberProfileEditScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: const Text('Edit Profile')),
+      appBar: AppBar(
+        title: const Text('Edit Profile'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              if (!isLoading) {
+                _loadProfile();
+              }
+            },
+          ),
+        ],
+      ),
       body: isLoading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.gold),

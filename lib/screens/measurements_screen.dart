@@ -688,6 +688,14 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
       appBar: AppBar(
         title: const Text('Body Progress'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: () {
+              if (!isLoading) {
+                loadHistory();
+              }
+            },
+          ),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: Tooltip(

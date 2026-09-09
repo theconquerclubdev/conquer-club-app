@@ -155,8 +155,21 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       backgroundColor: Colors.black,
       body: SafeArea(
         child: _isLoadingProfile
-            ? const Center(
-                child: CircularProgressIndicator(color: AppColors.gold),
+            ? Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const CircularProgressIndicator(color: AppColors.gold),
+                    const SizedBox(height: 16),
+                    TextButton(
+                      onPressed: _loadUserEmail,
+                      child: const Text(
+                        'Retry',
+                        style: TextStyle(color: AppColors.gold),
+                      ),
+                    ),
+                  ],
+                ),
               )
             : SingleChildScrollView(
                 physics: const AlwaysScrollableScrollPhysics(),

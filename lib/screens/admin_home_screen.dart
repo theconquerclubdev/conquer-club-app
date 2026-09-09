@@ -163,10 +163,29 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
           isLoading = false;
         });
       }
+    } on PostgrestException catch (e) {
+      print('Error loading stats: $e');
+      if (mounted) {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Unable to load dashboard stats. Please check your connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } catch (e) {
       print('Error loading stats: $e');
       if (mounted) {
         setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Network error. Please check your internet connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
       }
     }
   }
@@ -864,6 +883,21 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
           });
         }
       }
+    } on PostgrestException catch (e) {
+      debugPrint('Error fetching members: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          isLoadingMore = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Unable to fetch members. Please check your connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } catch (e) {
       debugPrint('Error fetching members: $e');
       if (mounted) {
@@ -871,6 +905,13 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
           isLoading = false;
           isLoadingMore = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Network error. Please check your internet connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
       }
     }
   }

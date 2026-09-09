@@ -300,13 +300,21 @@ class MasterDataProvider extends ChangeNotifier {
         throw Exception('Invalid UUID format for member ID: $memberId');
       }
 
-      // Fetch profile directly
-      final profile = await Supabase.instance.client
+      // 🚀 Fetch profile and streak in parallel instead of one-after-another —
+      // they don't depend on each other, so this cuts one full round trip.
+      final profileFuture = Supabase.instance.client
           .from('profiles')
           .select(
               'id, full_name, email, is_active, membership_end_date, step_goal, height_cm, weight_kg, created_at, assigned_coach_id, goal, date_of_birth, gender')
           .eq('id', memberId)
           .maybeSingle();
+      final streakRpcFuture = Supabase.instance.client
+          .rpc('get_current_streak', params: {'p_member_id': memberId});
+
+      final profileAndStreak =
+          await Future.wait<dynamic>([profileFuture, streakRpcFuture]);
+      final profile = profileAndStreak[0] as Map<String, dynamic>?;
+      final streakRpcResponse = profileAndStreak[1];
 
       if (profile == null) {
         debugPrint('⚠️ Profile not found for member: $memberId');
@@ -337,9 +345,6 @@ class MasterDataProvider extends ChangeNotifier {
       // live off workout_sessions / measurement_logs / member_progress_photos.
       // No member_streaks table read, no client-side recalculation.
       int currentStreak = 0;
-
-      final streakRpcResponse = await Supabase.instance.client
-          .rpc('get_current_streak', params: {'p_member_id': memberId});
 
       if (streakRpcResponse != null) {
         currentStreak =
@@ -376,72 +381,83 @@ class MasterDataProvider extends ChangeNotifier {
       String? photoBackUpdatedAt;
 
       try {
-        final stepLog = await Supabase.instance.client
-            .from('step_logs')
-            .select('steps')
-            .eq('member_id', memberId)
-            .eq('log_date', todayStr)
-            .maybeSingle();
-        todaySteps = (stepLog?['steps'] as num?)?.toInt() ?? 0;
-
-        measurements = await Supabase.instance.client
-            .from('measurement_logs')
-            .select('*')
-            .eq('member_id', memberId)
-            .order('recorded_at', ascending: false)
-            .limit(1)
-            .maybeSingle();
-
-        measurementHistory = List<Map<String, dynamic>>.from(
-          await Supabase.instance.client
-              .from('measurement_logs')
-              .select('*')
-              .eq('member_id', memberId)
-              .order('recorded_at', ascending: false)
-              .limit(16),
-        );
-
         // Fetch workout status for today using IST boundaries
         // Convert IST midnight to UTC for querying timestamptz columns
         final startOfDay = DateTime.utc(today.year, today.month, today.day)
             .subtract(const Duration(hours: 5, minutes: 30));
         final endOfDay = startOfDay.add(const Duration(days: 1));
 
-        final workoutSession = await Supabase.instance.client
-            .from('workout_sessions')
-            .select('status')
-            .eq('member_id', memberId)
-            .eq('status', 'completed')
-            .gte('started_at', startOfDay.toIso8601String())
-            .lt('started_at', endOfDay.toIso8601String())
-            .maybeSingle();
+        // 🚀 These queries don't depend on each other — fire them all at
+        // once instead of one-by-one so we pay for one round trip, not seven.
+        final results = await Future.wait<dynamic>([
+          Supabase.instance.client
+              .from('step_logs')
+              .select('steps')
+              .eq('member_id', memberId)
+              .eq('log_date', todayStr)
+              .maybeSingle(),
+          Supabase.instance.client
+              .from('measurement_logs')
+              .select('*')
+              .eq('member_id', memberId)
+              .order('recorded_at', ascending: false)
+              .limit(1)
+              .maybeSingle(),
+          Supabase.instance.client
+              .from('measurement_logs')
+              .select('*')
+              .eq('member_id', memberId)
+              .order('recorded_at', ascending: false)
+              .limit(16),
+          Supabase.instance.client
+              .from('workout_sessions')
+              .select('status')
+              .eq('member_id', memberId)
+              .eq('status', 'completed')
+              .gte('started_at', startOfDay.toIso8601String())
+              .lt('started_at', endOfDay.toIso8601String())
+              .maybeSingle(),
+          Supabase.instance.client
+              .from('diets')
+              .select()
+              .eq('member_id', memberId)
+              .order('updated_at', ascending: false)
+              .limit(1)
+              .maybeSingle(),
+          Supabase.instance.client
+              .from('workouts')
+              .select()
+              .eq('member_id', memberId)
+              .order('updated_at', ascending: false)
+              .limit(1)
+              .maybeSingle(),
+          Supabase.instance.client
+              .from('member_progress_photos')
+              .select('after_front_updated_at, after_back_updated_at')
+              .eq('member_id', memberId)
+              .maybeSingle(),
+        ]);
+
+        final stepLog = results[0] as Map<String, dynamic>?;
+        todaySteps = (stepLog?['steps'] as num?)?.toInt() ?? 0;
+
+        measurements = results[1] as Map<String, dynamic>?;
+
+        measurementHistory =
+            List<Map<String, dynamic>>.from(results[2] as List);
+
+        final workoutSession = results[3] as Map<String, dynamic>?;
         workoutCompletedToday = workoutSession != null;
 
         // Fetch latest diet so coach's "diet needs update" check has real data.
-        latestDiet = await Supabase.instance.client
-            .from('diets')
-            .select()
-            .eq('member_id', memberId)
-            .order('updated_at', ascending: false)
-            .limit(1)
-            .maybeSingle();
+        latestDiet = results[4] as Map<String, dynamic>?;
 
         // Fetch latest workout the same way, so the member-side popup can
         // detect a new/updated workout plan too.
-        latestWorkout = await Supabase.instance.client
-            .from('workouts')
-            .select()
-            .eq('member_id', memberId)
-            .order('updated_at', ascending: false)
-            .limit(1)
-            .maybeSingle();
+        latestWorkout = results[5] as Map<String, dynamic>?;
 
         // Fetch today's photo-upload timestamps (IST-bounded) for Sunday task card.
-        final photos = await Supabase.instance.client
-            .from('member_progress_photos')
-            .select('after_front_updated_at, after_back_updated_at')
-            .eq('member_id', memberId)
-            .maybeSingle();
+        final photos = results[6] as Map<String, dynamic>?;
 
         if (photos != null) {
           final frontDate = photos['after_front_updated_at'] != null

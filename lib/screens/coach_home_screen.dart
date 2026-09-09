@@ -203,6 +203,21 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
       if (reset) {
         unawaited(_loadStats());
       }
+    } on PostgrestException catch (e) {
+      print('Error loading members: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          isLoadingMore = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Unable to load members. Please check your connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
     } catch (e) {
       print('Error loading members: $e');
       if (mounted) {
@@ -210,6 +225,13 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           isLoading = false;
           isLoadingMore = false;
         });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Network error. Please check your internet connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
       }
     }
   }
