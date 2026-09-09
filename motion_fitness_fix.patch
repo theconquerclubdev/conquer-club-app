@@ -1,0 +1,35 @@
+--- original/conquer-club-app-main/lib/screens/member_home_screen.dart	2026-09-09 14:50:27.000000000 +0000
++++ conquer-club-app-main/lib/screens/member_home_screen.dart	2026-09-09 16:29:14.440368611 +0000
+@@ -258,7 +258,20 @@
+   }
+ 
+   Future<void> _initRawSensorTracker() async {
+-    final status = await Permission.activityRecognition.request();
++    // ⚠️ iOS note: Permission.activityRecognition never triggers the native
++    // "Motion & Fitness" prompt on iOS — it's an Android-only permission
++    // under the hood (Baseflow/flutter-permission-handler #379, #430).
++    // Calling .request() for it on iOS just returns a status without ever
++    // showing a dialog, which is why the app could report "permanently
++    // denied" even though iOS never actually asked the user and nothing
++    // shows up under Settings > Privacy > Motion & Fitness.
++    //
++    // On iOS, use Permission.sensors instead — that's the one Baseflow
++    // maps to CoreMotion/Motion & Fitness. On Android keep
++    // activityRecognition as before.
++    final status = PlatformHelper.isIOS
++        ? await Permission.sensors.request()
++        : await Permission.activityRecognition.request();
+     if (!status.isGranted) {
+       if (mounted) {
+         setState(() {
+@@ -296,7 +309,9 @@
+         }
+       },
+       onError: (_) async {
+-        final status = await Permission.activityRecognition.status;
++        final status = PlatformHelper.isIOS
++            ? await Permission.sensors.status
++            : await Permission.activityRecognition.status;
+         if (!status.isGranted) {
+           if (mounted) {
+             setState(() {
