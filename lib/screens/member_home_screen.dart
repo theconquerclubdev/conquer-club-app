@@ -161,6 +161,15 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         _lastResumeTime = now;
         // ✅ Re-initialize to fetch latest data
         _initStepTracker();
+        // ✅ Force fresh data on resume — realtime websocket gets
+        // suspended in background (esp. iOS), so a diet/workout change
+        // made while app was closed/backgrounded can hide behind the
+        // 3-min cache window. Invalidate so the mandatory popup always
+        // fires the moment member reopens app.
+        final resumedUserId = Supabase.instance.client.auth.currentUser?.id;
+        if (resumedUserId != null) {
+          MasterDataProvider.instance.invalidateCache(resumedUserId);
+        }
         // ✅ Task status is loaded via MasterDataProvider in loadProfile()
         loadProfile();
       }
