@@ -652,6 +652,15 @@ class MasterDataProvider extends ChangeNotifier {
     return fetchMemberData(memberId, force: true);
   }
 
+  /// Pure math for cache pruning, pulled out so it can be tested directly
+  /// without needing a real MasterDataProvider/Supabase instance.
+  static List<String> keysToPrune(
+      List<String> sortedKeys, int entryCount, int maxEntries) {
+    final removeCount =
+        (sortedKeys.length - maxEntries).clamp(0, sortedKeys.length);
+    return sortedKeys.sublist(0, removeCount);
+  }
+
   void pruneCache({int maxEntries = 50}) {
     if (_cache.length <= maxEntries) return;
 
@@ -660,14 +669,7 @@ class MasterDataProvider extends ChangeNotifier {
         (a, b) => _cacheTimestamps[a]!.compareTo(_cacheTimestamps[b]!),
       );
 
-    // ✅ Derive the removal count from sortedKeys itself (not _cache.length)
-    // so a future mismatch between _cache and _cacheTimestamps can never
-    // produce an out-of-range sublist().
-    final removeCount = (sortedKeys.length - maxEntries).clamp(
-      0,
-      sortedKeys.length,
-    );
-    final toRemove = sortedKeys.sublist(0, removeCount);
+    final toRemove = keysToPrune(sortedKeys, _cache.length, maxEntries);
     for (final key in toRemove) {
       _cache.remove(key);
       _cacheTimestamps.remove(key);

@@ -16,6 +16,16 @@ import 'providers/master_data_provider.dart';
 import 'utils/platform_helper.dart';
 import 'utils/app_version.dart';
 
+/// Opens the app-store/download link for a forced update.
+/// Pulled out as its own function so it can be tested directly, without
+/// needing to build the whole dialog widget.
+Future<void> openUpdateUrl(String downloadUrl) async {
+  final uri = Uri.tryParse(downloadUrl);
+  if (uri != null) {
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+}
+
 /// Responsive breakpoints used by the app.
 ///
 /// This does not change any existing screen logic. Screens can use these
@@ -356,12 +366,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
         actions: [
           if (downloadUrl.isNotEmpty)
             ElevatedButton(
-              onPressed: () async {
-                final uri = Uri.tryParse(downloadUrl);
-                if (uri != null) {
-                  await launchUrl(uri, mode: LaunchMode.externalApplication);
-                }
-              },
+              onPressed: () => openUpdateUrl(downloadUrl),
               child: const Text('UPDATE NOW'),
             ),
           TextButton(
