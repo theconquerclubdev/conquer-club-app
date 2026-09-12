@@ -42,6 +42,10 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Android signing files
+upload-keystore.jks
+android/key.properties
+
 # Netlify
 .netlify/
 

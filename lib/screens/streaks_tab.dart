@@ -176,19 +176,38 @@ class _StreaksTabState extends State<StreaksTab> {
         isStreakMet = workoutCompleted;
       }
 
-      // Upsert today's streak record (needed for history)
-      await Supabase.instance.client.from('member_streaks').upsert({
-        'member_id': userId,
-        'date': todayStr,
-        'is_workout_completed': workoutCompleted,
-        'is_photos_uploaded': photosUploaded,
-        'is_measurements_updated': measurementsUpdated,
-        'workout_minutes': workoutMinutes,
-        'is_sunday': isSunday,
-        'is_streak_met': isStreakMet,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      }, onConflict: 'member_id,date');
+      // ✅ Skip the write entirely if today's row already matches what we
+      // just computed — opening/reopening this tab shouldn't write to the
+      // database unless something actually changed.
+      final existingToday = await Supabase.instance.client
+          .from('member_streaks')
+          .select(
+              'is_workout_completed, is_photos_uploaded, is_measurements_updated, workout_minutes, is_streak_met')
+          .eq('member_id', userId)
+          .eq('date', todayStr)
+          .maybeSingle();
 
+      final alreadyUpToDate = existingToday != null &&
+          existingToday['is_workout_completed'] == workoutCompleted &&
+          existingToday['is_photos_uploaded'] == photosUploaded &&
+          existingToday['is_measurements_updated'] == measurementsUpdated &&
+          existingToday['workout_minutes'] == workoutMinutes &&
+          existingToday['is_streak_met'] == isStreakMet;
+
+      if (!alreadyUpToDate) {
+        // Upsert today's streak record (needed for history)
+        await Supabase.instance.client.from('member_streaks').upsert({
+          'member_id': userId,
+          'date': todayStr,
+          'is_workout_completed': workoutCompleted,
+          'is_photos_uploaded': photosUploaded,
+          'is_measurements_updated': measurementsUpdated,
+          'workout_minutes': workoutMinutes,
+          'is_sunday': isSunday,
+          'is_streak_met': isStreakMet,
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        }, onConflict: 'member_id,date');
+      }
       // 2. Get history for UI cards & week view (limit to 90 days)
       final response = await Supabase.instance.client
           .from('member_streaks')

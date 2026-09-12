@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../theme/app_theme.dart';
 
 enum _StepView { day, week, month }
@@ -76,17 +77,27 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
       final todayKey = _fmt(today);
       if (widget.liveTodaySteps > (map[todayKey] ?? 0)) {
         map[todayKey] = widget.liveTodaySteps;
-        // ✅ Save today's steps to database when viewing step counter
-        try {
-          await Supabase.instance.client.from('step_logs').upsert({
-            'member_id': userId,
-            'log_date': todayKey,
-            'steps': widget.liveTodaySteps,
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
-          }, onConflict: 'member_id,log_date');
-          print('✅ StepCounterScreen: Saved $widget.liveTodaySteps steps');
-        } catch (e) {
-          print('❌ StepCounterScreen: Failed to save steps: $e');
+        // ✅ Respect the same shared 4-hour throttle clock member_home_screen
+        // uses, so opening this screen can't bypass the write-frequency rule.
+        final prefs = await SharedPreferences.getInstance();
+        final storedTime = prefs.getString('last_step_save_time');
+        final lastSave =
+            storedTime != null ? DateTime.tryParse(storedTime) : null;
+        final dueForSave = lastSave == null ||
+            DateTime.now().difference(lastSave) >= const Duration(hours: 4);
+        if (dueForSave) {
+          try {
+            await Supabase.instance.client.from('step_logs').upsert({
+              'member_id': userId,
+              'log_date': todayKey,
+              'steps': widget.liveTodaySteps,
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
+            }, onConflict: 'member_id,log_date');
+            await prefs.setString(
+                'last_step_save_time', DateTime.now().toIso8601String());
+          } catch (e) {
+            debugPrint('❌ StepCounterScreen: Failed to save steps: $e');
+          }
         }
       }
       if (mounted) {

@@ -110,8 +110,7 @@ class _MemberProfileCoachViewScreenState
       widget.member['height_cm'] ??= profile?['height_cm'];
 
       // Current Weight - Safe fallback parsing
-      currentWeight =
-          dashboardData.currentWeight ??
+      currentWeight = dashboardData.currentWeight ??
           (dashboardData.measurements?['weight_kg'] as num?)?.toDouble() ??
           (profile?['weight_kg'] as num?)?.toDouble();
       // Height - Safe fallback parsing
@@ -209,36 +208,35 @@ class _MemberProfileCoachViewScreenState
     final controller = TextEditingController();
     final newPassword = await showDialog<String>(
       context: context,
-      builder:
-          (_) => AlertDialog(
-            backgroundColor: AppColors.cardDark,
-            title: const Text(
-              'Set New Password',
-              style: TextStyle(color: Colors.white),
-            ),
-            content: TextField(
-              controller: controller,
-              style: const TextStyle(color: Colors.white),
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'New password (min 6 chars)',
-                labelStyle: TextStyle(color: Colors.grey),
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text(
-                  'Cancel',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, controller.text.trim()),
-                child: const Text('Set'),
-              ),
-            ],
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: const Text(
+          'Set New Password',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: TextField(
+          controller: controller,
+          style: const TextStyle(color: Colors.white),
+          obscureText: true,
+          decoration: const InputDecoration(
+            labelText: 'New password (min 6 chars)',
+            labelStyle: TextStyle(color: Colors.grey),
           ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Set'),
+          ),
+        ],
+      ),
     );
 
     if (newPassword == null || newPassword.length < 6) return;
@@ -280,262 +278,251 @@ class _MemberProfileCoachViewScreenState
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
-      builder:
-          (_) => StatefulBuilder(
-            builder: (context, setSheetState) {
-              final metricMeta = measurementFields.firstWhere(
-                (f) => f['key'] == selectedMetric,
-                orElse: () => measurementFields.first,
-              );
+      builder: (_) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          final metricMeta = measurementFields.firstWhere(
+            (f) => f['key'] == selectedMetric,
+            orElse: () => measurementFields.first,
+          );
 
-              final points = <FlSpot>[];
-              for (int i = 0; i < measurementHistory.length; i++) {
-                final val = measurementHistory[i][selectedMetric];
-                if (val != null) {
-                  points.add(FlSpot(i.toDouble(), (val as num).toDouble()));
-                }
-              }
+          final points = <FlSpot>[];
+          for (int i = 0; i < measurementHistory.length; i++) {
+            final val = measurementHistory[i][selectedMetric];
+            if (val != null) {
+              points.add(FlSpot(i.toDouble(), (val as num).toDouble()));
+            }
+          }
 
-              final latestValue =
-                  measurementHistory.isNotEmpty
-                      ? measurementHistory.last[selectedMetric]
-                      : null;
-              final firstValue =
-                  measurementHistory.isNotEmpty
-                      ? measurementHistory.first[selectedMetric]
-                      : null;
-              final delta =
-                  (latestValue != null && firstValue != null)
-                      ? (latestValue - firstValue)
-                      : null;
+          final latestValue = measurementHistory.isNotEmpty
+              ? measurementHistory.last[selectedMetric]
+              : null;
+          final firstValue = measurementHistory.isNotEmpty
+              ? measurementHistory.first[selectedMetric]
+              : null;
+          final delta = (latestValue != null && firstValue != null)
+              ? (latestValue - firstValue)
+              : null;
 
-              return Container(
-                height: MediaQuery.of(context).size.height * 0.7,
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.7,
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        const Text(
-                          '📊 Measurement History',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.grey),
-                          onPressed: () => Navigator.pop(context),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Latest: ${latestValue != null ? latestValue : '--'} ${metricMeta['unit']}',
-                      style: TextStyle(color: Colors.grey, fontSize: 13),
-                    ),
-                    if (delta != null)
-                      Text(
-                        'Change: ${delta > 0 ? '+' : ''}${delta.toStringAsFixed(1)} ${metricMeta['unit']}',
-                        style: TextStyle(
-                          color:
-                              delta == 0
-                                  ? Colors.grey
-                                  : delta > 0
-                                  ? Colors.green
-                                  : Colors.red,
-                          fontSize: 12,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      height: 32,
-                      child: ListView(
-                        scrollDirection: Axis.horizontal,
-                        children:
-                            measurementFields.map((f) {
-                              final selected = f['key'] == selectedMetric;
-                              return Padding(
-                                padding: const EdgeInsets.only(right: 6),
-                                child: ChoiceChip(
-                                  label: Text(
-                                    f['label']!,
-                                    style: TextStyle(
-                                      fontSize: selected ? 10 : 9,
-                                      color:
-                                          selected
-                                              ? Colors.black
-                                              : Colors.white,
-                                    ),
-                                  ),
-                                  selected: selected,
-                                  onSelected:
-                                      (_) => setSheetState(() {
-                                        selectedMetric = f['key']!;
-                                      }),
-                                  selectedColor: AppColors.gold,
-                                  backgroundColor: AppColors.cardDark,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 6,
-                                    vertical: 2,
-                                  ),
-                                ),
-                              );
-                            }).toList(),
+                    const Text(
+                      '📊 Measurement History',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    points.length < 2
-                        ? Expanded(
-                          child: Center(
-                            child: Text(
-                              'Need at least 2 measurements for a graph',
-                              style: TextStyle(color: Colors.grey.shade500),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.grey),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Latest: ${latestValue != null ? latestValue : '--'} ${metricMeta['unit']}',
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
+                ),
+                if (delta != null)
+                  Text(
+                    'Change: ${delta > 0 ? '+' : ''}${delta.toStringAsFixed(1)} ${metricMeta['unit']}',
+                    style: TextStyle(
+                      color: delta == 0
+                          ? Colors.grey
+                          : delta > 0
+                              ? Colors.green
+                              : Colors.red,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  height: 32,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: measurementFields.map((f) {
+                      final selected = f['key'] == selectedMetric;
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: ChoiceChip(
+                          label: Text(
+                            f['label']!,
+                            style: TextStyle(
+                              fontSize: selected ? 10 : 9,
+                              color: selected ? Colors.black : Colors.white,
                             ),
                           ),
-                        )
-                        : Expanded(
-                          child: LineChart(
-                            LineChartData(
-                              gridData: const FlGridData(show: false),
-                              titlesData: FlTitlesData(
-                                leftTitles: AxisTitles(
-                                  sideTitles: SideTitles(
-                                    showTitles: true,
-                                    reservedSize: 30,
-                                    getTitlesWidget: (value, meta) {
-                                      return Text(
-                                        value.toInt().toString(),
+                          selected: selected,
+                          onSelected: (_) => setSheetState(() {
+                            selectedMetric = f['key']!;
+                          }),
+                          selectedColor: AppColors.gold,
+                          backgroundColor: AppColors.cardDark,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                points.length < 2
+                    ? Expanded(
+                        child: Center(
+                          child: Text(
+                            'Need at least 2 measurements for a graph',
+                            style: TextStyle(color: Colors.grey.shade500),
+                          ),
+                        ),
+                      )
+                    : Expanded(
+                        child: LineChart(
+                          LineChartData(
+                            gridData: const FlGridData(show: false),
+                            titlesData: FlTitlesData(
+                              leftTitles: AxisTitles(
+                                sideTitles: SideTitles(
+                                  showTitles: true,
+                                  reservedSize: 30,
+                                  getTitlesWidget: (value, meta) {
+                                    return Text(
+                                      value.toInt().toString(),
+                                      style: const TextStyle(
+                                        color: Colors.grey,
+                                        fontSize: 8,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
+                              topTitles: const AxisTitles(
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
+                              rightTitles: const AxisTitles(
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
+                              bottomTitles: AxisTitles(
+                                sideTitles: SideTitles(
+                                  showTitles: true,
+                                  reservedSize: 20,
+                                  interval: (points.length / 4)
+                                      .clamp(1, points.length)
+                                      .toDouble(),
+                                  getTitlesWidget: (value, meta) {
+                                    final idx = value.toInt();
+                                    if (idx < 0 ||
+                                        idx >= measurementHistory.length) {
+                                      return const SizedBox.shrink();
+                                    }
+                                    final date = DateTime.parse(
+                                      measurementHistory[idx]['recorded_at'],
+                                    );
+                                    return Padding(
+                                      padding: const EdgeInsets.only(top: 4),
+                                      child: Text(
+                                        DateFormat('MMM d').format(date),
                                         style: const TextStyle(
                                           color: Colors.grey,
                                           fontSize: 8,
                                         ),
-                                      );
-                                    },
-                                  ),
+                                      ),
+                                    );
+                                  },
                                 ),
-                                topTitles: const AxisTitles(
-                                  sideTitles: SideTitles(showTitles: false),
-                                ),
-                                rightTitles: const AxisTitles(
-                                  sideTitles: SideTitles(showTitles: false),
-                                ),
-                                bottomTitles: AxisTitles(
-                                  sideTitles: SideTitles(
-                                    showTitles: true,
-                                    reservedSize: 20,
-                                    interval:
-                                        (points.length / 4)
-                                            .clamp(1, points.length)
-                                            .toDouble(),
-                                    getTitlesWidget: (value, meta) {
-                                      final idx = value.toInt();
-                                      if (idx < 0 ||
-                                          idx >= measurementHistory.length) {
-                                        return const SizedBox.shrink();
-                                      }
-                                      final date = DateTime.parse(
-                                        measurementHistory[idx]['recorded_at'],
-                                      );
-                                      return Padding(
-                                        padding: const EdgeInsets.only(top: 4),
-                                        child: Text(
-                                          DateFormat('MMM d').format(date),
-                                          style: const TextStyle(
-                                            color: Colors.grey,
-                                            fontSize: 8,
-                                          ),
-                                        ),
-                                      );
-                                    },
+                              ),
+                            ),
+                            borderData: FlBorderData(show: false),
+                            lineBarsData: [
+                              LineChartBarData(
+                                spots: points,
+                                isCurved: true,
+                                color: AppColors.gold,
+                                barWidth: 2,
+                                dotData: const FlDotData(show: true),
+                                belowBarData: BarAreaData(
+                                  show: true,
+                                  gradient: LinearGradient(
+                                    colors: [
+                                      AppColors.gold.withOpacity(0.2),
+                                      Colors.transparent,
+                                    ],
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
                                   ),
                                 ),
                               ),
-                              borderData: FlBorderData(show: false),
-                              lineBarsData: [
-                                LineChartBarData(
-                                  spots: points,
-                                  isCurved: true,
-                                  color: AppColors.gold,
-                                  barWidth: 2,
-                                  dotData: const FlDotData(show: true),
-                                  belowBarData: BarAreaData(
-                                    show: true,
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        AppColors.gold.withOpacity(0.2),
-                                        Colors.transparent,
-                                      ],
-                                      begin: Alignment.topCenter,
-                                      end: Alignment.bottomCenter,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                              minY: 0,
+                            ],
+                            minY: 0,
+                          ),
+                        ),
+                      ),
+                const SizedBox(height: 8),
+                Container(
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: AppColors.background,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: measurementHistory.length,
+                    itemBuilder: (context, index) {
+                      final log = measurementHistory[index];
+                      final date = DateTime.parse(log['recorded_at']);
+                      final value = log[selectedMetric];
+                      return Container(
+                        width: 80,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border(
+                            right: BorderSide(
+                              color: Colors.white.withOpacity(0.05),
                             ),
                           ),
                         ),
-                    const SizedBox(height: 8),
-                    Container(
-                      height: 80,
-                      decoration: BoxDecoration(
-                        color: AppColors.background,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: ListView.builder(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: measurementHistory.length,
-                        itemBuilder: (context, index) {
-                          final log = measurementHistory[index];
-                          final date = DateTime.parse(log['recorded_at']);
-                          final value = log[selectedMetric];
-                          return Container(
-                            width: 80,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              border: Border(
-                                right: BorderSide(
-                                  color: Colors.white.withOpacity(0.05),
-                                ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              value != null ? value.toString() : '--',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  value != null ? value.toString() : '--',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                Text(
-                                  DateFormat('dd/MM').format(date),
-                                  style: const TextStyle(
-                                    color: Colors.grey,
-                                    fontSize: 8,
-                                  ),
-                                ),
-                              ],
+                            Text(
+                              DateFormat('dd/MM').format(date),
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 8,
+                              ),
                             ),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ),
-              );
-            },
-          ),
+              ],
+            ),
+          );
+        },
+      ),
     );
   }
 
@@ -548,10 +535,9 @@ class _MemberProfileCoachViewScreenState
 
     final membershipStatus =
         isMembershipActive ? '$daysLeft days left' : 'Expired';
-    final membershipColor =
-        isMembershipActive
-            ? (daysLeft <= 7 ? Colors.orange : Colors.green)
-            : Colors.red;
+    final membershipColor = isMembershipActive
+        ? (daysLeft <= 7 ? Colors.orange : Colors.green)
+        : Colors.red;
 
     final phone = m['phone'] ?? 'Not provided';
 
@@ -577,189 +563,290 @@ class _MemberProfileCoachViewScreenState
           ),
         ],
       ),
-      body:
-          isLoading
-              ? const Center(
-                child: CircularProgressIndicator(color: AppColors.gold),
-              )
-              : SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Center(
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 80,
-                            height: 80,
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                colors: [
-                                  AppColors.gold,
-                                  AppColors.gold.withOpacity(0.6),
-                                ],
-                              ),
-                              shape: BoxShape.circle,
-                            ),
-                            child: Center(
-                              child: Text(
-                                initial,
-                                style: const TextStyle(
-                                  color: Colors.black,
-                                  fontSize: 30,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                name,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              if (isMembershipActive) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.gold.withOpacity(0.2),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: AppColors.gold.withOpacity(0.3),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Text(
-                                        '🔥',
-                                        style: TextStyle(fontSize: 12),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        '$currentStreak d',
-                                        style: const TextStyle(
-                                          color: AppColors.gold,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
+      body: isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: AppColors.gold),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                AppColors.gold,
+                                AppColors.gold.withOpacity(0.6),
                               ],
-                            ],
-                          ),
-                          Text(
-                            m['email'] ?? '',
-                            style: const TextStyle(
-                              color: Colors.grey,
-                              fontSize: 13,
                             ),
+                            shape: BoxShape.circle,
                           ),
-                          Text(
-                            '📱 $phone',
-                            style: const TextStyle(
-                              color: Colors.grey,
-                              fontSize: 12,
-                            ),
-                          ),
-                          if (currentWeight != null)
-                            Text(
-                              '⚖️ Current Weight: ${currentWeight!.toStringAsFixed(1)} kg',
+                          child: Center(
+                            child: Text(
+                              initial,
                               style: const TextStyle(
-                                color: AppColors.gold,
-                                fontSize: 13,
+                                color: Colors.black,
+                                fontSize: 30,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              name,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 20,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
-                          const SizedBox(height: 4),
+                            if (isMembershipActive) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppColors.gold.withOpacity(0.2),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: AppColors.gold.withOpacity(0.3),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text(
+                                      '🔥',
+                                      style: TextStyle(fontSize: 12),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '$currentStreak d',
+                                      style: const TextStyle(
+                                        color: AppColors.gold,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                        Text(
+                          m['email'] ?? '',
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          '📱 $phone',
+                          style: const TextStyle(
+                            color: Colors.grey,
+                            fontSize: 12,
+                          ),
+                        ),
+                        if (currentWeight != null)
+                          Text(
+                            '⚖️ Current Weight: ${currentWeight!.toStringAsFixed(1)} kg',
+                            style: const TextStyle(
+                              color: AppColors.gold,
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: membershipColor.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: membershipColor.withOpacity(0.3),
+                            ),
+                          ),
+                          child: Text(
+                            'Membership: $membershipStatus',
+                            style: TextStyle(
+                              color: membershipColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        if (isDietUpdateRequired)
                           Container(
+                            margin: const EdgeInsets.only(top: 4),
                             padding: const EdgeInsets.symmetric(
                               horizontal: 12,
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: membershipColor.withOpacity(0.15),
+                              color: Colors.red.withOpacity(0.15),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: membershipColor.withOpacity(0.3),
+                                color: Colors.red.withOpacity(0.3),
                               ),
                             ),
                             child: Text(
-                              'Membership: $membershipStatus',
-                              style: TextStyle(
-                                color: membershipColor,
-                                fontSize: 12,
+                              '⚠️ Diet Update Required ($dietDaysSinceUpdate days ago)',
+                              style: const TextStyle(
+                                color: Colors.red,
+                                fontSize: 10,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
                           ),
-                          if (isDietUpdateRequired)
-                            Container(
-                              margin: const EdgeInsets.only(top: 4),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.red.withOpacity(0.15),
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(
-                                  color: Colors.red.withOpacity(0.3),
-                                ),
-                              ),
-                              child: Text(
-                                '⚠️ Diet Update Required ($dietDaysSinceUpdate days ago)',
-                                style: const TextStyle(
-                                  color: Colors.red,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                        if (!canEdit)
+                          Container(
+                            margin: const EdgeInsets.only(top: 4),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 3,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.grey.shade800,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Text(
+                              'VIEW ONLY',
+                              style: TextStyle(
+                                color: Colors.grey,
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 1,
                               ),
                             ),
-                          if (!canEdit)
-                            Container(
-                              margin: const EdgeInsets.only(top: 4),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade800,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: const Text(
-                                'VIEW ONLY',
-                                style: TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 1,
-                                ),
-                              ),
-                            ),
-                        ],
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardDark,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: AppColors.gold.withOpacity(0.15),
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => StepCounterScreen(
+                                    liveTodaySteps: todaySteps,
+                                    initialGoal: stepGoal,
+                                    signupDate: DateTime.now(),
+                                  ),
+                                ),
+                              );
+                            },
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.directions_walk,
+                                  color: AppColors.gold,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        'Steps',
+                                        style: TextStyle(
+                                          color: Colors.grey.shade500,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            '$todaySteps',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            '/ $stepGoal',
+                                            style: TextStyle(
+                                              color: Colors.grey,
+                                              fontSize: 11,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
 
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
+                  Row(
+                    children: [
+                      _StatBox(label: 'HEIGHT', value: height),
+                      const SizedBox(width: 10),
+                      _StatBox(
+                        label: 'WEIGHT',
+                        value: currentWeight != null
+                            ? '${currentWeight!.toStringAsFixed(1)} kg'
+                            : '-- kg',
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  _StatBox(
+                    label: 'GOAL',
+                    value: m['goal'] ?? 'Not set',
+                    fullWidth: true,
+                  ),
+
+                  const SizedBox(height: 16),
+
+                  GestureDetector(
+                    onTap: _showMeasurementHistory,
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: AppColors.cardDark,
                         borderRadius: BorderRadius.circular(10),
@@ -767,142 +854,38 @@ class _MemberProfileCoachViewScreenState
                           color: AppColors.gold.withOpacity(0.15),
                         ),
                       ),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder:
-                                        (_) => StepCounterScreen(
-                                          liveTodaySteps: todaySteps,
-                                          initialGoal: stepGoal,
-                                          signupDate: DateTime.now(),
-                                        ),
-                                  ),
-                                );
-                              },
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.directions_walk,
-                                    color: AppColors.gold,
-                                    size: 18,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Text(
-                                          'Steps',
-                                          style: TextStyle(
-                                            color: Colors.grey.shade500,
-                                            fontSize: 9,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                        Row(
-                                          children: [
-                                            Text(
-                                              '$todaySteps',
-                                              style: TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 14,
-                                                fontWeight: FontWeight.bold,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            Text(
-                                              '/ $stepGoal',
-                                              style: TextStyle(
-                                                color: Colors.grey,
-                                                fontSize: 11,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
+                          Row(
+                            children: [
+                              const Text(
+                                '📏 BODY MEASUREMENTS (inches)',
+                                style: TextStyle(
+                                  color: AppColors.gold,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.5,
+                                ),
                               ),
-                            ),
+                              const Spacer(),
+                              const Icon(
+                                Icons.chevron_right,
+                                color: Colors.grey,
+                                size: 18,
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    Row(
-                      children: [
-                        _StatBox(label: 'HEIGHT', value: height),
-                        const SizedBox(width: 10),
-                        _StatBox(
-                          label: 'WEIGHT',
-                          value:
-                              currentWeight != null
-                                  ? '${currentWeight!.toStringAsFixed(1)} kg'
-                                  : '-- kg',
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    _StatBox(
-                      label: 'GOAL',
-                      value: m['goal'] ?? 'Not set',
-                      fullWidth: true,
-                    ),
-
-                    const SizedBox(height: 16),
-
-                    GestureDetector(
-                      onTap: _showMeasurementHistory,
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: AppColors.cardDark,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: AppColors.gold.withOpacity(0.15),
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Text(
-                                  '📏 BODY MEASUREMENTS (inches)',
-                                  style: TextStyle(
-                                    color: AppColors.gold,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                                const Spacer(),
-                                const Icon(
-                                  Icons.chevron_right,
-                                  color: Colors.grey,
-                                  size: 18,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 8),
-                            measurements == null
-                                ? const Text(
+                          const SizedBox(height: 8),
+                          measurements == null
+                              ? const Text(
                                   'No measurements recorded yet.',
                                   style: TextStyle(
                                     color: Colors.grey,
                                     fontSize: 12,
                                   ),
                                 )
-                                : Wrap(
+                              : Wrap(
                                   spacing: 8,
                                   runSpacing: 6,
                                   children: [
@@ -931,336 +914,328 @@ class _MemberProfileCoachViewScreenState
                                     ),
                                   ],
                                 ),
-                          ],
-                        ),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 16),
+                  ),
+                  const SizedBox(height: 16),
 
-                    GestureDetector(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder:
-                                (_) => WorkoutProgressScreen(
-                                  memberId: widget.member['id']?.toString(),
-                                ),
-                          ),
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.cardDark,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: AppColors.gold.withOpacity(0.2),
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => WorkoutProgressScreen(
+                            memberId: widget.member['id']?.toString(),
                           ),
                         ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.fitness_center,
-                              color: AppColors.gold,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'VIEW WORKOUT PROGRESS',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardDark,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: AppColors.gold.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.fitness_center,
+                            color: AppColors.gold,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'VIEW WORKOUT PROGRESS',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
                               ),
                             ),
-                            const Icon(Icons.chevron_right, color: Colors.grey),
-                          ],
-                        ),
+                          ),
+                          const Icon(Icons.chevron_right, color: Colors.grey),
+                        ],
                       ),
                     ),
-                    const SizedBox(height: 10),
+                  ),
+                  const SizedBox(height: 10),
 
-                    // ✅ Progress Photos Button - Fixed with memberId and readOnly
-                    GestureDetector(
-                      onTap: () {
-                        final memberId = widget.member['id']?.toString();
-                        if (memberId == null) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Member ID not found'),
+                  // ✅ Progress Photos Button - Fixed with memberId and readOnly
+                  GestureDetector(
+                    onTap: () {
+                      final memberId = widget.member['id']?.toString();
+                      if (memberId == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Member ID not found'),
+                          ),
+                        );
+                        return;
+                      }
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => MemberProgressScreen(
+                            memberId: memberId,
+                            readOnly: true,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardDark,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: Colors.purple.withOpacity(0.2),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.camera_alt,
+                            color: Colors.purple.shade300,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'VIEW PROGRESS PHOTOS',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right, color: Colors.grey),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  if (widget.canEditWorkout)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(
+                          Icons.fitness_center,
+                          color: Colors.black,
+                          size: 18,
+                        ),
+                        label: const Text('MANAGE WORKOUT PLAN'),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => WorkoutBuilderScreen(member: m),
                             ),
                           );
-                          return;
-                        }
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder:
-                                (_) => MemberProgressScreen(
-                                  memberId: memberId,
-                                  readOnly: true,
-                                ),
-                          ),
-                        );
-                      },
-                      child: Container(
+                        },
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    )
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: Icon(
+                          Icons.visibility,
+                          color: AppColors.gold,
+                          size: 18,
+                        ),
+                        label: Text(
+                          'VIEW WORKOUT PLAN',
+                          style: TextStyle(color: AppColors.gold),
+                        ),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  CoachWorkoutPreviewScreen(member: m),
+                            ),
+                          );
+                        },
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          side: BorderSide(color: AppColors.gold),
+                        ),
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+
+                  if (widget.canEditDiet)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(
+                          Icons.restaurant,
+                          color: Colors.black,
+                          size: 18,
+                        ),
+                        label: const Text('MANAGE DIET PLAN'),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => DietBuilderScreen(member: m),
+                            ),
+                          );
+                        },
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    )
+                  else
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: Icon(
+                          Icons.visibility,
+                          color: AppColors.gold,
+                          size: 18,
+                        ),
+                        label: Text(
+                          'VIEW DIET PLAN',
+                          style: TextStyle(color: AppColors.gold),
+                        ),
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => CoachDietPreviewScreen(member: m),
+                            ),
+                          );
+                        },
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          side: BorderSide(color: AppColors.gold),
+                        ),
+                      ),
+                    ),
+
+                  const SizedBox(height: 10),
+
+                  if (payments.isNotEmpty) ...[
+                    const Divider(color: Colors.white12),
+                    const SizedBox(height: 10),
+                    Text(
+                      '💳 RECENT PAYMENTS',
+                      style: TextStyle(
+                        color: AppColors.gold,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    ...payments.map((p) {
+                      final amount = (p['amount'] as num?)?.toDouble() ?? 0;
+                      final status = p['status'] ?? 'pending';
+                      final isCompleted = status == 'completed';
+                      final date = p['payment_date'] != null
+                          ? DateTime.parse(p['payment_date'])
+                          : DateTime.now();
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 4),
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
+                          horizontal: 10,
+                          vertical: 6,
                         ),
                         decoration: BoxDecoration(
                           color: AppColors.cardDark,
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(6),
                           border: Border.all(
-                            color: Colors.purple.withOpacity(0.2),
+                            color: isCompleted
+                                ? Colors.green.withOpacity(0.2)
+                                : Colors.orange.withOpacity(0.2),
                           ),
                         ),
                         child: Row(
                           children: [
                             Icon(
-                              Icons.camera_alt,
-                              color: Colors.purple.shade300,
-                              size: 20,
+                              isCompleted ? Icons.check_circle : Icons.pending,
+                              color: isCompleted ? Colors.green : Colors.orange,
+                              size: 14,
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 8),
                             Expanded(
                               child: Text(
-                                'VIEW PROGRESS PHOTOS',
+                                '₹${amount.toStringAsFixed(0)} - ${p['plan_key'] ?? 'N/A'}',
                                 style: const TextStyle(
                                   color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
+                                  fontSize: 11,
                                 ),
                               ),
                             ),
-                            const Icon(Icons.chevron_right, color: Colors.grey),
+                            Text(
+                              '${date.day}/${date.month}/${date.year}',
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 9,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ],
+
+                  if (!widget.canEditWorkout && !widget.canEditDiet)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: Colors.grey.withOpacity(0.1),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              color: Colors.grey.shade500,
+                              size: 14,
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'View-only mode. Contact admin for edit permissions.',
+                                style: TextStyle(
+                                  color: Colors.grey.shade500,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
                           ],
                         ),
                       ),
                     ),
-                    const SizedBox(height: 10),
-
-                    if (widget.canEditWorkout)
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          icon: const Icon(
-                            Icons.fitness_center,
-                            color: Colors.black,
-                            size: 18,
-                          ),
-                          label: const Text('MANAGE WORKOUT PLAN'),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => WorkoutBuilderScreen(member: m),
-                              ),
-                            );
-                          },
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                          ),
-                        ),
-                      )
-                    else
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          icon: Icon(
-                            Icons.visibility,
-                            color: AppColors.gold,
-                            size: 18,
-                          ),
-                          label: Text(
-                            'VIEW WORKOUT PLAN',
-                            style: TextStyle(color: AppColors.gold),
-                          ),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder:
-                                    (_) => CoachWorkoutPreviewScreen(member: m),
-                              ),
-                            );
-                          },
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            side: BorderSide(color: AppColors.gold),
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 8),
-
-                    if (widget.canEditDiet)
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          icon: const Icon(
-                            Icons.restaurant,
-                            color: Colors.black,
-                            size: 18,
-                          ),
-                          label: const Text('MANAGE DIET PLAN'),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => DietBuilderScreen(member: m),
-                              ),
-                            );
-                          },
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                          ),
-                        ),
-                      )
-                    else
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          icon: Icon(
-                            Icons.visibility,
-                            color: AppColors.gold,
-                            size: 18,
-                          ),
-                          label: Text(
-                            'VIEW DIET PLAN',
-                            style: TextStyle(color: AppColors.gold),
-                          ),
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder:
-                                    (_) => CoachDietPreviewScreen(member: m),
-                              ),
-                            );
-                          },
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            side: BorderSide(color: AppColors.gold),
-                          ),
-                        ),
-                      ),
-
-                    const SizedBox(height: 10),
-
-                    if (payments.isNotEmpty) ...[
-                      const Divider(color: Colors.white12),
-                      const SizedBox(height: 10),
-                      Text(
-                        '💳 RECENT PAYMENTS',
-                        style: TextStyle(
-                          color: AppColors.gold,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      ...payments.map((p) {
-                        final amount = (p['amount'] as num?)?.toDouble() ?? 0;
-                        final status = p['status'] ?? 'pending';
-                        final isCompleted = status == 'completed';
-                        final date =
-                            p['payment_date'] != null
-                                ? DateTime.parse(p['payment_date'])
-                                : DateTime.now();
-
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 4),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppColors.cardDark,
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color:
-                                  isCompleted
-                                      ? Colors.green.withOpacity(0.2)
-                                      : Colors.orange.withOpacity(0.2),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                isCompleted
-                                    ? Icons.check_circle
-                                    : Icons.pending,
-                                color:
-                                    isCompleted ? Colors.green : Colors.orange,
-                                size: 14,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  '₹${amount.toStringAsFixed(0)} - ${p['plan_key'] ?? 'N/A'}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ),
-                              Text(
-                                '${date.day}/${date.month}/${date.year}',
-                                style: const TextStyle(
-                                  color: Colors.grey,
-                                  fontSize: 9,
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ],
-
-                    if (!widget.canEditWorkout && !widget.canEditDiet)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.withOpacity(0.05),
-                            borderRadius: BorderRadius.circular(6),
-                            border: Border.all(
-                              color: Colors.grey.withOpacity(0.1),
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.info_outline,
-                                color: Colors.grey.shade500,
-                                size: 14,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  'View-only mode. Contact admin for edit permissions.',
-                                  style: TextStyle(
-                                    color: Colors.grey.shade500,
-                                    fontSize: 11,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 20),
-                  ],
-                ),
+                  const SizedBox(height: 20),
+                ],
               ),
+            ),
     );
   }
 }

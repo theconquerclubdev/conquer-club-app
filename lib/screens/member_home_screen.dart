@@ -104,11 +104,10 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     tabController = TabController(length: 2, vsync: this, initialIndex: 0);
-    todayName =
-        days[(DateTime.now().toUtc().add(
+    todayName = days[(DateTime.now().toUtc().add(
               const Duration(hours: 5, minutes: 30),
             )).weekday -
-            1];
+        1];
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         loadProfile();
@@ -210,8 +209,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       const permissions = [HealthDataAccess.READ];
       final hasPermission =
           await health.hasPermissions(types, permissions: permissions) ?? false;
-      final granted =
-          hasPermission ||
+      final granted = hasPermission ||
           await health.requestAuthorization(types, permissions: permissions);
       if (!granted) {
         print('⚠️ Health permission denied');
@@ -272,22 +270,20 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   Future<void> _initRawSensorTracker() async {
-    final status =
-        PlatformHelper.isIOS
-            ? await Permission.sensors.request()
-            : await Permission.activityRecognition.request();
+    final status = PlatformHelper.isIOS
+        ? await Permission.sensors.request()
+        : await Permission.activityRecognition.request();
     if (!status.isGranted) {
       if (mounted) {
         setState(() {
           stepPermissionDenied = true;
           stepPermanentlyDenied = status.isPermanentlyDenied;
           stepIssueCanOpenSettings = true;
-          stepIssueMessage =
-              status.isPermanentlyDenied
-                  ? (PlatformHelper.isIOS
-                      ? 'Motion & Fitness access is off. Turn it on in Settings > Privacy > Motion & Fitness to see your steps.'
-                      : 'Physical activity permission is off. Turn it on in Settings > Apps > Conquer Club > Permissions to see your steps.')
-                  : 'Step tracking needs motion/activity permission. Tap below to allow it.';
+          stepIssueMessage = status.isPermanentlyDenied
+              ? (PlatformHelper.isIOS
+                  ? 'Motion & Fitness access is off. Turn it on in Settings > Privacy > Motion & Fitness to see your steps.'
+                  : 'Physical activity permission is off. Turn it on in Settings > Apps > Conquer Club > Permissions to see your steps.')
+              : 'Step tracking needs motion/activity permission. Tap below to allow it.';
         });
       }
       return;
@@ -314,22 +310,20 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         }
       },
       onError: (_) async {
-        final status =
-            PlatformHelper.isIOS
-                ? await Permission.sensors.status
-                : await Permission.activityRecognition.status;
+        final status = PlatformHelper.isIOS
+            ? await Permission.sensors.status
+            : await Permission.activityRecognition.status;
         if (!status.isGranted) {
           if (mounted) {
             setState(() {
               stepPermissionDenied = true;
               stepPermanentlyDenied = status.isPermanentlyDenied;
               stepIssueCanOpenSettings = true;
-              stepIssueMessage =
-                  status.isPermanentlyDenied
-                      ? (PlatformHelper.isIOS
-                          ? 'Motion & Fitness access is off. Turn it on in Settings > Privacy > Motion & Fitness to see your steps.'
-                          : 'Physical activity permission is off. Turn it on in Settings > Apps > Conquer Club > Permissions to see your steps.')
-                      : 'Step tracking needs motion/activity permission. Tap below to allow it.';
+              stepIssueMessage = status.isPermanentlyDenied
+                  ? (PlatformHelper.isIOS
+                      ? 'Motion & Fitness access is off. Turn it on in Settings > Privacy > Motion & Fitness to see your steps.'
+                      : 'Physical activity permission is off. Turn it on in Settings > Apps > Conquer Club > Permissions to see your steps.')
+                  : 'Step tracking needs motion/activity permission. Tap below to allow it.';
             });
           }
           return;
@@ -349,8 +343,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
   String _todayKey() {
     final now = DateTime.now().toUtc().add(
-      const Duration(hours: 5, minutes: 30),
-    );
+          const Duration(hours: 5, minutes: 30),
+        );
     return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
   }
 
@@ -370,8 +364,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     // writing a false "0 steps" day when we simply can't read real data.
     // Silent check only (no prompt) — the existing step card already handles
     // asking the member to grant/open settings.
-    final hasStepPermission =
-        await Health().hasPermissions(
+    final hasStepPermission = await Health().hasPermissions(
           const [HealthDataType.STEPS],
           permissions: const [HealthDataAccess.READ],
         ) ??
@@ -381,8 +374,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     final prefs = await SharedPreferences.getInstance();
     final lastSynced = prefs.getString('last_step_sync_date');
     final nowIst = DateTime.now().toUtc().add(
-      const Duration(hours: 5, minutes: 30),
-    );
+          const Duration(hours: 5, minutes: 30),
+        );
     final todayIst = DateTime.utc(nowIst.year, nowIst.month, nowIst.day);
 
     if (lastSynced == null) {
@@ -402,11 +395,9 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     if (!cursor.isBefore(todayIst)) return;
 
     final missingDates = <DateTime>[];
-    for (
-      var d = cursor;
-      d.isBefore(todayIst);
-      d = d.add(const Duration(days: 1))
-    ) {
+    for (var d = cursor;
+        d.isBefore(todayIst);
+        d = d.add(const Duration(days: 1))) {
       missingDates.add(d);
     }
 
@@ -431,7 +422,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         try {
           steps =
               await Health().getTotalStepsInInterval(dayStartUtc, dayEndUtc) ??
-              0;
+                  0;
         } catch (_) {
           return; // Health/network failure — retry remaining dates next open.
         }
@@ -492,6 +483,16 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     final pendingSteps = prefs.getInt('pending_step_log_value');
     final todayKey = _todayKey();
 
+    // ✅ Read the shared throttle clock so a widget rebuild (or a different
+    // screen like StepCounterScreen also writing steps) can't reset/bypass
+    // the 4-hour write limit — one clock, shared via SharedPreferences.
+    if (_lastStepSaveTime == null) {
+      final storedTime = prefs.getString('last_step_save_time');
+      if (storedTime != null) {
+        _lastStepSaveTime = DateTime.tryParse(storedTime);
+      }
+    }
+
     // ✅ Try to flush pending first if it exists
     if (pendingDate != null && pendingSteps != null) {
       final ok = await _upsertStepLog(userId, pendingDate, pendingSteps);
@@ -523,16 +524,16 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       if (success) {
         _lastSavedSteps = todaySteps;
         _lastStepSaveTime = now;
+        await prefs.setString('last_step_save_time', now.toIso8601String());
       }
       return;
     }
 
     // ✅ Save to Supabase only once every 6 hours. UI stays live regardless —
     // this only gates how often we write to the database.
-    final timeSinceLastSave =
-        _lastStepSaveTime == null
-            ? Duration.zero
-            : now.difference(_lastStepSaveTime!);
+    final timeSinceLastSave = _lastStepSaveTime == null
+        ? Duration.zero
+        : now.difference(_lastStepSaveTime!);
     if (timeSinceLastSave < _stepSaveThrottle) {
       return; // Skip write - 6 hours haven't passed yet
     }
@@ -604,12 +605,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       // ✅ If fullName is still "Unknown", try direct Supabase query
       if (fullName == 'Unknown' || fullName.isEmpty) {
         try {
-          final directProfile =
-              await Supabase.instance.client
-                  .from('profiles')
-                  .select('full_name')
-                  .eq('id', userId)
-                  .maybeSingle();
+          final directProfile = await Supabase.instance.client
+              .from('profiles')
+              .select('full_name')
+              .eq('id', userId)
+              .maybeSingle();
           if (directProfile != null && directProfile['full_name'] != null) {
             fullName = directProfile['full_name'] as String;
           }
@@ -647,12 +647,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       // ✅ Coach info
       final coachId = profile?['assigned_coach_id'];
       if (coachId != null) {
-        final coachData =
-            await Supabase.instance.client
-                .from('profiles')
-                .select('full_name, email')
-                .eq('id', coachId)
-                .maybeSingle();
+        final coachData = await Supabase.instance.client
+            .from('profiles')
+            .select('full_name, email')
+            .eq('id', coachId)
+            .maybeSingle();
         if (mounted) {
           setState(() {
             coach = coachData;
@@ -663,11 +662,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       // ✅ Profile completion check
       profileComplete =
           (profile?['full_name'] as String?)?.isNotEmpty == true &&
-          profile?['weight_kg'] != null &&
-          profile?['height_cm'] != null &&
-          (profile?['goal'] as String?)?.isNotEmpty == true &&
-          profile?['date_of_birth'] != null &&
-          (profile?['gender'] as String?)?.isNotEmpty == true;
+              profile?['weight_kg'] != null &&
+              profile?['height_cm'] != null &&
+              (profile?['goal'] as String?)?.isNotEmpty == true &&
+              profile?['date_of_birth'] != null &&
+              (profile?['gender'] as String?)?.isNotEmpty == true;
 
       if (mounted) {
         setState(() {
@@ -784,8 +783,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final dietDate = DateTime.tryParse(dietUpdatedAt);
       if (mounted && dietDate != null) {
         final dietDateIst = dietDate.toUtc().add(
-          const Duration(hours: 5, minutes: 30),
-        );
+              const Duration(hours: 5, minutes: 30),
+            );
         setState(() {
           _dietStatusText = DateFormat('dd/MM/yy h:mm a').format(dietDateIst);
         });
@@ -815,8 +814,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final workoutDate = DateTime.tryParse(workoutUpdatedAt);
       if (mounted && workoutDate != null) {
         final workoutDateIst = workoutDate.toUtc().add(
-          const Duration(hours: 5, minutes: 30),
-        );
+              const Duration(hours: 5, minutes: 30),
+            );
         setState(() {
           _workoutStatusText = DateFormat(
             'dd/MM/yy h:mm a',
@@ -829,119 +828,117 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   void _showCompleteProfilePrompt() {
     showDialog(
       context: context,
-      builder:
-          (_) => AlertDialog(
-            backgroundColor: AppColors.cardDark,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.rocket_launch, color: AppColors.gold),
+            SizedBox(width: 10),
+            Flexible(
+              child: Text(
+                'Complete Your Profile',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(color: Colors.white, fontSize: 17),
+              ),
             ),
-            title: const Row(
-              children: [
-                Icon(Icons.rocket_launch, color: AppColors.gold),
-                SizedBox(width: 10),
-                Flexible(
-                  child: Text(
-                    'Complete Your Profile',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: Colors.white, fontSize: 17),
-                  ),
-                ),
-              ],
-            ),
-            content: const Text(
-              'Add your weight, height, date of birth, gender and goal so your coach can build the right plan for you.',
+          ],
+        ),
+        content: const Text(
+          'Add your weight, height, date of birth, gender and goal so your coach can build the right plan for you.',
+          style: TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Later',
               style: TextStyle(color: Colors.grey),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text(
-                  'Later',
-                  style: TextStyle(color: Colors.grey),
-                ),
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  Navigator.pop(context);
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => const MemberProfileEditScreen(),
-                    ),
-                  );
-                  loadProfile();
-                },
-                child: const Text('Complete Now'),
-              ),
-            ],
           ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const MemberProfileEditScreen(),
+                ),
+              );
+              loadProfile();
+            },
+            child: const Text('Complete Now'),
+          ),
+        ],
+      ),
     );
   }
 
   void _showContactAdminDialog() {
     showDialog(
       context: context,
-      builder:
-          (_) => AlertDialog(
-            backgroundColor: AppColors.cardDark,
-            title: const Text(
-              'Contact Admin',
-              style: TextStyle(color: Colors.white),
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: const Text(
+          'Contact Admin',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Please contact your admin to renew your membership:',
+              style: TextStyle(color: Colors.grey),
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Please contact your admin to renew your membership:',
-                  style: TextStyle(color: Colors.grey),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.background,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.email, color: AppColors.gold),
-                      SizedBox(width: 12),
-                      Text(
-                        'admin@conquerclub.com',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.background,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.phone, color: AppColors.gold),
-                      SizedBox(width: 12),
-                      Text(
-                        '+91 98765 43210',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('Close'),
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(8),
               ),
-            ],
+              child: const Row(
+                children: [
+                  Icon(Icons.email, color: AppColors.gold),
+                  SizedBox(width: 12),
+                  Text(
+                    'admin@conquerclub.com',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.phone, color: AppColors.gold),
+                  SizedBox(width: 12),
+                  Text(
+                    '+91 98765 43210',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
           ),
+        ],
+      ),
     );
   }
 
@@ -982,12 +979,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     Navigator.push(
       context,
       MaterialPageRoute(
-        builder:
-            (_) => StepCounterScreen(
-              liveTodaySteps: todaySteps,
-              initialGoal: stepGoal,
-              signupDate: signupDate,
-            ),
+        builder: (_) => StepCounterScreen(
+          liveTodaySteps: todaySteps,
+          initialGoal: stepGoal,
+          signupDate: signupDate,
+        ),
       ),
     ).then((_) {
       final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -1075,23 +1071,21 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     final hasIssue = stepIssueMessage != null;
 
     return GestureDetector(
-      onTap:
-          hasIssue
-              ? (stepIssueCanOpenSettings ? _retryStepPermission : null)
-              : () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder:
-                        (_) => StepCounterScreen(
-                          liveTodaySteps: todaySteps,
-                          initialGoal: stepGoal,
-                          signupDate: signupDate,
-                        ),
+      onTap: hasIssue
+          ? (stepIssueCanOpenSettings ? _retryStepPermission : null)
+          : () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => StepCounterScreen(
+                    liveTodaySteps: todaySteps,
+                    initialGoal: stepGoal,
+                    signupDate: signupDate,
                   ),
-                );
-                loadProfile();
-              },
+                ),
+              );
+              loadProfile();
+            },
       child: Container(
         width: double.infinity,
         margin: const EdgeInsets.fromLTRB(16, 4, 16, 6),
@@ -1111,58 +1105,57 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
             ),
           ],
         ),
-        child:
-            hasIssue
-                ? _buildStepIssueCard() // Exact reason instead of a fake/manual step bar
-                : Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              Flexible(
-                                child: Text(
-                                  '$todaySteps / $stepGoal steps',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: isCompact ? 11 : 12,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                '${(progress * 100).round()}%',
+        child: hasIssue
+            ? _buildStepIssueCard() // Exact reason instead of a fake/manual step bar
+            : Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                '$todaySteps / $stepGoal steps',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
-                                  color: AppColors.gold,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: isCompact ? 10 : 11,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: isCompact ? 11 : 12,
                                 ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 3),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(3),
-                            child: LinearProgressIndicator(
-                              value: progress,
-                              minHeight: 4,
-                              backgroundColor: Colors.white.withOpacity(0.08),
-                              valueColor: const AlwaysStoppedAnimation<Color>(
-                                AppColors.gold,
                               ),
                             ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${(progress * 100).round()}%',
+                              style: TextStyle(
+                                color: AppColors.gold,
+                                fontWeight: FontWeight.bold,
+                                fontSize: isCompact ? 10 : 11,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(3),
+                          child: LinearProgressIndicator(
+                            value: progress,
+                            minHeight: 4,
+                            backgroundColor: Colors.white.withOpacity(0.08),
+                            valueColor: const AlwaysStoppedAnimation<Color>(
+                              AppColors.gold,
+                            ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
+              ),
       ),
     );
   }
@@ -1239,8 +1232,8 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   // ============================================================
   Widget _buildTodayTasksCard() {
     final now = DateTime.now().toUtc().add(
-      const Duration(hours: 5, minutes: 30),
-    );
+          const Duration(hours: 5, minutes: 30),
+        );
     final isSunday = now.weekday == DateTime.sunday;
     final isAfterCutoff = isSunday && now.hour >= 21;
 
@@ -1254,8 +1247,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       // SUNDAY TASKS - Only Photos + Measurements
       final photosDone =
           _photoStatus['front'] == true && _photoStatus['back'] == true;
-      final photoCount =
-          (_photoStatus['front'] == true ? 1 : 0) +
+      final photoCount = (_photoStatus['front'] == true ? 1 : 0) +
           (_photoStatus['back'] == true ? 1 : 0);
 
       tasks = [
@@ -1306,10 +1298,9 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         color: isSunday ? AppColors.gold.withOpacity(0.08) : AppColors.cardDark,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color:
-              isSunday
-                  ? AppColors.gold.withOpacity(0.25)
-                  : Colors.white.withOpacity(0.06),
+          color: isSunday
+              ? AppColors.gold.withOpacity(0.25)
+              : Colors.white.withOpacity(0.06),
           width: isSunday ? 1.2 : 1,
         ),
       ),
@@ -1339,10 +1330,9 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
-                  color:
-                      isSunday
-                          ? AppColors.gold.withOpacity(0.15)
-                          : Colors.white.withOpacity(0.05),
+                  color: isSunday
+                      ? AppColors.gold.withOpacity(0.15)
+                      : Colors.white.withOpacity(0.05),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -1361,115 +1351,107 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           const SizedBox(height: 4),
           // Task Rows - Compact
           Row(
-            children:
-                tasks.asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final task = entry.value;
-                  final isLast = index == tasks.length - 1;
-                  final completed = task['completed'] as bool;
-                  final actionable = task['actionable'] as bool;
-                  final progress = (task['progress'] as double).clamp(0.0, 1.0);
+            children: tasks.asMap().entries.map((entry) {
+              final index = entry.key;
+              final task = entry.value;
+              final isLast = index == tasks.length - 1;
+              final completed = task['completed'] as bool;
+              final actionable = task['actionable'] as bool;
+              final progress = (task['progress'] as double).clamp(0.0, 1.0);
 
-                  return Expanded(
-                    child: GestureDetector(
-                      onTap: actionable ? task['onTap'] as VoidCallback : null,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 3,
-                        ),
-                        margin: EdgeInsets.only(right: isLast ? 0 : 4),
-                        decoration: BoxDecoration(
-                          color:
-                              completed
-                                  ? Colors.green.withOpacity(0.08)
-                                  : (actionable
-                                      ? AppColors.gold.withOpacity(0.05)
-                                      : Colors.transparent),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(
-                            color:
-                                completed
-                                    ? Colors.green.withOpacity(0.2)
-                                    : (actionable
-                                        ? AppColors.gold.withOpacity(0.15)
-                                        : Colors.transparent),
-                            width: 0.5,
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Text(
-                                  task['icon'],
-                                  style: const TextStyle(fontSize: 12),
-                                ),
-                                const SizedBox(width: 2),
-                                Text(
-                                  task['label'],
-                                  style: TextStyle(
-                                    color:
-                                        completed
-                                            ? Colors.grey.shade500
-                                            : (actionable
-                                                ? Colors.white
-                                                : Colors.grey.shade500),
-                                    fontSize: 9,
-                                    fontWeight:
-                                        completed
-                                            ? FontWeight.normal
-                                            : FontWeight.w500,
-                                    decoration:
-                                        completed
-                                            ? TextDecoration.lineThrough
-                                            : null,
-                                  ),
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 1),
-                            // Progress bar or detail
-                            if (completed)
-                              Text('✅', style: TextStyle(fontSize: 8))
-                            else if (progress > 0 && progress < 1)
-                              SizedBox(
-                                width: 30,
-                                height: 3,
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(2),
-                                  child: LinearProgressIndicator(
-                                    value: progress,
-                                    backgroundColor: Colors.grey.shade700,
-                                    valueColor:
-                                        const AlwaysStoppedAnimation<Color>(
-                                          AppColors.gold,
-                                        ),
-                                    minHeight: 3,
-                                  ),
-                                ),
-                              )
-                            else
-                              Text(
-                                task['detail'] ?? '',
-                                style: TextStyle(
-                                  color:
-                                      actionable
-                                          ? AppColors.gold
-                                          : Colors.grey.shade600,
-                                  fontSize: 7,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                          ],
-                        ),
+              return Expanded(
+                child: GestureDetector(
+                  onTap: actionable ? task['onTap'] as VoidCallback : null,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 3,
+                    ),
+                    margin: EdgeInsets.only(right: isLast ? 0 : 4),
+                    decoration: BoxDecoration(
+                      color: completed
+                          ? Colors.green.withOpacity(0.08)
+                          : (actionable
+                              ? AppColors.gold.withOpacity(0.05)
+                              : Colors.transparent),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                        color: completed
+                            ? Colors.green.withOpacity(0.2)
+                            : (actionable
+                                ? AppColors.gold.withOpacity(0.15)
+                                : Colors.transparent),
+                        width: 0.5,
                       ),
                     ),
-                  );
-                }).toList(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              task['icon'],
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                            const SizedBox(width: 2),
+                            Text(
+                              task['label'],
+                              style: TextStyle(
+                                color: completed
+                                    ? Colors.grey.shade500
+                                    : (actionable
+                                        ? Colors.white
+                                        : Colors.grey.shade500),
+                                fontSize: 9,
+                                fontWeight: completed
+                                    ? FontWeight.normal
+                                    : FontWeight.w500,
+                                decoration: completed
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 1),
+                        // Progress bar or detail
+                        if (completed)
+                          Text('✅', style: TextStyle(fontSize: 8))
+                        else if (progress > 0 && progress < 1)
+                          SizedBox(
+                            width: 30,
+                            height: 3,
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(2),
+                              child: LinearProgressIndicator(
+                                value: progress,
+                                backgroundColor: Colors.grey.shade700,
+                                valueColor: const AlwaysStoppedAnimation<Color>(
+                                  AppColors.gold,
+                                ),
+                                minHeight: 3,
+                              ),
+                            ),
+                          )
+                        else
+                          Text(
+                            task['detail'] ?? '',
+                            style: TextStyle(
+                              color: actionable
+                                  ? AppColors.gold
+                                  : Colors.grey.shade600,
+                              fontSize: 7,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
           ),
           // Sunday warning
           if (isSunday && !isAfterCutoff && completedCount < totalCount)
@@ -1513,10 +1495,9 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     } else if (isMembershipActive) {
       membershipText = '$daysLeft d left';
       membershipColor = isMembershipExpiringSoon ? Colors.orange : Colors.green;
-      membershipIcon =
-          isMembershipExpiringSoon
-              ? Icons.warning_amber_rounded
-              : Icons.check_circle;
+      membershipIcon = isMembershipExpiringSoon
+          ? Icons.warning_amber_rounded
+          : Icons.check_circle;
     } else {
       membershipText = 'Expired';
       membershipColor = Colors.red;
@@ -1579,15 +1560,14 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
                     ),
                     child: Center(
                       child: ShaderMask(
-                        shaderCallback:
-                            (bounds) => LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [
-                                AppColors.gold,
-                                AppColors.gold.withOpacity(0.6),
-                              ],
-                            ).createShader(bounds),
+                        shaderCallback: (bounds) => LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            AppColors.gold,
+                            AppColors.gold.withOpacity(0.6),
+                          ],
+                        ).createShader(bounds),
                         child: Text(
                           firstName.isNotEmpty
                               ? firstName[0].toUpperCase()
@@ -1712,10 +1692,9 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
                     ),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color:
-                          currentStreak > 0
-                              ? AppColors.gold.withOpacity(0.4)
-                              : Colors.grey.withOpacity(0.2),
+                      color: currentStreak > 0
+                          ? AppColors.gold.withOpacity(0.4)
+                          : Colors.grey.withOpacity(0.2),
                     ),
                   ),
                   child: Row(
@@ -1741,10 +1720,9 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
                           Text(
                             isLoadingStreak ? '--' : '$currentStreak d',
                             style: TextStyle(
-                              color:
-                                  currentStreak > 0
-                                      ? AppColors.gold
-                                      : Colors.grey,
+                              color: currentStreak > 0
+                                  ? AppColors.gold
+                                  : Colors.grey,
                               fontSize: 9,
                               fontWeight: FontWeight.bold,
                             ),
@@ -1781,12 +1759,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
                     ),
                     borderRadius: BorderRadius.circular(14),
                     border: Border.all(
-                      color:
-                          isMembershipActive
-                              ? (isMembershipExpiringSoon
-                                  ? Colors.orange.withOpacity(0.3)
-                                  : Colors.green.withOpacity(0.2))
-                              : Colors.red.withOpacity(0.3),
+                      color: isMembershipActive
+                          ? (isMembershipExpiringSoon
+                              ? Colors.orange.withOpacity(0.3)
+                              : Colors.green.withOpacity(0.2))
+                          : Colors.red.withOpacity(0.3),
                     ),
                   ),
                   child: Row(
@@ -2108,81 +2085,80 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
     showDialog(
       context: context,
-      builder:
-          (context) => AlertDialog(
-            backgroundColor: const Color(0xFF1A1A1A),
-            title: Row(
-              children: [
-                const Icon(Icons.system_update_alt, color: Colors.orange),
-                const SizedBox(width: 10),
-                const Text(
-                  'Update Available!',
-                  style: TextStyle(color: Colors.white),
-                ),
-              ],
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: Row(
+          children: [
+            const Icon(Icons.system_update_alt, color: Colors.orange),
+            const SizedBox(width: 10),
+            const Text(
+              'Update Available!',
+              style: TextStyle(color: Colors.white),
             ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Current: v$_currentVersion',
-                  style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-                ),
-                Text(
-                  'Latest: v$version',
-                  style: TextStyle(color: Colors.orange, fontSize: 13),
-                ),
-                if (changelog.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  Text(
-                    changelog,
-                    style: TextStyle(color: Colors.grey, fontSize: 12),
-                  ),
-                ],
-              ],
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Current: v$_currentVersion',
+              style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text(
-                  'Close',
-                  style: TextStyle(color: Colors.grey),
-                ),
+            Text(
+              'Latest: v$version',
+              style: TextStyle(color: Colors.orange, fontSize: 13),
+            ),
+            if (changelog.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                changelog,
+                style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
-              if (isWeb)
-                ElevatedButton(
-                  onPressed: () {
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('🔄 Refresh browser to update!'),
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.green,
-                    foregroundColor: Colors.white,
-                  ),
-                  child: const Text('Refresh Now'),
-                ),
-              if (!isWeb && apkUrl.isNotEmpty)
-                ElevatedButton(
-                  onPressed: () async {
-                    Navigator.pop(context);
-                    final url = Uri.parse(apkUrl);
-                    if (await canLaunchUrl(url)) {
-                      await launchUrl(url);
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.orange,
-                    foregroundColor: Colors.black,
-                  ),
-                  child: const Text('Download APK'),
-                ),
             ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Close',
+              style: TextStyle(color: Colors.grey),
+            ),
           ),
+          if (isWeb)
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('🔄 Refresh browser to update!'),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Refresh Now'),
+            ),
+          if (!isWeb && apkUrl.isNotEmpty)
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(context);
+                final url = Uri.parse(apkUrl);
+                if (await canLaunchUrl(url)) {
+                  await launchUrl(url);
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange,
+                foregroundColor: Colors.black,
+              ),
+              child: const Text('Download APK'),
+            ),
+        ],
+      ),
     );
   }
 
@@ -2308,23 +2284,22 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
     final todayWorkout = map[widget.todayName];
     if (todayWorkout != null) {
       final istNow = DateTime.now().toUtc().add(
-        const Duration(hours: 5, minutes: 30),
-      );
+            const Duration(hours: 5, minutes: 30),
+          );
       final startOfDay = DateTime.utc(
         istNow.year,
         istNow.month,
         istNow.day,
       ).subtract(const Duration(hours: 5, minutes: 30));
-      final session =
-          await Supabase.instance.client
-              .from('workout_sessions')
-              .select()
-              .eq('workout_id', todayWorkout['id'])
-              .eq('member_id', widget.memberId)
-              .gte('started_at', startOfDay.toIso8601String())
-              .order('started_at', ascending: false)
-              .limit(1)
-              .maybeSingle();
+      final session = await Supabase.instance.client
+          .from('workout_sessions')
+          .select()
+          .eq('workout_id', todayWorkout['id'])
+          .eq('member_id', widget.memberId)
+          .gte('started_at', startOfDay.toIso8601String())
+          .order('started_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
 
       if (session != null) {
         todaySessionStatus[todayWorkout['id']] = session['status'];
@@ -2372,14 +2347,13 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
 
           // Determine if workout can be started (only for today and not completed)
           final now = DateTime.now().toUtc().add(
-            const Duration(hours: 5, minutes: 30),
-          );
+                const Duration(hours: 5, minutes: 30),
+              );
           final isSundayReset =
               now.weekday == DateTime.sunday && now.hour >= 21;
           // FIX: If there's an in-progress session, allow continuing (not view-only)
           // Also allow starting if not completed and membership is active
-          final bool canStart =
-              widget.isMembershipActive &&
+          final bool canStart = widget.isMembershipActive &&
               isToday &&
               workout != null &&
               !isCompleted &&
@@ -2388,10 +2362,9 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
           // If in progress, we should allow continuing the workout (not view-only)
           final bool canContinue = isToday && isInProgress && workout != null;
 
-          final accent =
-              isCompleted
-                  ? Colors.green
-                  : isToday
+          final accent = isCompleted
+              ? Colors.green
+              : isToday
                   ? AppColors.gold
                   : Colors.grey;
 
@@ -2427,10 +2400,9 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
               color: AppColors.cardDark,
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color:
-                    isToday
-                        ? AppColors.gold.withOpacity(0.6)
-                        : Colors.white.withOpacity(0.04),
+                color: isToday
+                    ? AppColors.gold.withOpacity(0.6)
+                    : Colors.white.withOpacity(0.04),
                 width: isToday ? 1.4 : 1,
               ),
               boxShadow: [
@@ -2485,14 +2457,13 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
                           isCompleted
                               ? Icons.check_circle
                               : isInProgress
-                              ? Icons.play_circle
-                              : isToday
-                              ? Icons.today
-                              : Icons.remove_red_eye,
-                          color:
-                              isCompleted
-                                  ? Colors.green
-                                  : isInProgress
+                                  ? Icons.play_circle
+                                  : isToday
+                                      ? Icons.today
+                                      : Icons.remove_red_eye,
+                          color: isCompleted
+                              ? Colors.green
+                              : isInProgress
                                   ? AppColors.gold
                                   : (isToday ? AppColors.gold : Colors.grey),
                           size: 18,
@@ -2515,42 +2486,37 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
                           fontSize: 12.5,
                         ),
                       ),
-                      trailing:
-                          trailingIcon != null
-                              ? trailingIcon
-                              : Text(
-                                trailingText,
-                                style: TextStyle(
-                                  color:
-                                      isCompleted
-                                          ? Colors.green
-                                          : isToday && isSundayReset
-                                          ? Colors.orange
-                                          : Colors.grey.shade600,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                      trailing: trailingIcon != null
+                          ? trailingIcon
+                          : Text(
+                              trailingText,
+                              style: TextStyle(
+                                color: isCompleted
+                                    ? Colors.green
+                                    : isToday && isSundayReset
+                                        ? Colors.orange
+                                        : Colors.grey.shade600,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
                               ),
-                      onTap:
-                          (workout != null)
-                              ? () {
-                                // FIX: If in progress, allow continuing with edit mode (not view-only)
-                                // If not in progress, use canStart to determine view-only
-                                final bool isViewOnly =
-                                    !canStart && !canContinue;
+                            ),
+                      onTap: (workout != null)
+                          ? () {
+                              // FIX: If in progress, allow continuing with edit mode (not view-only)
+                              // If not in progress, use canStart to determine view-only
+                              final bool isViewOnly = !canStart && !canContinue;
 
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder:
-                                        (_) => WorkoutDaySessionScreen(
-                                          workout: workout,
-                                          isViewOnly: isViewOnly,
-                                        ),
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => WorkoutDaySessionScreen(
+                                    workout: workout,
+                                    isViewOnly: isViewOnly,
                                   ),
-                                ).then((_) => load());
-                              }
-                              : null,
+                                ),
+                              ).then((_) => load());
+                            }
+                          : null,
                     ),
                   ),
                 ],
@@ -2787,9 +2753,8 @@ class _MyDietsListState extends State<_MyDietsList>
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder:
-                                (_) =>
-                                    MemberDietPreviewLoader(dietId: diet['id']),
+                            builder: (_) =>
+                                MemberDietPreviewLoader(dietId: diet['id']),
                           ),
                         );
                       },

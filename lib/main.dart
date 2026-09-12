@@ -356,9 +356,11 @@ class _AuthWrapperState extends State<AuthWrapper> {
         actions: [
           if (downloadUrl.isNotEmpty)
             ElevatedButton(
-              onPressed: () {
-                // Open download URL
-                // Use url_launcher to open the link
+              onPressed: () async {
+                final uri = Uri.tryParse(downloadUrl);
+                if (uri != null) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
               },
               child: const Text('UPDATE NOW'),
             ),

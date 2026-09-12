@@ -17,13 +17,41 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
     with SingleTickerProviderStateMixin {
   late TabController tabController;
 
-  final List<Widget> _tabs = const [
-    AdminDashboardTab(),
-    AdminMembersTab(),
-    AdminPaymentsTab(),
-    AdminCoachesTab(),
-    AdminSettingsTab(),
+  // ✅ Keys let the AppBar refresh button call the ACTUAL reload method
+  // of whichever tab is currently visible, instead of just calling
+  // setState(() {}) on the parent (which only re-renders already-cached
+  // data and doesn't touch the server at all).
+  final _dashboardKey = GlobalKey<_AdminDashboardTabState>();
+  final _membersKey = GlobalKey<_AdminMembersTabState>();
+  final _paymentsKey = GlobalKey<_AdminPaymentsTabState>();
+  final _coachesKey = GlobalKey<_AdminCoachesTabState>();
+
+  late final List<Widget> _tabs = [
+    AdminDashboardTab(key: _dashboardKey),
+    AdminMembersTab(key: _membersKey),
+    AdminPaymentsTab(key: _paymentsKey),
+    AdminCoachesTab(key: _coachesKey),
+    const AdminSettingsTab(),
   ];
+
+  void _refreshActiveTab() {
+    switch (tabController.index) {
+      case 0:
+        _dashboardKey.currentState?._loadStats();
+        break;
+      case 1:
+        _membersKey.currentState?._fetchMembers(reset: true);
+        break;
+      case 2:
+        _paymentsKey.currentState?._loadPending();
+        break;
+      case 3:
+        _coachesKey.currentState?._loadCoaches();
+        break;
+      default:
+        break; // Settings tab has no data to reload
+    }
+  }
 
   final List<String> _tabLabels = [
     'Dashboard',
@@ -64,9 +92,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () {
-              setState(() {});
-            },
+            onPressed: _refreshActiveTab,
           ),
           IconButton(
             icon: const Icon(Icons.logout),
@@ -982,7 +1008,7 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
       context: context,
       backgroundColor: AppColors.cardDark,
       isScrollControlled: true,
-      builder: (_) => MemberPaymentSheet(
+      builder: (_) => AdminMemberPaymentSheet(
         member: member,
         onPaymentComplete: () => _fetchMembers(reset: true),
       ),
@@ -2239,21 +2265,22 @@ class AdminSettingsTab extends StatelessWidget {
 // ============================================================
 // MEMBER PAYMENT SHEET
 // ============================================================
-class MemberPaymentSheet extends StatefulWidget {
+class AdminMemberPaymentSheet extends StatefulWidget {
   final Map<String, dynamic> member;
   final VoidCallback onPaymentComplete;
 
-  const MemberPaymentSheet({
+  const AdminMemberPaymentSheet({
     super.key,
     required this.member,
     required this.onPaymentComplete,
   });
 
   @override
-  State<MemberPaymentSheet> createState() => _MemberPaymentSheetState();
+  State<AdminMemberPaymentSheet> createState() =>
+      _AdminMemberPaymentSheetState();
 }
 
-class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
+class _AdminMemberPaymentSheetState extends State<AdminMemberPaymentSheet> {
   bool isLoading = true;
   bool isProcessing = false;
   Map<String, dynamic>? pricing;

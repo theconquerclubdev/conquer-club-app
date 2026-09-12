@@ -120,15 +120,15 @@ class MasterDataProvider extends ChangeNotifier {
   factory MasterDataProvider() => _instance;
   static MasterDataProvider get instance => _instance;
 
+  StreamSubscription<AuthState>? _authStateSub;
+
   MasterDataProvider._internal() {
-    _initRealtimeSubscription();
-    // ✅ Narrow the global channels to just this device's own rows once we
-    // know the signed-in account is a 'member' (the overwhelming majority
-    // at scale). Coaches/admins/head-coaches are left on the untouched
-    // global channels above — they still need to see other members'
-    // changes. Any failure here just leaves the global subscription from
-    // _initRealtimeSubscription() running, so there's no broken state.
-    Supabase.instance.client.auth.onAuthStateChange.listen((_) {
+    // ✅ One deterministic lifecycle for every auth change: always tear
+    // down whatever channels/cache exist first, then rebuild only what
+    // the CURRENT user/role needs. Fixes a gap where logging out (or
+    // switching role on the same device) could leave a previous
+    // member's filtered channels and cached data still active.
+    _authStateSub = Supabase.instance.client.auth.onAuthStateChange.listen((_) {
       _refineRealtimeForCurrentUser();
     });
     _refineRealtimeForCurrentUser();
@@ -136,107 +136,116 @@ class MasterDataProvider extends ChangeNotifier {
 
   Future<void> _refineRealtimeForCurrentUser() async {
     try {
+      // Always start from a clean slate so logout/role-switch never
+      // leaves a stale subscription or another user's cached data behind.
+      await _profilesChannel?.unsubscribe();
+      await _paymentsChannel?.unsubscribe();
+      await _dietsChannel?.unsubscribe();
+      await _workoutsChannel?.unsubscribe();
+      await _measurementsChannel?.unsubscribe();
+      invalidateAllCache();
+
       final uid = Supabase.instance.client.auth.currentUser?.id;
-      if (uid == null) return;
-      final profile =
-          await Supabase.instance.client
-              .from('profiles')
-              .select('role')
-              .eq('id', uid)
-              .maybeSingle();
-      if (profile?['role'] != 'member') return;
+      if (uid == null) {
+        // Logged out — no channels, no cache. Done.
+        return;
+      }
+      final profile = await Supabase.instance.client
+          .from('profiles')
+          .select('role')
+          .eq('id', uid)
+          .maybeSingle();
+      if (profile?['role'] != 'member') {
+        // Coach/admin/head_coach — restore the original global channels
+        // (they need visibility across members, not just their own row).
+        _initRealtimeSubscription();
+        return;
+      }
 
       await _profilesChannel?.unsubscribe();
-      _profilesChannel =
-          Supabase.instance.client
-              .channel('public:profiles:$uid')
-              .onPostgresChanges(
-                event: PostgresChangeEvent.update,
-                schema: 'public',
-                table: 'profiles',
-                filter: PostgresChangeFilter(
-                  type: PostgresChangeFilterType.eq,
-                  column: 'id',
-                  value: uid,
-                ),
-                callback: (payload) => _handleProfileChange(payload.newRecord),
-              )
-              .subscribe();
+      _profilesChannel = Supabase.instance.client
+          .channel('public:profiles:$uid')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.update,
+            schema: 'public',
+            table: 'profiles',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'id',
+              value: uid,
+            ),
+            callback: (payload) => _handleProfileChange(payload.newRecord),
+          )
+          .subscribe();
 
       await _paymentsChannel?.unsubscribe();
-      _paymentsChannel =
-          Supabase.instance.client
-              .channel('public:payments:$uid')
-              .onPostgresChanges(
-                event: PostgresChangeEvent.all,
-                schema: 'public',
-                table: 'payments',
-                filter: PostgresChangeFilter(
-                  type: PostgresChangeFilterType.eq,
-                  column: 'member_id',
-                  value: uid,
-                ),
-                callback: (payload) => _handlePaymentChange(payload.newRecord),
-              )
-              .subscribe();
+      _paymentsChannel = Supabase.instance.client
+          .channel('public:payments:$uid')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'payments',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'member_id',
+              value: uid,
+            ),
+            callback: (payload) => _handlePaymentChange(payload.newRecord),
+          )
+          .subscribe();
 
       await _dietsChannel?.unsubscribe();
-      _dietsChannel =
-          Supabase.instance.client
-              .channel('public:diets:$uid')
-              .onPostgresChanges(
-                event: PostgresChangeEvent.all,
-                schema: 'public',
-                table: 'diets',
-                filter: PostgresChangeFilter(
-                  type: PostgresChangeFilterType.eq,
-                  column: 'member_id',
-                  value: uid,
-                ),
-                callback:
-                    (payload) => _handleMemberTableChange(payload.newRecord),
-              )
-              .subscribe();
+      _dietsChannel = Supabase.instance.client
+          .channel('public:diets:$uid')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'diets',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'member_id',
+              value: uid,
+            ),
+            callback: (payload) => _handleMemberTableChange(payload.newRecord),
+          )
+          .subscribe();
 
       await _workoutsChannel?.unsubscribe();
-      _workoutsChannel =
-          Supabase.instance.client
-              .channel('public:workouts:$uid')
-              .onPostgresChanges(
-                event: PostgresChangeEvent.all,
-                schema: 'public',
-                table: 'workouts',
-                filter: PostgresChangeFilter(
-                  type: PostgresChangeFilterType.eq,
-                  column: 'member_id',
-                  value: uid,
-                ),
-                callback:
-                    (payload) => _handleMemberTableChange(payload.newRecord),
-              )
-              .subscribe();
+      _workoutsChannel = Supabase.instance.client
+          .channel('public:workouts:$uid')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'workouts',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'member_id',
+              value: uid,
+            ),
+            callback: (payload) => _handleMemberTableChange(payload.newRecord),
+          )
+          .subscribe();
 
       await _measurementsChannel?.unsubscribe();
-      _measurementsChannel =
-          Supabase.instance.client
-              .channel('public:measurement_logs:$uid')
-              .onPostgresChanges(
-                event: PostgresChangeEvent.all,
-                schema: 'public',
-                table: 'measurement_logs',
-                filter: PostgresChangeFilter(
-                  type: PostgresChangeFilterType.eq,
-                  column: 'member_id',
-                  value: uid,
-                ),
-                callback:
-                    (payload) => _handleMemberTableChange(payload.newRecord),
-              )
-              .subscribe();
+      _measurementsChannel = Supabase.instance.client
+          .channel('public:measurement_logs:$uid')
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: 'measurement_logs',
+            filter: PostgresChangeFilter(
+              type: PostgresChangeFilterType.eq,
+              column: 'member_id',
+              value: uid,
+            ),
+            callback: (payload) => _handleMemberTableChange(payload.newRecord),
+          )
+          .subscribe();
     } catch (e) {
       debugPrint(
-        '⚠️ Realtime refine skipped, global channels still active: $e',
+        '⚠️ Realtime refine failed, falling back to global channels: $e',
       );
+      _initRealtimeSubscription();
     }
   }
 
@@ -254,63 +263,55 @@ class MasterDataProvider extends ChangeNotifier {
   void _initRealtimeSubscription() {
     final client = Supabase.instance.client;
 
-    _profilesChannel =
-        client
-            .channel('public:profiles')
-            .onPostgresChanges(
-              event: PostgresChangeEvent.update,
-              schema: 'public',
-              table: 'profiles',
-              callback: (payload) => _handleProfileChange(payload.newRecord),
-            )
-            .subscribe();
+    _profilesChannel = client
+        .channel('public:profiles')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'profiles',
+          callback: (payload) => _handleProfileChange(payload.newRecord),
+        )
+        .subscribe();
 
-    _paymentsChannel =
-        client
-            .channel('public:payments')
-            .onPostgresChanges(
-              event: PostgresChangeEvent.all,
-              schema: 'public',
-              table: 'payments',
-              callback: (payload) => _handlePaymentChange(payload.newRecord),
-            )
-            .subscribe();
+    _paymentsChannel = client
+        .channel('public:payments')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'payments',
+          callback: (payload) => _handlePaymentChange(payload.newRecord),
+        )
+        .subscribe();
 
-    _dietsChannel =
-        client
-            .channel('public:diets')
-            .onPostgresChanges(
-              event: PostgresChangeEvent.all,
-              schema: 'public',
-              table: 'diets',
-              callback:
-                  (payload) => _handleMemberTableChange(payload.newRecord),
-            )
-            .subscribe();
+    _dietsChannel = client
+        .channel('public:diets')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'diets',
+          callback: (payload) => _handleMemberTableChange(payload.newRecord),
+        )
+        .subscribe();
 
-    _workoutsChannel =
-        client
-            .channel('public:workouts')
-            .onPostgresChanges(
-              event: PostgresChangeEvent.all,
-              schema: 'public',
-              table: 'workouts',
-              callback:
-                  (payload) => _handleMemberTableChange(payload.newRecord),
-            )
-            .subscribe();
+    _workoutsChannel = client
+        .channel('public:workouts')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'workouts',
+          callback: (payload) => _handleMemberTableChange(payload.newRecord),
+        )
+        .subscribe();
 
-    _measurementsChannel =
-        client
-            .channel('public:measurement_logs')
-            .onPostgresChanges(
-              event: PostgresChangeEvent.all,
-              schema: 'public',
-              table: 'measurement_logs',
-              callback:
-                  (payload) => _handleMemberTableChange(payload.newRecord),
-            )
-            .subscribe();
+    _measurementsChannel = client
+        .channel('public:measurement_logs')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'measurement_logs',
+          callback: (payload) => _handleMemberTableChange(payload.newRecord),
+        )
+        .subscribe();
   }
 
   void _handleProfileChange(Map<String, dynamic> newRecord) {
@@ -355,6 +356,7 @@ class MasterDataProvider extends ChangeNotifier {
   }
 
   void dispose() {
+    _authStateSub?.cancel();
     _profilesChannel?.unsubscribe();
     _paymentsChannel?.unsubscribe();
     _dietsChannel?.unsubscribe();
@@ -427,14 +429,13 @@ class MasterDataProvider extends ChangeNotifier {
 
       // 🚀 Fetch profile and streak in parallel instead of one-after-another —
       // they don't depend on each other, so this cuts one full round trip.
-      final profileFuture =
-          Supabase.instance.client
-              .from('profiles')
-              .select(
-                'id, full_name, email, is_active, membership_end_date, step_goal, height_cm, weight_kg, created_at, assigned_coach_id, goal, date_of_birth, gender',
-              )
-              .eq('id', memberId)
-              .maybeSingle();
+      final profileFuture = Supabase.instance.client
+          .from('profiles')
+          .select(
+            'id, full_name, email, is_active, membership_end_date, step_goal, height_cm, weight_kg, created_at, assigned_coach_id, goal, date_of_birth, gender',
+          )
+          .eq('id', memberId)
+          .maybeSingle();
       final streakRpcFuture = Supabase.instance.client.rpc(
         'get_current_streak',
         params: {'p_member_id': memberId},
@@ -523,12 +524,10 @@ class MasterDataProvider extends ChangeNotifier {
 
         // 🚀 Single RPC round trip instead of 7 separate REST calls —
         // same data, ~85% fewer requests per dashboard load.
-        final extra =
-            await Supabase.instance.client.rpc(
-                  'get_member_dashboard_extra',
-                  params: {'p_member_id': memberId},
-                )
-                as Map<String, dynamic>;
+        final extra = await Supabase.instance.client.rpc(
+          'get_member_dashboard_extra',
+          params: {'p_member_id': memberId},
+        ) as Map<String, dynamic>;
 
         todaySteps = (extra['today_steps'] as num?)?.toInt() ?? 0;
 
@@ -656,12 +655,19 @@ class MasterDataProvider extends ChangeNotifier {
   void pruneCache({int maxEntries = 50}) {
     if (_cache.length <= maxEntries) return;
 
-    final sortedKeys =
-        _cacheTimestamps.keys.toList()..sort(
-          (a, b) => _cacheTimestamps[a]!.compareTo(_cacheTimestamps[b]!),
-        );
+    final sortedKeys = _cacheTimestamps.keys.toList()
+      ..sort(
+        (a, b) => _cacheTimestamps[a]!.compareTo(_cacheTimestamps[b]!),
+      );
 
-    final toRemove = sortedKeys.sublist(0, _cache.length - maxEntries);
+    // ✅ Derive the removal count from sortedKeys itself (not _cache.length)
+    // so a future mismatch between _cache and _cacheTimestamps can never
+    // produce an out-of-range sublist().
+    final removeCount = (sortedKeys.length - maxEntries).clamp(
+      0,
+      sortedKeys.length,
+    );
+    final toRemove = sortedKeys.sublist(0, removeCount);
     for (final key in toRemove) {
       _cache.remove(key);
       _cacheTimestamps.remove(key);
@@ -706,7 +712,6 @@ class MasterDataProvider extends ChangeNotifier {
       debugPrint('🔍 No cached data for member: $memberId');
       return;
     }
-    debugPrint('🔍 Member: ${data.fullName}');
     debugPrint('🔍 Days Left: ${data.daysLeft}');
     debugPrint('🔍 Is Active: ${data.isMembershipActive}');
     debugPrint('🔍 End Date: ${data.profile?['membership_end_date']}');
