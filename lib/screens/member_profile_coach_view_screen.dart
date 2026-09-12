@@ -86,10 +86,14 @@ class _MemberProfileCoachViewScreenState
     final memberId = widget.member['id'];
     final latest = MasterDataProvider.instance.getData(memberId);
     if (latest == null || identical(latest, _lastAppliedData)) return;
-    loadData();
+    // ✅ A generic dashboard change (diet/workout/measurement/profile) does
+    // not mean payments changed — skip the extra payments query here.
+    // Payments are still refreshed on initial open and via the manual
+    // refresh button below.
+    loadData(refreshPayments: false);
   }
 
-  Future<void> loadData() async {
+  Future<void> loadData({bool refreshPayments = true}) async {
     try {
       final memberId = widget.member['id'];
 
@@ -151,16 +155,18 @@ class _MemberProfileCoachViewScreenState
 
       // ✅ Payments - fetched separately (not in provider yet)
       // Keep this for now, can be moved to provider later
-      try {
-        final paymentData = await Supabase.instance.client
-            .from('payments')
-            .select('id, amount, plan_key, status, payment_date')
-            .eq('member_id', memberId)
-            .order('payment_date', ascending: false)
-            .limit(5);
-        payments = List<Map<String, dynamic>>.from(paymentData);
-      } catch (e) {
-        debugPrint('Error fetching payments: $e');
+      if (refreshPayments) {
+        try {
+          final paymentData = await Supabase.instance.client
+              .from('payments')
+              .select('id, amount, plan_key, status, payment_date')
+              .eq('member_id', memberId)
+              .order('payment_date', ascending: false)
+              .limit(5);
+          payments = List<Map<String, dynamic>>.from(paymentData);
+        } catch (e) {
+          debugPrint('Error fetching payments: $e');
+        }
       }
 
       if (mounted) {

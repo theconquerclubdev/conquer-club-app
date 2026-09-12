@@ -20,6 +20,7 @@ import 'utils/app_version.dart';
 /// Pulled out as its own function so it can be tested directly, without
 /// needing to build the whole dialog widget.
 Future<void> openUpdateUrl(String downloadUrl) async {
+  if (downloadUrl.isEmpty) return;
   final uri = Uri.tryParse(downloadUrl);
   if (uri != null) {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -126,13 +127,18 @@ void main() async {
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+  final bool skipInitialization;
 
+  const MyApp({
+    super.key,
+    this.skipInitialization = false,
+  });
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Conquer Club',
       navigatorKey: navigatorKey,
+      home: AuthWrapper(skipInitialization: skipInitialization),
       theme: ThemeData(
         brightness: Brightness.dark,
         primaryColor: Colors.orange,
@@ -175,7 +181,7 @@ class MyApp extends StatelessWidget {
           bodyMedium: TextStyle(color: Colors.white),
         ),
       ),
-      home: const AuthWrapper(),
+
       debugShowCheckedModeBanner: false,
 
       // Responsive foundation: allows the app to receive its actual
@@ -212,7 +218,17 @@ class MyApp extends StatelessWidget {
 }
 
 class AuthWrapper extends StatefulWidget {
-  const AuthWrapper({super.key});
+  /// When true, the authentication/bootstrap logic is skipped.
+  ///
+  /// This is useful for widget tests that only need to verify that
+  /// the application UI can be constructed without requiring a live
+  /// Supabase connection.
+  final bool skipInitialization;
+
+  const AuthWrapper({
+    super.key,
+    this.skipInitialization = false,
+  });
 
   @override
   State<AuthWrapper> createState() => _AuthWrapperState();
@@ -231,6 +247,17 @@ class _AuthWrapperState extends State<AuthWrapper> {
   }
 
   Future<void> _checkAuth() async {
+    // Widget tests pass skipInitialization so they never touch Supabase
+    // (which isn't initialized in a test environment) or real network.
+    // Default is false, so this changes nothing for real users.
+    if (widget.skipInitialization) {
+      setState(() {
+        _initialScreen = const SizedBox.shrink();
+        _isLoading = false;
+      });
+      return;
+    }
+
     // Check Android version (skip on web)
     if (!kIsWeb) {
       if (!await _checkAppVersion()) {

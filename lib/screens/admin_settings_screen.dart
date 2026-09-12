@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import 'login_screen.dart';
 
 class AdminSettingsScreen extends StatefulWidget {
   const AdminSettingsScreen({super.key});
@@ -31,6 +32,22 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen>
       backgroundColor: AppColors.background,
       appBar: AppBar(
         automaticallyImplyLeading: false,
+        actions: [
+          // Same logout path as the Admin Dashboard's AppBar — not a
+          // separate implementation, just reachable from Settings too.
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await Supabase.instance.client.auth.signOut();
+              if (context.mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
+              }
+            },
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           isScrollable: MediaQuery.sizeOf(context).width < 600,

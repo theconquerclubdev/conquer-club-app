@@ -178,7 +178,6 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
         final firstMember = results.first;
         print('🔍 First member keys: ${firstMember.keys}');
         print('🔍 current_streak value: ${firstMember['current_streak']}');
-        print('🔍 full_name: ${firstMember['full_name']}');
         print('🔍 days_left: ${firstMember['days_left']}');
         print('🔍 is_active: ${firstMember['is_active']}');
       }
