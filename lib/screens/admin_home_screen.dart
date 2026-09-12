@@ -1,0 +1,3004 @@
+import 'dart:async'; // 👈 ADD THIS IMPORT HERE
+import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../theme/app_theme.dart';
+import 'login_screen.dart';
+import 'admin_settings_screen.dart';
+import '../utils/cache_manager.dart';
+
+class AdminHomeScreen extends StatefulWidget {
+  const AdminHomeScreen({super.key});
+
+  @override
+  State<AdminHomeScreen> createState() => _AdminHomeScreenState();
+}
+
+class _AdminHomeScreenState extends State<AdminHomeScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController tabController;
+
+  // ✅ Keys let the AppBar refresh button call the ACTUAL reload method
+  // of whichever tab is currently visible, instead of just calling
+  // setState(() {}) on the parent (which only re-renders already-cached
+  // data and doesn't touch the server at all).
+  final _dashboardKey = GlobalKey<_AdminDashboardTabState>();
+  final _membersKey = GlobalKey<_AdminMembersTabState>();
+  final _paymentsKey = GlobalKey<_AdminPaymentsTabState>();
+  final _coachesKey = GlobalKey<_AdminCoachesTabState>();
+
+  late final List<Widget> _tabs = [
+    AdminDashboardTab(key: _dashboardKey),
+    AdminMembersTab(key: _membersKey),
+    AdminPaymentsTab(key: _paymentsKey),
+    AdminCoachesTab(key: _coachesKey),
+    const AdminSettingsTab(),
+  ];
+
+  void _refreshActiveTab() {
+    switch (tabController.index) {
+      case 0:
+        _dashboardKey.currentState?._loadStats();
+        break;
+      case 1:
+        _membersKey.currentState?._fetchMembers(reset: true);
+        break;
+      case 2:
+        _paymentsKey.currentState?._loadPending();
+        break;
+      case 3:
+        _coachesKey.currentState?._loadCoaches();
+        break;
+      default:
+        break; // Settings tab has no data to reload
+    }
+  }
+
+  final List<String> _tabLabels = [
+    'Dashboard',
+    'Members',
+    'Payments',
+    'Coaches',
+    'Settings',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    tabController = TabController(length: 5, vsync: this, initialIndex: 0);
+  }
+
+  @override
+  void dispose() {
+    tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        title: const Text(
+          'Admin Dashboard',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        bottom: TabBar(
+          controller: tabController,
+          indicatorColor: AppColors.gold,
+          labelColor: AppColors.gold,
+          unselectedLabelColor: Colors.grey,
+          tabs: _tabLabels.map((label) => Tab(text: label)).toList(),
+        ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _refreshActiveTab,
+          ),
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: () async {
+              await Supabase.instance.client.auth.signOut();
+              if (context.mounted) {
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                );
+              }
+            },
+          ),
+        ],
+      ),
+      body: TabBarView(
+        controller: tabController,
+        children: _tabs,
+      ),
+    );
+  }
+}
+
+// ============================================================
+// DASHBOARD TAB
+// ============================================================
+class AdminDashboardTab extends StatefulWidget {
+  const AdminDashboardTab({super.key});
+
+  @override
+  State<AdminDashboardTab> createState() => _AdminDashboardTabState();
+}
+
+class _AdminDashboardTabState extends State<AdminDashboardTab> {
+  bool isLoading = true;
+  int activeMembers = 0;
+  int activeCoaches = 0;
+  double totalRevenue = 0.0;
+  Map<String, double> categoryRevenue = {};
+  int membersEnded = 0;
+  int membersEndingIn2Days = 0;
+  int membersEndingThisMonth = 0;
+  int membersEndingNextMonth = 0;
+  int dietChangesToday = 0;
+  int dietChangesTomorrow = 0;
+  int dietChangesOverdue = 0;
+  int pendingPaymentsCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _loadStats();
+      }
+    });
+  }
+
+  Future<void> _loadStats() async {
+    if (!mounted) return;
+    setState(() => isLoading = true);
+    try {
+      // ✅ SINGLE RPC CALL — replaces 4 separate queries!
+      final result = await Supabase.instance.client.rpc('get_dashboard_stats');
+
+      // Pending payment count (kept separate from the RPC so a failure
+      // here never blocks the rest of the dashboard from loading).
+      int pendingCount = 0;
+      try {
+        final pending = await Supabase.instance.client
+            .from('payments')
+            .select('id')
+            .eq('status', 'pending');
+        pendingCount = (pending as List).length;
+      } catch (e) {
+        print('Error loading pending payments count: $e');
+      }
+
+      if (mounted) {
+        setState(() {
+          activeMembers = result['active_members'] ?? 0;
+          activeCoaches = result['active_coaches'] ?? 0;
+          totalRevenue = (result['total_revenue'] as num?)?.toDouble() ?? 0;
+          categoryRevenue =
+              Map<String, double>.from(result['category_revenue'] ?? {});
+          membersEnded = result['members_ended'] ?? 0;
+          membersEndingIn2Days = result['members_ending_2_days'] ?? 0;
+          membersEndingThisMonth = result['members_ending_this_month'] ?? 0;
+          membersEndingNextMonth = result['members_ending_next_month'] ?? 0;
+          dietChangesToday = result['diet_due_today'] ?? 0;
+          dietChangesTomorrow = result['diet_due_tomorrow'] ?? 0;
+          dietChangesOverdue = result['diet_overdue'] ?? 0;
+          pendingPaymentsCount = pendingCount;
+          isLoading = false;
+        });
+      }
+    } on PostgrestException catch (e) {
+      print('Error loading stats: $e');
+      if (mounted) {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Unable to load dashboard stats. Please check your connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error loading stats: $e');
+      if (mounted) {
+        setState(() => isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Network error. Please check your internet connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.gold),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadStats,
+      color: AppColors.gold,
+      backgroundColor: AppColors.cardDark,
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        physics: const AlwaysScrollableScrollPhysics(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (pendingPaymentsCount > 0)
+              Container(
+                margin: const EdgeInsets.only(bottom: 16),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.orange),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.pending_actions, color: Colors.orange),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        '$pendingPaymentsCount payment${pendingPaymentsCount == 1 ? '' : 's'} waiting for verification — check the Payments tab',
+                        style: const TextStyle(
+                            color: Colors.orange,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Row(
+              children: [
+                _StatCard(
+                  label: 'Active Members',
+                  value: activeMembers.toString(),
+                  icon: Icons.people,
+                  color: Colors.blue,
+                ),
+                const SizedBox(width: 12),
+                _StatCard(
+                  label: 'Active Coaches',
+                  value: activeCoaches.toString(),
+                  icon: Icons.person,
+                  color: Colors.green,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _StatCard(
+                  label: 'Total Revenue',
+                  value: '₹${totalRevenue.toStringAsFixed(0)}',
+                  icon: Icons.currency_rupee,
+                  color: AppColors.gold,
+                ),
+                const SizedBox(width: 12),
+                _StatCard(
+                  label: 'Members Ended',
+                  value: membersEnded.toString(),
+                  icon: Icons.person_off,
+                  color: Colors.red,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'REVENUE BY CATEGORY',
+              style: TextStyle(
+                color: AppColors.gold,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (categoryRevenue.isEmpty)
+              const Text(
+                'No revenue data yet',
+                style: TextStyle(color: Colors.grey),
+              )
+            else
+              ...categoryRevenue.entries.map((entry) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 120,
+                          child: Text(
+                            entry.key,
+                            style: const TextStyle(color: Colors.white),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Expanded(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value:
+                                  (entry.value / totalRevenue).clamp(0.0, 1.0),
+                              backgroundColor: Colors.grey.shade800,
+                              color: AppColors.gold,
+                              minHeight: 12,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          '₹${entry.value.toStringAsFixed(0)}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  )),
+            const SizedBox(height: 20),
+            const Text(
+              'MEMBERSHIP ALERTS',
+              style: TextStyle(
+                color: AppColors.gold,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _AlertChip(
+              label: 'Ending in 2 days',
+              count: membersEndingIn2Days,
+              color: Colors.orange,
+              onTap: () => _showMemberList(context, 'Ending in 2 days'),
+            ),
+            _AlertChip(
+              label: 'Ending this month',
+              count: membersEndingThisMonth,
+              color: Colors.blue,
+              onTap: () => _showMemberList(context, 'Ending this month'),
+            ),
+            _AlertChip(
+              label: 'Ending next month',
+              count: membersEndingNextMonth,
+              color: Colors.green,
+              onTap: () => _showMemberList(context, 'Ending next month'),
+            ),
+            _AlertChip(
+              label: 'Membership Ended',
+              count: membersEnded,
+              color: Colors.red,
+              onTap: () => _showMemberList(context, 'Membership Ended'),
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'DIET UPDATES',
+              style: TextStyle(
+                color: AppColors.gold,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 1,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _AlertChip(
+              label: 'Due Today',
+              count: dietChangesToday,
+              color: Colors.orange,
+              onTap: () => _showDietList(context, 'Due Today'),
+            ),
+            _AlertChip(
+              label: 'Due Tomorrow',
+              count: dietChangesTomorrow,
+              color: Colors.blue,
+              onTap: () => _showDietList(context, 'Due Tomorrow'),
+            ),
+            _AlertChip(
+              label: 'Overdue (7+ days)',
+              count: dietChangesOverdue,
+              color: Colors.red,
+              onTap: () => _showDietList(context, 'Overdue'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showMemberList(BuildContext context, String title) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.cardDark,
+      isScrollControlled: true,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: FutureBuilder(
+                    future: _getMembersForStatus(title),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            color: AppColors.gold,
+                          ),
+                        );
+                      }
+                      final members = snapshot.data as List;
+                      if (members.isEmpty) {
+                        return const Center(
+                          child: Text(
+                            'No members found',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        );
+                      }
+                      return ListView.builder(
+                        controller: scrollController,
+                        itemCount: members.length,
+                        itemBuilder: (context, index) {
+                          final m = members[index];
+                          return ListTile(
+                            title: Text(
+                              m['full_name'] ?? 'Unknown',
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            subtitle: Text(
+                              m['email'] ?? '',
+                              style: const TextStyle(color: Colors.grey),
+                            ),
+                            trailing: Text(
+                              m['membership_end_date'] != null
+                                  ? m['membership_end_date'].substring(0, 10)
+                                  : 'N/A',
+                              style: const TextStyle(
+                                color: Colors.grey,
+                                fontSize: 12,
+                              ),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<List> _getMembersForStatus(String status) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    var query = Supabase.instance.client
+        .from('profiles')
+        .select('id, full_name, email, membership_end_date')
+        .eq('role', 'member');
+
+    if (status == 'Ending in 2 days') {
+      final twoDays = today.add(const Duration(days: 2));
+      final threeDays = today.add(const Duration(days: 3));
+      query = query
+          .gte('membership_end_date', twoDays.toIso8601String())
+          .lt('membership_end_date', threeDays.toIso8601String());
+    } else if (status == 'Ending this month') {
+      final start = DateTime(now.year, now.month, 1);
+      final end = DateTime(now.year, now.month + 1, 1);
+      query = query
+          .gte('membership_end_date', start.toIso8601String())
+          .lt('membership_end_date', end.toIso8601String());
+    } else if (status == 'Ending next month') {
+      final start = DateTime(now.year, now.month + 1, 1);
+      final end = DateTime(now.year, now.month + 2, 1);
+      query = query
+          .gte('membership_end_date', start.toIso8601String())
+          .lt('membership_end_date', end.toIso8601String());
+    } else if (status == 'Membership Ended') {
+      query = query.lt('membership_end_date', today.toIso8601String());
+    }
+
+    return await query;
+  }
+
+  void _showDietList(BuildContext context, String status) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.cardDark,
+      isScrollControlled: true,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Diet - $status',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: FutureBuilder(
+                    future: _getDietMembers(status),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            color: AppColors.gold,
+                          ),
+                        );
+                      }
+                      final members = snapshot.data as List;
+                      if (members.isEmpty) {
+                        return const Center(
+                          child: Text(
+                            'No members found',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        );
+                      }
+                      return ListView.builder(
+                        controller: scrollController,
+                        itemCount: members.length,
+                        itemBuilder: (context, index) {
+                          final m = members[index];
+                          return ListTile(
+                            title: Text(
+                              m['full_name'] ?? 'Unknown',
+                              style: const TextStyle(color: Colors.white),
+                            ),
+                            subtitle: Text(
+                              'Last updated: ${m['last_diet_date'] ?? 'Never'}',
+                              style: const TextStyle(color: Colors.grey),
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Future<List> _getDietMembers(String status) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    final diets = await Supabase.instance.client
+        .from('diets')
+        .select('member_id, updated_at, profiles(full_name, email)')
+        .order('updated_at', ascending: false);
+
+    final Map<String, dynamic> latest = {};
+    for (final d in diets) {
+      final memberId = d['member_id'] as String;
+      if (!latest.containsKey(memberId)) {
+        latest[memberId] = d;
+      }
+    }
+
+    final result = <Map<String, dynamic>>[];
+    for (final entry in latest.entries) {
+      final data = entry.value;
+      final lastDate = DateTime.tryParse(data['updated_at'] as String);
+      if (lastDate == null) continue;
+      final daysSince = today.difference(lastDate).inDays;
+
+      bool include = false;
+      if (status == 'Due Today' && daysSince >= 5 && daysSince < 6)
+        include = true;
+      if (status == 'Due Tomorrow' && daysSince >= 6 && daysSince < 7)
+        include = true;
+      if (status == 'Overdue' && daysSince >= 7) include = true;
+
+      if (include) {
+        final profile = data['profiles'] as Map<String, dynamic>?;
+        result.add({
+          'full_name': profile?['full_name'] ?? 'Unknown',
+          'email': profile?['email'] ?? '',
+          'last_diet_date': lastDate.toIso8601String().substring(0, 10),
+        });
+      }
+    }
+
+    return result;
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _StatCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.cardDark,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: color, size: 18),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: Colors.grey.shade400,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AlertChip extends StatelessWidget {
+  final String label;
+  final int count;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _AlertChip({
+    required this.label,
+    required this.count,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: GestureDetector(
+        onTap: count > 0 ? onTap : null,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.cardDark,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: color.withOpacity(0.3)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(color: Colors.white),
+              ),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+                decoration: BoxDecoration(
+                  color: color.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  count.toString(),
+                  style: TextStyle(
+                    color: color,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// ADAPTIVE ADMIN MEMBERS TAB (0 to 5,000+ Members)
+// ============================================================
+class AdminMembersTab extends StatefulWidget {
+  const AdminMembersTab({super.key});
+
+  @override
+  State<AdminMembersTab> createState() => _AdminMembersTabState();
+}
+
+class _AdminMembersTabState extends State<AdminMembersTab> {
+  List<Map<String, dynamic>> members = [];
+  List<Map<String, dynamic>> categories = [];
+  List<Map<String, dynamic>> coaches = [];
+
+  bool isLoading = true;
+  bool isLoadingMore = false;
+  bool hasMoreData = false;
+  int totalCount = 0;
+  int currentOffset = 0;
+  final int pageSize = 20;
+
+  // Always use server-side 20/page pagination (egress control) — client-side
+  // full-table fetch mode disabled.
+  static const int kPaginationThreshold = 200;
+  bool get isClientSideMode => false;
+
+  String searchQuery = '';
+  String selectedCategory = 'All';
+  Timer? _searchDebounce;
+  final ScrollController _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadInitialData();
+  }
+
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  // 1. Initial Load: Fetch Categories, Coaches, Total Count, and Initial Members
+  Future<void> _loadInitialData() async {
+    setState(() => isLoading = true);
+    try {
+      final results = await Future.wait([
+        // Categories
+        Supabase.instance.client
+            .from('categories')
+            .select('id, name')
+            .order('name'),
+
+        // Coaches
+        Supabase.instance.client
+            .from('profiles')
+            .select('id, full_name, email')
+            .inFilter('role', ['coach', 'head_coach'])
+            .eq('is_active', true)
+            .order('full_name'),
+      ]);
+
+      categories = List<Map<String, dynamic>>.from(results[0]);
+      coaches = List<Map<String, dynamic>>.from(results[1]);
+
+      // Total count of members — head-only request, fetches ONLY the number,
+      // not the actual member rows (egress control).
+      totalCount = await Supabase.instance.client
+          .from('profiles')
+          .count(CountOption.exact)
+          .eq('role', 'member');
+
+      await _fetchMembers(reset: true);
+    } catch (e) {
+      debugPrint('Error loading admin members: $e');
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  // 2. Fetch Members (Auto-switches between Single-Query and Paginated)
+  Future<void> _fetchMembers({bool reset = false}) async {
+    if (reset) {
+      setState(() {
+        currentOffset = 0;
+        isLoading = true;
+        if (isClientSideMode) members.clear();
+      });
+    } else {
+      if (isLoadingMore || !hasMoreData || isClientSideMode) return;
+      setState(() => isLoadingMore = true);
+    }
+
+    try {
+      var query = Supabase.instance.client
+          .from('profiles')
+          .select(
+            'id, full_name, email, membership_start_date, membership_end_date, '
+            'category_id, is_active, assigned_coach_id, last_payment_amount, '
+            'last_payment_date, last_payment_method',
+          )
+          .eq('role', 'member');
+
+      if (isClientSideMode) {
+        // 🚀 MODE A: <= 200 members -> Fetch all in 1 query, 0ms search
+        final data = await query.order('full_name');
+        final items = List<Map<String, dynamic>>.from(data);
+
+        if (mounted) {
+          setState(() {
+            members = items;
+            hasMoreData = false;
+            isLoading = false;
+          });
+        }
+      } else {
+        // ⚡ MODE B: > 200 members -> Server-side filter + 20/page pagination
+        if (searchQuery.isNotEmpty) {
+          query = query.or(
+            'full_name.ilike.%$searchQuery%,email.ilike.%$searchQuery%',
+          );
+        }
+        if (selectedCategory != 'All') {
+          query = query.eq('category_id', selectedCategory);
+        }
+
+        final data = await query
+            .order('full_name')
+            .range(currentOffset, currentOffset + pageSize - 1);
+
+        final items = List<Map<String, dynamic>>.from(data);
+
+        if (mounted) {
+          setState(() {
+            if (reset) {
+              members = items;
+            } else {
+              members.addAll(items);
+            }
+            currentOffset += items.length;
+            hasMoreData = items.length == pageSize;
+            isLoading = false;
+            isLoadingMore = false;
+          });
+        }
+      }
+    } on PostgrestException catch (e) {
+      debugPrint('Error fetching members: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          isLoadingMore = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Unable to fetch members. Please check your connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error fetching members: $e');
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+          isLoadingMore = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Network error. Please check your internet connection.'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
+  // Instant filtering for <= 200 members, server-filtered for > 200 members
+  List<Map<String, dynamic>> get _displayedMembers {
+    if (!isClientSideMode) {
+      // In server mode, `members` is already filtered by Postgres
+      return members;
+    }
+
+    // In client mode, filter in Dart memory (instant 0ms)
+    var list = members;
+    if (searchQuery.isNotEmpty) {
+      final q = searchQuery.toLowerCase();
+      list = list.where((m) {
+        final name = (m['full_name'] ?? '').toString().toLowerCase();
+        final email = (m['email'] ?? '').toString().toLowerCase();
+        return name.contains(q) || email.contains(q);
+      }).toList();
+    }
+    if (selectedCategory != 'All') {
+      list = list.where((m) => m['category_id'] == selectedCategory).toList();
+    }
+    return list;
+  }
+
+  void _onSearchChanged(String v) {
+    setState(() => searchQuery = v.trim());
+
+    if (isClientSideMode) {
+      // Instant in-memory search
+      setState(() {});
+    } else {
+      // Instant server search - results appear immediately
+      _searchDebounce?.cancel();
+      _fetchMembers(reset: true);
+    }
+  }
+
+  void _onCategoryChanged(String? v) {
+    if (v == null) return;
+    setState(() => selectedCategory = v);
+
+    if (isClientSideMode) {
+      setState(() {});
+    } else {
+      _fetchMembers(reset: true);
+    }
+  }
+
+  Future<void> _assignCategory(String memberId, String? categoryId) async {
+    await Supabase.instance.client
+        .from('profiles')
+        .update({'category_id': categoryId}).eq('id', memberId);
+    _fetchMembers(reset: true);
+  }
+
+  Future<void> _assignCoach(String memberId, String? coachId) async {
+    await Supabase.instance.client
+        .from('profiles')
+        .update({'assigned_coach_id': coachId}).eq('id', memberId);
+    _fetchMembers(reset: true);
+  }
+
+  void _showPaymentSheet(Map<String, dynamic> member) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.cardDark,
+      isScrollControlled: true,
+      builder: (_) => AdminMemberPaymentSheet(
+        member: member,
+        onPaymentComplete: () => _fetchMembers(reset: true),
+      ),
+    );
+  }
+
+  int _getDaysLeft(String? endDateStr) {
+    if (endDateStr == null) return -1;
+    try {
+      final endDate = DateTime.parse(endDateStr);
+      return endDate.difference(DateTime.now()).inDays;
+    } catch (_) {
+      return -1;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final displayedList = _displayedMembers;
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    hintText: 'Search members...',
+                    prefixIcon: Icon(Icons.search, color: Colors.grey),
+                    isDense: true,
+                    contentPadding: EdgeInsets.symmetric(vertical: 8),
+                  ),
+                  onChanged: _onSearchChanged,
+                ),
+              ),
+              const SizedBox(width: 8),
+              DropdownButton<String>(
+                value: selectedCategory,
+                dropdownColor: AppColors.cardDark,
+                style: const TextStyle(color: Colors.white),
+                items: [
+                  const DropdownMenuItem(value: 'All', child: Text('All')),
+                  ...categories.map((c) => DropdownMenuItem(
+                        value: c['id'],
+                        child: Text(c['name']),
+                      )),
+                ],
+                onChanged: _onCategoryChanged,
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: isLoading
+              ? const Center(
+                  child: CircularProgressIndicator(color: AppColors.gold),
+                )
+              : displayedList.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'No members found',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: () => _loadInitialData(),
+                      color: AppColors.gold,
+                      backgroundColor: AppColors.cardDark,
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        itemCount: displayedList.length + (hasMoreData ? 1 : 0),
+                        itemBuilder: (context, index) {
+                          // "Load More..." button for > 200 members mode
+                          if (index == displayedList.length) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              child: Center(
+                                child: isLoadingMore
+                                    ? const SizedBox(
+                                        height: 24,
+                                        width: 24,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppColors.gold,
+                                        ),
+                                      )
+                                    : TextButton(
+                                        onPressed: () =>
+                                            _fetchMembers(reset: false),
+                                        child: const Text(
+                                          'Load More...',
+                                          style: TextStyle(color: Colors.grey),
+                                        ),
+                                      ),
+                              ),
+                            );
+                          }
+
+                          final m = displayedList[index];
+                          final isActive = m['is_active'] ?? true;
+                          final daysLeft =
+                              _getDaysLeft(m['membership_end_date']);
+
+                          return Container(
+                            margin: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.cardDark,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: SizedBox(
+                                width: 700,
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            m['full_name'] ?? 'Unknown',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          Text(
+                                            m['email'] ?? '',
+                                            style: const TextStyle(
+                                              color: Colors.grey,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                          // ✅ Membership dates
+                                          Wrap(
+                                            spacing: 6,
+                                            runSpacing: 2,
+                                            children: [
+                                              if (m['membership_start_date'] !=
+                                                  null)
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: Colors.blue
+                                                        .withOpacity(0.15),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            4),
+                                                  ),
+                                                  child: Text(
+                                                    'Start: ${m['membership_start_date'].toString().substring(0, 10)}',
+                                                    style: const TextStyle(
+                                                      color: Colors.blue,
+                                                      fontSize: 9,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ),
+                                              if (m['membership_end_date'] !=
+                                                  null)
+                                                Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: daysLeft >= 0
+                                                        ? Colors.green
+                                                            .withOpacity(0.15)
+                                                        : Colors.red
+                                                            .withOpacity(0.15),
+                                                    borderRadius:
+                                                        BorderRadius.circular(
+                                                            4),
+                                                  ),
+                                                  child: Text(
+                                                    daysLeft >= 0
+                                                        ? 'End: ${m['membership_end_date'].toString().substring(0, 10)} ($daysLeft d)'
+                                                        : 'End: ${m['membership_end_date'].toString().substring(0, 10)} (Expired)',
+                                                    style: TextStyle(
+                                                      color: daysLeft >= 0
+                                                          ? Colors.green
+                                                          : Colors.red,
+                                                      fontSize: 9,
+                                                      fontWeight:
+                                                          FontWeight.w500,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                          Row(
+                                            children: [
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                  horizontal: 6,
+                                                  vertical: 2,
+                                                ),
+                                                decoration: BoxDecoration(
+                                                  color: isActive
+                                                      ? Colors.blue
+                                                          .withOpacity(0.2)
+                                                      : Colors.grey
+                                                          .withOpacity(0.2),
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  isActive
+                                                      ? 'Active'
+                                                      : 'Inactive',
+                                                  style: TextStyle(
+                                                    color: isActive
+                                                        ? Colors.blue
+                                                        : Colors.grey,
+                                                    fontSize: 9,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    // ✅ Last payment info
+                                    if (m['last_payment_amount'] != null)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color:
+                                              AppColors.gold.withOpacity(0.1),
+                                          borderRadius:
+                                              BorderRadius.circular(4),
+                                          border: Border.all(
+                                            color:
+                                                AppColors.gold.withOpacity(0.2),
+                                          ),
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              '₹${m['last_payment_amount']}',
+                                              style: TextStyle(
+                                                color: AppColors.gold,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                              ),
+                                            ),
+                                            Text(
+                                              m['last_payment_date'] != null
+                                                  ? m['last_payment_date']
+                                                      .toString()
+                                                      .substring(0, 10)
+                                                  : '',
+                                              style: TextStyle(
+                                                color: Colors.grey.shade500,
+                                                fontSize: 8,
+                                              ),
+                                            ),
+                                            Text(
+                                              m['last_payment_method'] ?? 'UPI',
+                                              style: TextStyle(
+                                                color: Colors.grey.shade500,
+                                                fontSize: 8,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.payment,
+                                        color: AppColors.gold,
+                                      ),
+                                      onPressed: () => _showPaymentSheet(m),
+                                      tooltip: 'Payment',
+                                    ),
+                                    DropdownButton<String>(
+                                      value: m['assigned_coach_id'] as String?,
+                                      dropdownColor: AppColors.cardDark,
+                                      hint: const Text(
+                                        'Coach',
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                      style:
+                                          const TextStyle(color: Colors.white),
+                                      items: [
+                                        const DropdownMenuItem(
+                                          value: null,
+                                          child: Text('None'),
+                                        ),
+                                        ...coaches.map((c) => DropdownMenuItem(
+                                              value: c['id'],
+                                              child: Text(
+                                                  c['full_name'] ?? c['email']),
+                                            )),
+                                      ],
+                                      onChanged: (val) =>
+                                          _assignCoach(m['id'], val),
+                                    ),
+                                    DropdownButton<String>(
+                                      value: m['category_id'] as String?,
+                                      dropdownColor: AppColors.cardDark,
+                                      hint: const Text(
+                                        'Category',
+                                        style: TextStyle(color: Colors.grey),
+                                      ),
+                                      style:
+                                          const TextStyle(color: Colors.white),
+                                      items: [
+                                        const DropdownMenuItem(
+                                          value: null,
+                                          child: Text('None'),
+                                        ),
+                                        ...categories
+                                            .map((c) => DropdownMenuItem(
+                                                  value: c['id'],
+                                                  child: Text(c['name']),
+                                                )),
+                                      ],
+                                      onChanged: (val) =>
+                                          _assignCategory(m['id'], val),
+                                    ),
+                                    Switch(
+                                      value: isActive,
+                                      activeColor: AppColors.gold,
+                                      onChanged: (_) async {
+                                        await Supabase.instance.client
+                                            .from('profiles')
+                                            .update({
+                                          'is_active': !isActive
+                                        }).eq('id', m['id']);
+                                        _fetchMembers(reset: true);
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+        ),
+      ],
+    );
+  }
+}
+
+// ============================================================
+// COACHES TAB
+// ============================================================
+class AdminCoachesTab extends StatefulWidget {
+  const AdminCoachesTab({super.key});
+
+  @override
+  State<AdminCoachesTab> createState() => _AdminCoachesTabState();
+}
+
+class _AdminCoachesTabState extends State<AdminCoachesTab> {
+  List<Map<String, dynamic>> coaches = [];
+  bool isLoading = true;
+  String searchQuery = '';
+  String filterStatus = 'all';
+  String sortBy = 'name';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCoaches();
+  }
+
+  Future<void> _loadCoaches() async {
+    setState(() => isLoading = true);
+    try {
+      final data = await Supabase.instance.client
+          .from('profiles')
+          .select(
+              'id, full_name, email, is_active, role, assigned_members:profiles!assigned_coach_id(count)')
+          .inFilter('role', ['coach', 'head_coach']).order('full_name');
+
+      setState(() {
+        coaches = List<Map<String, dynamic>>.from(data);
+        isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading coaches: $e');
+      setState(() => isLoading = false);
+    }
+  }
+
+  List<Map<String, dynamic>> get _filteredCoaches {
+    var list = coaches;
+    if (searchQuery.isNotEmpty) {
+      list = list.where((c) {
+        final name = (c['full_name'] ?? '').toString().toLowerCase();
+        final email = (c['email'] ?? '').toString().toLowerCase();
+        return name.contains(searchQuery.toLowerCase()) ||
+            email.contains(searchQuery.toLowerCase());
+      }).toList();
+    }
+    if (filterStatus == 'active') {
+      list = list.where((c) => c['is_active'] == true).toList();
+    } else if (filterStatus == 'inactive') {
+      list = list.where((c) => c['is_active'] == false).toList();
+    }
+    if (sortBy == 'members') {
+      list.sort((a, b) {
+        final aCount = (a['assigned_members'] as List?)?.length ?? 0;
+        final bCount = (b['assigned_members'] as List?)?.length ?? 0;
+        return bCount.compareTo(aCount);
+      });
+    }
+    return list;
+  }
+
+  Future<void> _showAddCoachDialog() async {
+    final emailController = TextEditingController();
+    final passwordController = TextEditingController();
+    final nameController = TextEditingController();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: const Text(
+          'Add New Coach',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Full Name *',
+                labelStyle: TextStyle(color: Colors.grey),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: emailController,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                labelText: 'Email *',
+                labelStyle: TextStyle(color: Colors.grey),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: passwordController,
+              style: const TextStyle(color: Colors.white),
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: 'Password * (min 6 chars)',
+                labelStyle: TextStyle(color: Colors.grey),
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (nameController.text.trim().isNotEmpty &&
+                  emailController.text.trim().isNotEmpty &&
+                  passwordController.text.trim().length >= 6) {
+                Navigator.pop(context, true);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                        'Please fill all fields and password must be at least 6 characters'),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.gold,
+              foregroundColor: Colors.black,
+            ),
+            child: const Text('Create Coach'),
+          ),
+        ],
+      ),
+    );
+
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
+    final fullName = nameController.text.trim();
+    emailController.dispose();
+    passwordController.dispose();
+    nameController.dispose();
+
+    if (result == true) {
+      try {
+        await Supabase.instance.client.functions.invoke(
+          'create-coach',
+          body: {
+            'email': email,
+            'password': password,
+            'fullName': fullName,
+          },
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Coach created successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+          _loadCoaches();
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Failed to create coach: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: AppColors.gold,
+        onPressed: _showAddCoachDialog,
+        tooltip: 'Add Coach',
+        child: const Icon(Icons.person_add, color: Colors.black),
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      hintText: 'Search coaches...',
+                      prefixIcon: Icon(Icons.search, color: Colors.grey),
+                      isDense: true,
+                      contentPadding: EdgeInsets.symmetric(vertical: 8),
+                    ),
+                    onChanged: (v) => setState(() => searchQuery = v),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                DropdownButton<String>(
+                  value: filterStatus,
+                  dropdownColor: AppColors.cardDark,
+                  style: const TextStyle(color: Colors.white),
+                  items: const [
+                    DropdownMenuItem(value: 'all', child: Text('All')),
+                    DropdownMenuItem(value: 'active', child: Text('Active')),
+                    DropdownMenuItem(
+                        value: 'inactive', child: Text('Inactive')),
+                  ],
+                  onChanged: (v) => setState(() => filterStatus = v!),
+                ),
+                const SizedBox(width: 8),
+                DropdownButton<String>(
+                  value: sortBy,
+                  dropdownColor: AppColors.cardDark,
+                  style: const TextStyle(color: Colors.white),
+                  items: const [
+                    DropdownMenuItem(value: 'name', child: Text('Name')),
+                    DropdownMenuItem(value: 'members', child: Text('Members')),
+                  ],
+                  onChanged: (v) => setState(() => sortBy = v!),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: isLoading
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppColors.gold),
+                  )
+                : _filteredCoaches.isEmpty
+                    ? const Center(
+                        child: Text(
+                          'No coaches found',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      )
+                    : ListView.builder(
+                        itemCount: _filteredCoaches.length,
+                        itemBuilder: (context, index) {
+                          final c = _filteredCoaches[index];
+                          final isActive = c['is_active'] ?? true;
+                          final memberCount =
+                              (c['assigned_members'] as List?)?.length ?? 0;
+
+                          return Container(
+                            margin: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 4,
+                            ),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.cardDark,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Text(
+                                            c['full_name'] ?? 'Unknown',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                          if (c['role'] == 'head_coach') ...[
+                                            const SizedBox(width: 6),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 6,
+                                                vertical: 2,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: AppColors.gold
+                                                    .withOpacity(0.2),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                                border: Border.all(
+                                                  color: AppColors.gold
+                                                      .withOpacity(0.4),
+                                                ),
+                                              ),
+                                              child: Text(
+                                                'HEAD',
+                                                style: TextStyle(
+                                                  color: AppColors.gold,
+                                                  fontSize: 8,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                      Text(
+                                        c['email'] ?? '',
+                                        style: const TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                      Text(
+                                        '$memberCount members',
+                                        style: const TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: Icon(
+                                    Icons.edit,
+                                    color: isActive ? Colors.blue : Colors.grey,
+                                  ),
+                                  onPressed: () =>
+                                      _showCoachSettings(context, c),
+                                ),
+                                Switch(
+                                  value: isActive,
+                                  activeColor: AppColors.gold,
+                                  onChanged: (_) async {
+                                    await Supabase.instance.client
+                                        .from('profiles')
+                                        .update({'is_active': !isActive}).eq(
+                                            'id', c['id']);
+                                    _loadCoaches();
+                                  },
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showCoachSettings(BuildContext context, Map<String, dynamic> coach) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.cardDark,
+      isScrollControlled: true,
+      builder: (_) => CoachSettingsSheet(coach: coach),
+    );
+  }
+}
+
+class CoachSettingsSheet extends StatefulWidget {
+  final Map<String, dynamic> coach;
+  const CoachSettingsSheet({super.key, required this.coach});
+
+  @override
+  State<CoachSettingsSheet> createState() => _CoachSettingsSheetState();
+}
+
+class _CoachSettingsSheetState extends State<CoachSettingsSheet> {
+  bool canEditDiet = false;
+  bool canEditWorkout = false;
+  bool isLoading = true;
+  bool isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPermissions();
+  }
+
+  Future<void> _loadPermissions() async {
+    setState(() => isLoading = true);
+    try {
+      final data = await Supabase.instance.client
+          .from('coach_permissions')
+          .select()
+          .eq('coach_id', widget.coach['id'])
+          .maybeSingle();
+
+      setState(() {
+        canEditDiet = data?['can_edit_diet'] ?? false;
+        canEditWorkout = data?['can_edit_workout'] ?? false;
+        isLoading = false;
+      });
+    } catch (e) {
+      print('Error loading permissions: $e');
+      setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _savePermissions() async {
+    setState(() => isSaving = true);
+    try {
+      await Supabase.instance.client.from('coach_permissions').upsert({
+        'coach_id': widget.coach['id'],
+        'can_edit_diet': canEditDiet,
+        'can_edit_workout': canEditWorkout,
+      }, onConflict: 'coach_id');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Permissions saved successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to save permissions: $e')),
+        );
+      }
+    } finally {
+      setState(() => isSaving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Permissions for ${widget.coach['full_name'] ?? 'Coach'}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Enable or disable what this coach can do',
+              style: TextStyle(
+                color: Colors.grey.shade400,
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 20),
+            if (isLoading)
+              const Center(
+                child: CircularProgressIndicator(color: AppColors.gold),
+              )
+            else ...[
+              SwitchListTile(
+                title: const Text(
+                  'Can Edit Diet',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Text(
+                  canEditDiet
+                      ? 'Coach can create and modify member diets'
+                      : 'Coach can only view diets',
+                  style: TextStyle(
+                    color: canEditDiet ? Colors.green : Colors.grey,
+                    fontSize: 12,
+                  ),
+                ),
+                value: canEditDiet,
+                activeColor: AppColors.gold,
+                activeTrackColor: AppColors.gold.withOpacity(0.3),
+                inactiveTrackColor: Colors.grey.shade700,
+                onChanged: (v) => setState(() => canEditDiet = v),
+              ),
+              const Divider(color: Colors.white12, height: 1),
+              SwitchListTile(
+                title: const Text(
+                  'Can Edit Workout',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                subtitle: Text(
+                  canEditWorkout
+                      ? 'Coach can create and modify member workouts'
+                      : 'Coach can only view workouts',
+                  style: TextStyle(
+                    color: canEditWorkout ? Colors.green : Colors.grey,
+                    fontSize: 12,
+                  ),
+                ),
+                value: canEditWorkout,
+                activeColor: AppColors.gold,
+                activeTrackColor: AppColors.gold.withOpacity(0.3),
+                inactiveTrackColor: Colors.grey.shade700,
+                onChanged: (v) => setState(() => canEditWorkout = v),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: isSaving ? null : _savePermissions,
+                  child: isSaving
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      : const Text('SAVE PERMISSIONS'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// PAYMENTS TAB — verify member-submitted payments before
+// membership dates are ever written to profiles.
+// ============================================================
+class AdminPaymentsTab extends StatefulWidget {
+  const AdminPaymentsTab({super.key});
+
+  @override
+  State<AdminPaymentsTab> createState() => _AdminPaymentsTabState();
+}
+
+class _AdminPaymentsTabState extends State<AdminPaymentsTab> {
+  bool isLoading = true;
+  List<Map<String, dynamic>> pendingPayments = [];
+  final Set<String> _processingIds = {};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadPending();
+    });
+  }
+
+  Future<void> _loadPending() async {
+    if (!mounted) return;
+    setState(() => isLoading = true);
+    try {
+      final result = await Supabase.instance.client
+          .from('payments')
+          .select(
+              'id, member_id, amount, plan_key, months, payment_date, notes, '
+              'start_date, end_date, is_cash, offer_used, '
+              'profiles!payments_member_id_fkey(full_name, email)')
+          .eq('status', 'pending')
+          .order('payment_date', ascending: true);
+
+      if (mounted) {
+        setState(() {
+          pendingPayments = List<Map<String, dynamic>>.from(result);
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading pending payments: $e');
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _verifyPayment(Map<String, dynamic> payment) async {
+    final paymentId = payment['id'] as String;
+    final memberId = payment['member_id'] as String;
+    setState(() => _processingIds.add(paymentId));
+    try {
+      final adminId = Supabase.instance.client.auth.currentUser!.id;
+
+      // 1. Mark the payment verified
+      await Supabase.instance.client.from('payments').update({
+        'status': 'completed',
+        'verified_at': DateTime.now().toUtc().toIso8601String(),
+        'verified_by': adminId,
+      }).eq('id', paymentId);
+
+      // 2. Only now does the membership actually get extended
+      await Supabase.instance.client.from('profiles').update({
+        'membership_start_date': payment['start_date'],
+        'membership_end_date': payment['end_date'],
+      }).eq('id', memberId);
+
+      if (mounted) {
+        setState(() {
+          pendingPayments.removeWhere((p) => p['id'] == paymentId);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ Payment verified — membership activated'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to verify payment: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _processingIds.remove(paymentId));
+    }
+  }
+
+  Future<void> _rejectPayment(Map<String, dynamic> payment) async {
+    final paymentId = payment['id'] as String;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: const Text('Reject payment?',
+            style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'This member will not be marked as paid and their membership will not change.',
+          style: TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Reject', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _processingIds.add(paymentId));
+    try {
+      final adminId = Supabase.instance.client.auth.currentUser!.id;
+      await Supabase.instance.client.from('payments').update({
+        'status': 'rejected',
+        'verified_at': DateTime.now().toUtc().toIso8601String(),
+        'verified_by': adminId,
+      }).eq('id', paymentId);
+
+      if (mounted) {
+        setState(() {
+          pendingPayments.removeWhere((p) => p['id'] == paymentId);
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Payment rejected')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to reject payment: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _processingIds.remove(paymentId));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.gold),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadPending,
+      color: AppColors.gold,
+      backgroundColor: AppColors.cardDark,
+      child: pendingPayments.isEmpty
+          ? ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 120),
+                Icon(Icons.check_circle_outline, color: Colors.grey, size: 48),
+                SizedBox(height: 12),
+                Center(
+                  child: Text(
+                    'No payments waiting for verification',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+              ],
+            )
+          : ListView.builder(
+              padding: const EdgeInsets.all(16),
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemCount: pendingPayments.length,
+              itemBuilder: (context, index) {
+                final p = pendingPayments[index];
+                final profile = p['profiles'] as Map<String, dynamic>?;
+                final name = profile?['full_name'] ?? 'Unknown member';
+                final email = profile?['email'] ?? '';
+                final date = DateTime.tryParse(p['payment_date'] ?? '');
+                final isBusy = _processingIds.contains(p['id']);
+
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 12),
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: AppColors.cardDark,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.orange.withOpacity(0.4)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  name,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
+                                ),
+                                if (email.isNotEmpty)
+                                  Text(
+                                    email,
+                                    style: const TextStyle(
+                                        color: Colors.grey, fontSize: 12),
+                                  ),
+                              ],
+                            ),
+                          ),
+                          Text(
+                            '₹${(p['amount'] as num).toStringAsFixed(0)}',
+                            style: const TextStyle(
+                              color: AppColors.gold,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 12,
+                        runSpacing: 4,
+                        children: [
+                          _InfoChip(
+                              icon: Icons.calendar_today,
+                              label: '${p['plan_key']} (${p['months']}mo)'),
+                          if (date != null)
+                            _InfoChip(
+                              icon: Icons.schedule,
+                              label:
+                                  'Submitted ${date.day}/${date.month}/${date.year}',
+                            ),
+                          if (p['offer_used'] != null)
+                            _InfoChip(
+                                icon: Icons.local_offer,
+                                label: p['offer_used']),
+                        ],
+                      ),
+                      if (p['notes'] != null &&
+                          (p['notes'] as String).trim().isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          '"${p['notes']}"',
+                          style: const TextStyle(
+                              color: Colors.grey,
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic),
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton.icon(
+                              onPressed:
+                                  isBusy ? null : () => _rejectPayment(p),
+                              icon: const Icon(Icons.close,
+                                  color: Colors.red, size: 18),
+                              label: const Text('Reject',
+                                  style: TextStyle(color: Colors.red)),
+                              style: OutlinedButton.styleFrom(
+                                side: const BorderSide(color: Colors.red),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed:
+                                  isBusy ? null : () => _verifyPayment(p),
+                              icon: isBusy
+                                  ? const SizedBox(
+                                      width: 16,
+                                      height: 16,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2, color: Colors.black),
+                                    )
+                                  : const Icon(Icons.check,
+                                      color: Colors.black, size: 18),
+                              label: const Text('Verify & Activate'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.gold,
+                                foregroundColor: Colors.black,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  const _InfoChip({required this.icon, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: Colors.grey),
+        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+      ],
+    );
+  }
+}
+
+// ============================================================
+// SETTINGS TAB
+// ============================================================
+class AdminSettingsTab extends StatelessWidget {
+  const AdminSettingsTab({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const AdminSettingsScreen();
+  }
+}
+
+// ============================================================
+// MEMBER PAYMENT SHEET
+// ============================================================
+class AdminMemberPaymentSheet extends StatefulWidget {
+  final Map<String, dynamic> member;
+  final VoidCallback onPaymentComplete;
+
+  const AdminMemberPaymentSheet({
+    super.key,
+    required this.member,
+    required this.onPaymentComplete,
+  });
+
+  @override
+  State<AdminMemberPaymentSheet> createState() =>
+      _AdminMemberPaymentSheetState();
+}
+
+class _AdminMemberPaymentSheetState extends State<AdminMemberPaymentSheet> {
+  bool isLoading = true;
+  bool isProcessing = false;
+  Map<String, dynamic>? pricing;
+  Map<String, dynamic>? memberPricing;
+  List<Map<String, dynamic>> payments = [];
+  String? selectedPlan;
+  bool useCustomAmount = false;
+  final TextEditingController _customAmountController = TextEditingController();
+  final TextEditingController _notesController = TextEditingController();
+  bool isCashPayment = false;
+
+  // Custom date controls
+  DateTime? _customStartDate;
+  int? _customDurationMonths;
+  bool _useCustomDates = false;
+
+  final List<Map<String, dynamic>> _plans = [
+    {'key': '1_month', 'label': '1 Month', 'months': 1},
+    {'key': '3_month', 'label': '3 Months', 'months': 3},
+    {'key': '6_month', 'label': '6 Months', 'months': 6},
+    {'key': '1_year', 'label': '1 Year', 'months': 12},
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+    // Initialize custom start date to today
+    _customStartDate = DateTime.now();
+  }
+
+  @override
+  void dispose() {
+    _customAmountController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => isLoading = true);
+    try {
+      pricing =
+          await Supabase.instance.client.from('pricing').select().maybeSingle();
+
+      memberPricing = await Supabase.instance.client
+          .from('member_pricing')
+          .select()
+          .eq('member_id', widget.member['id'])
+          .maybeSingle();
+
+      final paymentData = await Supabase.instance.client
+          .from('payments')
+          .select()
+          .eq('member_id', widget.member['id'])
+          .order('payment_date', ascending: false);
+
+      payments = List<Map<String, dynamic>>.from(paymentData);
+
+      setState(() => isLoading = false);
+    } catch (e) {
+      print('Error loading data: $e');
+      setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _selectStartDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _customStartDate ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: AppColors.gold,
+              onPrimary: Colors.black,
+              surface: AppColors.cardDark,
+              onSurface: Colors.white,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      setState(() => _customStartDate = picked);
+    }
+  }
+
+  double getPlanPrice(String planKey) {
+    if (memberPricing != null && memberPricing![planKey] != null) {
+      return (memberPricing![planKey] as num).toDouble();
+    }
+    return (pricing?[planKey] as num?)?.toDouble() ?? 0;
+  }
+
+  Future<void> _processPayment() async {
+    if (selectedPlan == null && !_useCustomDates) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Please select a plan or use custom dates')),
+      );
+      return;
+    }
+
+    // ✅ Fix: If using custom dates but no plan selected, use a default
+    if (_useCustomDates && selectedPlan == null) {
+      // Use a default plan for display purposes
+      selectedPlan = '1_month';
+    }
+
+    setState(() => isProcessing = true);
+
+    try {
+      // ✅ Fix: Safely find plan with null check
+      final plan = _plans.firstWhere(
+        (p) => p['key'] == selectedPlan,
+        orElse: () => _plans.first, // Fallback to first plan if not found
+      );
+      final amount = useCustomAmount
+          ? double.tryParse(_customAmountController.text) ?? 0
+          : getPlanPrice(selectedPlan!);
+      final months = _useCustomDates
+          ? (_customDurationMonths ?? 0)
+          : (plan['months'] as int);
+
+      if (months <= 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please select a valid duration')),
+        );
+        setState(() => isProcessing = false);
+        return;
+      }
+
+      // Use custom start date if provided, otherwise use current date
+      final startDate = _useCustomDates && _customStartDate != null
+          ? _customStartDate!
+          : DateTime.now();
+
+      DateTime newEndDate = DateTime(
+        startDate.year,
+        startDate.month + months,
+        startDate.day,
+      );
+
+      await Supabase.instance.client.from('payments').insert({
+        'member_id': widget.member['id'],
+        'amount': amount,
+        'plan_key': selectedPlan ?? 'custom',
+        'months': months,
+        'status': 'completed',
+        'payment_date': DateTime.now().toUtc().toIso8601String(),
+        'notes': _notesController.text.trim(),
+        'is_cash': isCashPayment,
+        'start_date': startDate.toIso8601String().substring(0, 10),
+        'end_date': newEndDate.toIso8601String().substring(0, 10),
+        'is_manual': _useCustomDates,
+      });
+
+      await Supabase.instance.client.from('profiles').update({
+        'membership_start_date': startDate.toIso8601String().substring(0, 10),
+        'membership_end_date': newEndDate.toIso8601String().substring(0, 10),
+      }).eq('id', widget.member['id']);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Membership updated successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        widget.onPaymentComplete();
+        Navigator.pop(context);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Update failed: $e')),
+        );
+      }
+    } finally {
+      setState(() => isProcessing = false);
+    }
+  }
+
+  Future<void> _setCustomPrice() async {
+    final controller = TextEditingController();
+    final result = await showDialog<double>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: const Text(
+          'Set Custom Price',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Override standard price for this member',
+              style: TextStyle(color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: controller,
+              keyboardType: TextInputType.number,
+              style: const TextStyle(color: Colors.white),
+              decoration: const InputDecoration(
+                prefixText: '₹ ',
+                hintText: 'Enter custom amount',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final val = double.tryParse(controller.text);
+              if (val != null && val > 0) {
+                Navigator.pop(context, val);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null) {
+      setState(() {
+        useCustomAmount = true;
+        _customAmountController.text = result.toString();
+      });
+    }
+  }
+
+  int _getDaysLeft(String? endDateStr) {
+    if (endDateStr == null) return -1;
+    try {
+      final endDate = DateTime.parse(endDateStr);
+      final now = DateTime.now();
+      return endDate.difference(now).inDays;
+    } catch (e) {
+      return -1;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.gold),
+      );
+    }
+
+    final daysLeft = _getDaysLeft(widget.member['membership_end_date']);
+
+    return Padding(
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Payment for ${widget.member['full_name'] ?? 'Member'}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: daysLeft > 0
+                          ? Colors.green.withOpacity(0.2)
+                          : Colors.red.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: daysLeft > 0 ? Colors.green : Colors.red,
+                      ),
+                    ),
+                    child: Text(
+                      daysLeft > 0 ? '$daysLeft days left' : 'Expired',
+                      style: TextStyle(
+                        color: daysLeft > 0 ? Colors.green : Colors.red,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              // ✅ Custom Date Override Toggle
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text(
+                  'Manual Date Override',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+                subtitle: Text(
+                  _useCustomDates
+                      ? 'Set custom start date and duration'
+                      : 'Use plan-based dates',
+                  style: TextStyle(
+                    color: _useCustomDates ? AppColors.gold : Colors.grey,
+                    fontSize: 11,
+                  ),
+                ),
+                value: _useCustomDates,
+                activeColor: AppColors.gold,
+                activeTrackColor: AppColors.gold.withOpacity(0.3),
+                inactiveTrackColor: Colors.grey.shade700,
+                onChanged: (v) => setState(() {
+                  _useCustomDates = v;
+                  if (v) {
+                    // Auto-select a default plan duration
+                    selectedPlan = '1_month';
+                    _customDurationMonths = 1;
+                  }
+                }),
+              ),
+
+              if (_useCustomDates) ...[
+                const SizedBox(height: 8),
+                // Start Date Picker
+                GestureDetector(
+                  onTap: _selectStartDate,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 14,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardDark,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: AppColors.gold.withOpacity(0.3),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.calendar_today,
+                          color: AppColors.gold,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _customStartDate != null
+                                ? 'Start Date: ${_customStartDate!.day.toString().padLeft(2, '0')}-${_customStartDate!.month.toString().padLeft(2, '0')}-${_customStartDate!.year}'
+                                : 'Select Start Date',
+                            style: TextStyle(
+                              color: _customStartDate != null
+                                  ? Colors.white
+                                  : Colors.grey,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        Icon(
+                          Icons.arrow_drop_down,
+                          color: AppColors.gold,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                // Duration Selection
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'DURATION (MONTHS)',
+                        style: TextStyle(
+                          color: Colors.grey,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [1, 3, 6, 12].map((months) {
+                          final isSelected = _customDurationMonths == months;
+                          return GestureDetector(
+                            onTap: () => setState(() {
+                              _customDurationMonths = months;
+                              selectedPlan = null;
+                            }),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? AppColors.gold.withOpacity(0.2)
+                                    : AppColors.cardDark,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AppColors.gold
+                                      : Colors.white.withOpacity(0.1),
+                                  width: isSelected ? 2 : 1,
+                                ),
+                              ),
+                              child: Text(
+                                '$months mo',
+                                style: TextStyle(
+                                  color: isSelected
+                                      ? AppColors.gold
+                                      : Colors.white,
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              const SizedBox(height: 8),
+              const Text(
+                'SELECT PLAN',
+                style: TextStyle(
+                  color: AppColors.gold,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _plans.map((plan) {
+                  final key = plan['key'] as String;
+                  final isSelected = selectedPlan == key;
+                  final price = getPlanPrice(key);
+                  return GestureDetector(
+                    onTap: _useCustomDates
+                        ? null
+                        : () {
+                            setState(() {
+                              selectedPlan = key;
+                              useCustomAmount = false;
+                            });
+                          },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? AppColors.gold.withOpacity(0.2)
+                            : AppColors.cardDark,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: isSelected
+                              ? AppColors.gold
+                              : Colors.white.withOpacity(0.1),
+                          width: isSelected ? 2 : 1,
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            plan['label'] as String,
+                            style: TextStyle(
+                              color: isSelected ? AppColors.gold : Colors.white,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          Text(
+                            '₹${price.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              color: isSelected ? AppColors.gold : Colors.grey,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  if (memberPricing != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: const Text(
+                        'Custom Pricing Active',
+                        style: TextStyle(
+                          color: Colors.orange,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  const Spacer(),
+                  TextButton.icon(
+                    icon: const Icon(Icons.edit, size: 16),
+                    label: const Text('Set Custom Price'),
+                    onPressed: _setCustomPrice,
+                  ),
+                ],
+              ),
+              if (useCustomAmount) ...[
+                const SizedBox(height: 8),
+                TextField(
+                  controller: _customAmountController,
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    prefixText: '₹ ',
+                    labelText: 'Custom amount',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.all(Radius.circular(8)),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 12),
+              TextField(
+                controller: _notesController,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  labelText: 'Notes (optional)',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.all(Radius.circular(8)),
+                  ),
+                ),
+                maxLines: 2,
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Checkbox(
+                    value: isCashPayment,
+                    onChanged: (v) =>
+                        setState(() => isCashPayment = v ?? false),
+                    activeColor: AppColors.gold,
+                  ),
+                  const Text(
+                    'Cash payment (record manually)',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: isProcessing ? null : _processPayment,
+                  child: isProcessing
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.black,
+                          ),
+                        )
+                      : const Text('RECORD PAYMENT'),
+                ),
+              ),
+              if (payments.isNotEmpty) ...[
+                const Divider(color: Colors.white12),
+                const SizedBox(height: 8),
+                const Text(
+                  'PAYMENT HISTORY',
+                  style: TextStyle(
+                    color: AppColors.gold,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: payments.length > 5 ? 5 : payments.length,
+                    itemBuilder: (context, index) {
+                      final p = payments[index];
+                      final date = DateTime.parse(p['payment_date']);
+                      return ListTile(
+                        dense: true,
+                        title: Text(
+                          '₹${(p['amount'] as num).toStringAsFixed(0)}',
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        subtitle: Text(
+                          '${p['plan_key']} · ${date.day}/${date.month}/${date.year}',
+                          style:
+                              const TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                        trailing: Text(
+                          p['status'] ?? 'completed',
+                          style: TextStyle(
+                            color: p['status'] == 'completed'
+                                ? Colors.green
+                                : Colors.orange,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                if (payments.length > 5)
+                  TextButton(
+                    onPressed: () => _showFullPaymentHistory(),
+                    child: const Text('View all payments'),
+                  ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showFullPaymentHistory() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.cardDark,
+      isScrollControlled: true,
+      builder: (_) => Container(
+        padding: const EdgeInsets.all(20),
+        height: MediaQuery.of(context).size.height * 0.7,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'All Payments',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Expanded(
+              child: ListView.builder(
+                itemCount: payments.length,
+                itemBuilder: (context, index) {
+                  final p = payments[index];
+                  final date = DateTime.parse(p['payment_date']);
+                  return ListTile(
+                    title: Text(
+                      '₹${(p['amount'] as num).toStringAsFixed(0)}',
+                      style: const TextStyle(color: Colors.white),
+                    ),
+                    subtitle: Text(
+                      '${p['plan_key']} · ${date.day}/${date.month}/${date.year}',
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                    trailing: Text(
+                      p['notes'] ?? '',
+                      style: const TextStyle(color: Colors.grey, fontSize: 12),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
