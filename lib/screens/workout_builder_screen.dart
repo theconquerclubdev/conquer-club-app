@@ -205,7 +205,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
         isLoading = false;
       });
     } catch (e) {
-      print('Error loading workout: $e');
+      debugPrint('Error loading workout: $e');
       setState(() => isLoading = false);
     }
   }

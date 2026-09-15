@@ -117,7 +117,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         setState(() => isLoading = false);
       }
     } on PostgrestException catch (e) {
-      print('Error loading payment data: $e');
+      debugPrint('Error loading payment data: $e');
       if (mounted) {
         setState(() => isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -129,7 +129,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         );
       }
     } catch (e) {
-      print('Error loading payment data: $e');
+      debugPrint('Error loading payment data: $e');
       if (mounted) {
         setState(() => isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(

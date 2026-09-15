@@ -59,7 +59,7 @@ class _DietViewScreenState extends State<DietViewScreen> {
         isLoading = false;
       });
     } catch (e) {
-      print('Error loading diet: $e');
+      debugPrint('Error loading diet: $e');
       setState(() => isLoading = false);
     }
   }

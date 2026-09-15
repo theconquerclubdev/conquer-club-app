@@ -53,7 +53,7 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
   Future<void> _loadData() async {
     setState(() => isLoading = true);
     try {
-      print('🔄 Loading payment data for member: ${widget.memberId}');
+      debugPrint('🔄 Loading payment data for member: ${widget.memberId}');
 
       // 1. Check if member has an offer assigned
       final offerData = await Supabase.instance.client
@@ -68,8 +68,8 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
         hasOffer = true;
         offerName = offer['name'] as String?;
         selectedPricingType = 'offer'; // ✅ Set pricing type
-        print('✅ Using OFFER: $offerName');
-        print(
+        debugPrint('✅ Using OFFER: $offerName');
+        debugPrint(
             '   Prices: 1M=${offer['1_month']}, 3M=${offer['3_month']}, 6M=${offer['6_month']}, 12M=${offer['1_year']}');
       } else {
         // 2. Use standard pricing
@@ -82,8 +82,8 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
         if (standardPricing != null) {
           pricing = standardPricing;
           selectedPricingType = 'standard'; // ✅ Set pricing type
-          print('✅ Using STANDARD pricing');
-          print(
+          debugPrint('✅ Using STANDARD pricing');
+          debugPrint(
               '   Prices: 1M=${standardPricing['1_month']}, 3M=${standardPricing['3_month']}, 6M=${standardPricing['6_month']}, 12M=${standardPricing['1_year']}');
         } else {
           // 3. Fallback defaults
@@ -94,14 +94,14 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
             '1_year': 12000,
           };
           selectedPricingType = 'standard'; // ✅ Set pricing type
-          print('⚠️ Using FALLBACK default pricing');
+          debugPrint('⚠️ Using FALLBACK default pricing');
         }
         hasOffer = false;
       }
 
       setState(() => isLoading = false);
     } on PostgrestException catch (e) {
-      print('❌ Error loading pricing: $e');
+      debugPrint('❌ Error loading pricing: $e');
       setState(() => isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -113,7 +113,7 @@ class _MemberPaymentSheetState extends State<MemberPaymentSheet> {
         );
       }
     } catch (e) {
-      print('❌ Error loading pricing: $e');
+      debugPrint('❌ Error loading pricing: $e');
       setState(() => isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

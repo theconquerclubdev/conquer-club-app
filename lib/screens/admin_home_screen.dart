@@ -168,7 +168,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
             .eq('status', 'pending');
         pendingCount = (pending as List).length;
       } catch (e) {
-        print('Error loading pending payments count: $e');
+        debugPrint('Error loading pending payments count: $e');
       }
 
       if (mounted) {
@@ -190,7 +190,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
         });
       }
     } on PostgrestException catch (e) {
-      print('Error loading stats: $e');
+      debugPrint('Error loading stats: $e');
       if (mounted) {
         setState(() => isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -202,7 +202,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
         );
       }
     } catch (e) {
-      print('Error loading stats: $e');
+      debugPrint('Error loading stats: $e');
       if (mounted) {
         setState(() => isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1417,7 +1417,7 @@ class _AdminCoachesTabState extends State<AdminCoachesTab> {
         isLoading = false;
       });
     } catch (e) {
-      print('Error loading coaches: $e');
+      debugPrint('Error loading coaches: $e');
       setState(() => isLoading = false);
     }
   }
@@ -1785,7 +1785,7 @@ class _CoachSettingsSheetState extends State<CoachSettingsSheet> {
         isLoading = false;
       });
     } catch (e) {
-      print('Error loading permissions: $e');
+      debugPrint('Error loading permissions: $e');
       setState(() => isLoading = false);
     }
   }
@@ -1969,7 +1969,7 @@ class _AdminPaymentsTabState extends State<AdminPaymentsTab> {
         });
       }
     } catch (e) {
-      print('Error loading pending payments: $e');
+      debugPrint('Error loading pending payments: $e');
       if (mounted) setState(() => isLoading = false);
     }
   }
@@ -2341,7 +2341,7 @@ class _AdminMemberPaymentSheetState extends State<AdminMemberPaymentSheet> {
 
       setState(() => isLoading = false);
     } catch (e) {
-      print('Error loading data: $e');
+      debugPrint('Error loading data: $e');
       setState(() => isLoading = false);
     }
   }

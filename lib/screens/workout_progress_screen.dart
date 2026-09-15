@@ -88,7 +88,7 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
         });
       }
     } on PostgrestException catch (e) {
-      print('Error loading strength records: $e');
+      debugPrint('Error loading strength records: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -97,7 +97,7 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
         });
       }
     } catch (e) {
-      print('Error loading strength records: $e');
+      debugPrint('Error loading strength records: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;

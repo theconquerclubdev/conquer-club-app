@@ -13,15 +13,44 @@ class AdminSettingsScreen extends StatefulWidget {
 class _AdminSettingsScreenState extends State<AdminSettingsScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  int _pendingDeletionCount = 0;
+  RealtimeChannel? _deletionRequestsChannel;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 5, vsync: this);
+    _tabController = TabController(length: 6, vsync: this);
+    _loadPendingDeletionCount();
+    // Small, admin-only realtime channel just for the badge — separate
+    // from MasterDataProvider's tables since this is a new, unrelated one.
+    _deletionRequestsChannel = Supabase.instance.client
+        .channel('public:account_deletion_requests:admin')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'account_deletion_requests',
+          callback: (_) => _loadPendingDeletionCount(),
+        )
+        .subscribe();
+  }
+
+  Future<void> _loadPendingDeletionCount() async {
+    try {
+      final result = await Supabase.instance.client
+          .from('account_deletion_requests')
+          .select('id')
+          .eq('status', 'pending');
+      if (mounted) {
+        setState(() => _pendingDeletionCount = (result as List).length);
+      }
+    } catch (e) {
+      debugPrint('Error loading pending deletion count: $e');
+    }
   }
 
   @override
   void dispose() {
+    _deletionRequestsChannel?.unsubscribe();
     _tabController.dispose();
     super.dispose();
   }
@@ -54,12 +83,19 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen>
           indicatorColor: AppColors.gold,
           labelColor: AppColors.gold,
           unselectedLabelColor: Colors.grey,
-          tabs: const [
-            Tab(text: 'Standard Pricing'),
-            Tab(text: 'Offers'),
-            Tab(text: 'Exercises'),
-            Tab(text: 'Food'),
-            Tab(text: 'Categories'),
+          tabs: [
+            const Tab(text: 'Standard Pricing'),
+            const Tab(text: 'Offers'),
+            const Tab(text: 'Exercises'),
+            const Tab(text: 'Food'),
+            const Tab(text: 'Categories'),
+            Tab(
+              child: Badge(
+                label: Text('$_pendingDeletionCount'),
+                isLabelVisible: _pendingDeletionCount > 0,
+                child: const Text('Deletion Requests'),
+              ),
+            ),
           ],
         ),
       ),
@@ -71,6 +107,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen>
           _ExercisesTab(),
           _FoodTab(),
           _CategoriesTab(),
+          _DeletionRequestsTab(),
         ],
       ),
     );
@@ -156,7 +193,7 @@ class _StandardPricingTabState extends State<_StandardPricingTab> {
 
       setState(() => isLoading = false);
     } catch (e) {
-      print('Error loading prices: $e');
+      debugPrint('Error loading prices: $e');
       setState(() => isLoading = false);
     }
   }
@@ -355,7 +392,7 @@ class _OffersTabState extends State<_OffersTab> {
       // ✅ Load members with pagination
       await _loadMembersPaginated(reset: true);
     } catch (e) {
-      print('Error loading data: $e');
+      debugPrint('Error loading data: $e');
       if (mounted) setState(() => isLoading = false);
     }
   }
@@ -378,7 +415,7 @@ class _OffersTabState extends State<_OffersTab> {
         memberOfferMap = tempMap;
       });
     } catch (e) {
-      print('Error loading member offer map: $e');
+      debugPrint('Error loading member offer map: $e');
     }
   }
 
@@ -430,7 +467,7 @@ class _OffersTabState extends State<_OffersTab> {
         isLoadingMembers = false;
       });
     } catch (e) {
-      print('Error loading members: $e');
+      debugPrint('Error loading members: $e');
       setState(() => isLoadingMembers = false);
     }
   }
@@ -722,7 +759,7 @@ class _OfferCardState extends State<_OfferCard> {
         }
       });
     } catch (e) {
-      print('Error loading assigned members: $e');
+      debugPrint('Error loading assigned members: $e');
     }
   }
 
@@ -1604,7 +1641,7 @@ class _ExercisesTabState extends State<_ExercisesTab> {
         isLoadingMore = false;
       });
     } catch (e) {
-      print('Error loading exercises: $e');
+      debugPrint('Error loading exercises: $e');
       setState(() {
         isLoading = false;
         isLoadingMore = false;
@@ -2019,7 +2056,7 @@ class _FoodTabState extends State<_FoodTab> {
         isLoading = false;
       });
     } catch (e) {
-      print('Error loading foods: $e');
+      debugPrint('Error loading foods: $e');
       setState(() => isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2238,7 +2275,7 @@ class _FoodTabState extends State<_FoodTab> {
         );
       }
     } catch (e) {
-      print('Error adding food: $e');
+      debugPrint('Error adding food: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to add food: $e')),
@@ -2283,7 +2320,7 @@ class _FoodTabState extends State<_FoodTab> {
         );
       }
     } catch (e) {
-      print('Error deleting food: $e');
+      debugPrint('Error deleting food: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to delete: $e')),
@@ -2306,7 +2343,7 @@ class _FoodTabState extends State<_FoodTab> {
         );
       }
     } catch (e) {
-      print('Error changing category: $e');
+      debugPrint('Error changing category: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to update category: $e')),
@@ -2470,7 +2507,7 @@ class _CategoriesTabState extends State<_CategoriesTab> {
         isLoading = false;
       });
     } catch (e) {
-      print('Error loading categories: $e');
+      debugPrint('Error loading categories: $e');
       setState(() => isLoading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2663,6 +2700,206 @@ class _CategoriesTabState extends State<_CategoriesTab> {
                 ),
               ],
             ),
+    );
+  }
+}
+// ============================================================
+// DELETION REQUESTS TAB
+// ============================================================
+class _DeletionRequestsTab extends StatefulWidget {
+  const _DeletionRequestsTab();
+
+  @override
+  State<_DeletionRequestsTab> createState() => _DeletionRequestsTabState();
+}
+
+class _DeletionRequestsTabState extends State<_DeletionRequestsTab> {
+  bool isLoading = true;
+  List<Map<String, dynamic>> requests = [];
+  final Set<String> _processingIds = {};
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadRequests();
+    });
+  }
+
+  Future<void> _loadRequests() async {
+    if (!mounted) return;
+    setState(() => isLoading = true);
+    try {
+      final result = await Supabase.instance.client
+          .from('account_deletion_requests')
+          .select('id, email, full_name, requested_at, status')
+          .eq('status', 'pending')
+          .order('requested_at', ascending: true);
+      if (mounted) {
+        setState(() {
+          requests = List<Map<String, dynamic>>.from(result);
+          isLoading = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading deletion requests: $e');
+      if (mounted) setState(() => isLoading = false);
+    }
+  }
+
+  Future<void> _approve(String requestId, String email) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: const Text('Approve deletion?',
+            style: TextStyle(color: Colors.white)),
+        content: Text(
+          'This will permanently delete $email and all their data '
+          '(workouts, diets, photos, payments, everything). This cannot '
+          'be undone.',
+          style: const TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Approve & Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    setState(() => _processingIds.add(requestId));
+    try {
+      await Supabase.instance.client
+          .rpc('approve_account_deletion', params: {'p_request_id': requestId});
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('$email has been deleted')),
+        );
+      }
+      await _loadRequests();
+    } catch (e) {
+      debugPrint('Error approving deletion: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to approve. Please try again.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _processingIds.remove(requestId));
+    }
+  }
+
+  Future<void> _reject(String requestId) async {
+    setState(() => _processingIds.add(requestId));
+    try {
+      await Supabase.instance.client
+          .rpc('reject_account_deletion', params: {'p_request_id': requestId});
+      await _loadRequests();
+    } catch (e) {
+      debugPrint('Error rejecting deletion: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to reject. Please try again.')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _processingIds.remove(requestId));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isLoading) {
+      return const Center(
+          child: CircularProgressIndicator(color: AppColors.gold));
+    }
+    if (requests.isEmpty) {
+      return Center(
+        child: Text('No pending deletion requests',
+            style: TextStyle(color: Colors.grey[600])),
+      );
+    }
+    return RefreshIndicator(
+      onRefresh: _loadRequests,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: requests.length,
+        itemBuilder: (context, index) {
+          final r = requests[index];
+          final id = r['id'] as String;
+          final isProcessing = _processingIds.contains(id);
+          final requestedAt = DateTime.tryParse(r['requested_at'] ?? '');
+          return Card(
+            color: AppColors.cardDark,
+            margin: const EdgeInsets.only(bottom: 12),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(r['full_name'] ?? 'Unknown',
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 16)),
+                  const SizedBox(height: 4),
+                  Text(r['email'] ?? '',
+                      style: const TextStyle(color: Colors.grey)),
+                  if (requestedAt != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Requested ${requestedAt.toLocal()}',
+                      style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed:
+                              isProcessing ? null : () => _reject(id),
+                          style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.grey),
+                          child: const Text('Reject'),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: isProcessing
+                              ? null
+                              : () => _approve(id, r['email'] ?? ''),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.red,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: isProcessing
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Text('Approve & Delete'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 }

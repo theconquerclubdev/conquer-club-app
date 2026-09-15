@@ -115,7 +115,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
         });
       }
     } catch (e) {
-      print('Error loading permissions: $e');
+      debugPrint('Error loading permissions: $e');
       if (mounted) {
         setState(() {
           canEditDiet = false;
@@ -176,10 +176,10 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
       // ✅ DEBUG: Check if current_streak is in the data
       if (results.isNotEmpty) {
         final firstMember = results.first;
-        print('🔍 First member keys: ${firstMember.keys}');
-        print('🔍 current_streak value: ${firstMember['current_streak']}');
-        print('🔍 days_left: ${firstMember['days_left']}');
-        print('🔍 is_active: ${firstMember['is_active']}');
+        debugPrint('🔍 First member keys: ${firstMember.keys}');
+        debugPrint('🔍 current_streak value: ${firstMember['current_streak']}');
+        debugPrint('🔍 days_left: ${firstMember['days_left']}');
+        debugPrint('🔍 is_active: ${firstMember['is_active']}');
       }
 
       if (mounted) {
@@ -203,7 +203,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
         unawaited(_loadStats());
       }
     } on PostgrestException catch (e) {
-      print('Error loading members: $e');
+      debugPrint('Error loading members: $e');
       if (mounted) {
         setState(() {
           isLoading = false;
@@ -218,7 +218,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
         );
       }
     } catch (e) {
-      print('Error loading members: $e');
+      debugPrint('Error loading members: $e');
       if (mounted) {
         setState(() {
           isLoading = false;
@@ -266,7 +266,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
         expiringIn7Days = (stats['expiring_in_7_days'] as num?)?.toInt() ?? 0;
       });
     } catch (e) {
-      print('Error loading stats: $e');
+      debugPrint('Error loading stats: $e');
     }
   }
 
@@ -1052,7 +1052,7 @@ class _MemberCard extends StatelessWidget {
     final daysLeft = member['days_left'] as int?;
 
     // ✅ DEBUG: Log streak values for this member
-    print(
+    debugPrint(
         '🔍 Member: $name, current_streak: $currentStreak, daysLeft: $daysLeft, isActive: $isActive');
 
     // ✅ Membership days left

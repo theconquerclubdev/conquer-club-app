@@ -17,6 +17,7 @@ import 'step_counter_screen.dart';
 import 'workout_day_session_screen.dart';
 import 'member_diet_preview_loader.dart';
 import 'member_profile_edit_screen.dart';
+import 'member_settings_screen.dart';
 import 'member_progress_screen.dart';
 import 'workout_progress_screen.dart';
 import 'member_payment_sheet.dart';
@@ -212,7 +213,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final granted = hasPermission ||
           await health.requestAuthorization(types, permissions: permissions);
       if (!granted) {
-        print('⚠️ Health permission denied');
+        debugPrint('⚠️ Health permission denied');
         return false;
       }
 
@@ -237,7 +238,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       );
       return true;
     } catch (_) {
-      print('❌ Health API failed: $_');
+      debugPrint('❌ Health API failed: $_');
       return false;
     }
   }
@@ -689,7 +690,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         );
       }
     } on AuthException catch (e) {
-      print('Error loading profile: $e');
+      debugPrint('Error loading profile: $e');
       if (mounted) {
         setState(() => isLoadingProfile = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -700,7 +701,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         );
       }
     } on PostgrestException catch (e) {
-      print('Error loading profile: $e');
+      debugPrint('Error loading profile: $e');
       if (mounted) {
         setState(() => isLoadingProfile = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -713,7 +714,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         );
       }
     } catch (e) {
-      print('Error loading profile: $e');
+      debugPrint('Error loading profile: $e');
       if (mounted) {
         setState(() => isLoadingProfile = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -995,7 +996,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   void _openMeasurements() {
-    print('📏 Opening Measurements from Sunday task');
+    debugPrint('📏 Opening Measurements from Sunday task');
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const MeasurementsScreen()),
@@ -1637,6 +1638,22 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
                 ),
               ),
               IconButton(
+                icon: const Icon(Icons.settings_outlined,
+                    color: Colors.grey, size: 20),
+                tooltip: 'Settings',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => const MemberSettingsScreen()),
+                  );
+                  loadProfile();
+                },
+              ),
+              const SizedBox(width: 4),
+              IconButton(
                 icon: const Icon(Icons.logout, color: Colors.grey, size: 20),
                 tooltip: 'Logout',
                 padding: EdgeInsets.zero,
@@ -1855,19 +1872,6 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _buildQuickActionIcon(
-              Icons.person_outline,
-              AppColors.gold,
-              () async {
-                await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => const MemberProfileEditScreen(),
-                  ),
-                );
-                loadProfile();
-              },
-            ),
             _buildQuickActionIcon(
               Icons.straighten,
               const Color(0xFF4FC3F7),

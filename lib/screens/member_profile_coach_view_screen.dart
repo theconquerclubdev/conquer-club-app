@@ -174,10 +174,9 @@ class _MemberProfileCoachViewScreenState
           isLoading = false;
         });
         // ✅ DEBUG: Print membership values
-        print('🔍 Member: ${widget.member['full_name']}');
-        print('🔍 daysLeft from dashboard: $daysLeft');
-        print('🔍 isMembershipActive from dashboard: $isMembershipActive');
-        print(
+        debugPrint('🔍 daysLeft from dashboard: $daysLeft');
+        debugPrint('🔍 isMembershipActive from dashboard: $isMembershipActive');
+        debugPrint(
           '🔍 membership_end_date from profile: ${profile?['membership_end_date']}',
         );
       }

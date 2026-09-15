@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:conquer_club/screens/onboarding_screen.dart';
 import 'package:conquer_club/screens/login_screen.dart';
 import '../theme/app_theme.dart';
+
+const String kTermsAndConditionsUrl =
+    'https://theconquerclubdev.github.io/theconquerclub.github.io/terms.html';
+const String kPrivacyPolicyUrl =
+    'https://theconquerclubdev.github.io/theconquerclub.github.io/privacy.html';
 
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
@@ -16,11 +23,21 @@ class _SignupScreenState extends State<SignupScreen> {
   final _passwordController = TextEditingController();
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _agreedToTerms = false;
 
   Future<void> _signUp() async {
     if (_emailController.text.isEmpty || _passwordController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill all fields')),
+      );
+      return;
+    }
+
+    if (!_agreedToTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Please agree to the Terms & Conditions and Privacy Policy to continue')),
       );
       return;
     }
@@ -203,12 +220,80 @@ class _SignupScreenState extends State<SignupScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 20),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: Checkbox(
+                        value: _agreedToTerms,
+                        activeColor: Colors.orange,
+                        side: const BorderSide(color: Colors.grey),
+                        onChanged: (v) =>
+                            setState(() => _agreedToTerms = v ?? false),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () =>
+                            setState(() => _agreedToTerms = !_agreedToTerms),
+                        child: RichText(
+                          text: TextSpan(
+                            style: const TextStyle(
+                                color: Colors.grey, fontSize: 13),
+                            children: [
+                              const TextSpan(text: 'I agree to the '),
+                              TextSpan(
+                                text: 'Terms & Conditions',
+                                style: const TextStyle(
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.w600,
+                                  decoration: TextDecoration.underline,
+                                ),
+                                recognizer: TapGestureRecognizer()
+                                  ..onTap = () async {
+                                    final uri =
+                                        Uri.tryParse(kTermsAndConditionsUrl);
+                                    if (uri != null) {
+                                      await launchUrl(uri,
+                                          mode: LaunchMode.externalApplication);
+                                    }
+                                  },
+                              ),
+                              const TextSpan(text: ' and '),
+                              TextSpan(
+                                text: 'Privacy Policy',
+                                style: const TextStyle(
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.w600,
+                                  decoration: TextDecoration.underline,
+                                ),
+                                recognizer: TapGestureRecognizer()
+                                  ..onTap = () async {
+                                    final uri = Uri.tryParse(kPrivacyPolicyUrl);
+                                    if (uri != null) {
+                                      await launchUrl(uri,
+                                          mode: LaunchMode.externalApplication);
+                                    }
+                                  },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
                 ElevatedButton(
-                  onPressed: _isLoading ? null : _signUp,
+                  onPressed: (_isLoading || !_agreedToTerms) ? null : _signUp,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.orange,
                     foregroundColor: Colors.black,
+                    disabledBackgroundColor: Colors.orange.withOpacity(0.3),
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),

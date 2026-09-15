@@ -279,8 +279,8 @@ class _StreaksTabState extends State<StreaksTab> {
           totalDays > 0 ? (totalStreaks / totalDays * 100).round() : 0;
 
       if (mounted) {
-        print('🔍 Current streak from MasterDataProvider: $currentStreak');
-        print('🔍 Calculated highestStreak: $highestStreak');
+        debugPrint('🔍 Current streak from MasterDataProvider: $currentStreak');
+        debugPrint('🔍 Calculated highestStreak: $highestStreak');
         setState(() {
           _streaks = history;
           _stats = {
@@ -295,7 +295,7 @@ class _StreaksTabState extends State<StreaksTab> {
         });
       }
     } catch (e) {
-      print('Error loading streak data: $e');
+      debugPrint('Error loading streak data: $e');
       if (mounted) {
         setState(() => _isLoading = false);
       }

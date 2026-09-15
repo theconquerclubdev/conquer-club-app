@@ -175,7 +175,7 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
         });
       }
     } catch (e) {
-      print('Error loading progress photos: $e');
+      debugPrint('Error loading progress photos: $e');
     } finally {
       if (mounted) setState(() => _loading = false);
       _isLoadingPhotos = false;
@@ -290,7 +290,7 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
 
       return compressed ?? bytes;
     } catch (e) {
-      print('Web compression error: $e');
+      debugPrint('Web compression error: $e');
       rethrow;
     }
   }
@@ -420,7 +420,7 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
       } while (result != null && result.length > _maxBytes && quality >= 20);
       return result;
     } catch (e) {
-      print('Compression error: $e');
+      debugPrint('Compression error: $e');
       return null;
     }
   }
