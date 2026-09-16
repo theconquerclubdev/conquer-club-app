@@ -60,6 +60,9 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   bool canEditWorkout = false;
   bool isLoadingPermissions = true;
 
+  // Account deletion request status (coach)
+  bool _checkingDeletionRequest = true;
+  bool _hasPendingDeletionRequest = false;
   @override
   void initState() {
     super.initState();
@@ -82,6 +85,108 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   Future<void> _loadPermissionsAndMembers() async {
     await _loadPermissions();
     await loadMembers();
+  }
+
+  Future<void> _checkExistingDeletionRequest() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final existing = await Supabase.instance.client
+          .from('account_deletion_requests')
+          .select('id')
+          .eq('member_id', userId)
+          .eq('status', 'pending')
+          .maybeSingle();
+      if (mounted) {
+        setState(() {
+          _hasPendingDeletionRequest = existing != null;
+          _checkingDeletionRequest = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error checking deletion request: $e');
+      if (mounted) setState(() => _checkingDeletionRequest = false);
+    }
+  }
+
+  Future<void> _confirmAndRequestCoachDeletion() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.cardDark,
+        title: const Text('Delete your account?',
+            style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'This will permanently delete your coach account and all your '
+          'data. This cannot be undone.\n\n'
+          'Your account will be deleted within 48 hours after your request '
+          'is reviewed.',
+          style: TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete My Account'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
+      if (user == null) return;
+
+      final profile = await Supabase.instance.client
+          .from('profiles')
+          .select('email, full_name')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      await Supabase.instance.client.from('account_deletion_requests').insert({
+        'member_id': user.id,
+        'email': profile?['email'] ?? user.email ?? '',
+        'full_name': profile?['full_name'],
+      });
+
+      if (mounted) {
+        setState(() => _hasPendingDeletionRequest = true);
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppColors.cardDark,
+            title: const Text('Request received',
+                style: TextStyle(color: Colors.white)),
+            content: const Text(
+              'Your account will be deleted within 48 hours. You can keep '
+              'using the app until then.',
+              style: TextStyle(color: Colors.grey),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error requesting account deletion: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Something went wrong. Please try again.')),
+        );
+      }
+    }
   }
 
   Future<void> _loadPermissions() async {
@@ -361,6 +466,26 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                         ),
                       ),
                     ],
+                  ),
+                  Container(
+                    margin: const EdgeInsets.only(right: 8),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardDark,
+                      shape: BoxShape.circle,
+                    ),
+                    child: IconButton(
+                      icon: Icon(
+                        Icons.delete_outline,
+                        color: _hasPendingDeletionRequest
+                            ? Colors.white24
+                            : Colors.redAccent,
+                        size: 20,
+                      ),
+                      onPressed:
+                          _checkingDeletionRequest || _hasPendingDeletionRequest
+                              ? null
+                              : _confirmAndRequestCoachDeletion,
+                    ),
                   ),
                   Container(
                     decoration: BoxDecoration(
