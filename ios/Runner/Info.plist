@@ -49,8 +49,6 @@
 	<string>Conquer Club uses motion data to count your daily steps.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Conquer Club reads your step count from Health to show accurate daily totals.</string>
-	<key>NSHealthUpdateUsageDescription</key>
-	<string>Conquer Club saves your step count to Health for accurate tracking.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Conquer Club needs camera access so you can take and upload your before/after transformation photos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
