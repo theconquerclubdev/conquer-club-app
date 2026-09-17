@@ -31,7 +31,7 @@ android {    namespace = "com.conquerclub.app"
     defaultConfig {
         applicationId = "com.conquerclub.app"
         minSdk = 26
-        targetSdk = flutter.targetSdkVersion
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
