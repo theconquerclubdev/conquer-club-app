@@ -71,12 +71,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   int stepGoal = 10000;
   DateTime signupDate = DateTime.now();
   bool stepPermissionDenied = false;
-  StreamSubscription<StepCount>? _stepSub;
-  int? _stepsAtMidnight;
-  String? _baselineDate;
-  Timer? _stepSaveTimer;
-  Timer? _healthPollTimer;
-  bool _usingHealthSource = false;
+  // Step tracking now lives entirely in MasterDataProvider.
 
   // Concrete reason step tracking isn't live right now (null = working fine)
   String? stepIssueMessage;
@@ -115,7 +110,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         // ✅ _loadTodayTaskStatus data is now loaded from MasterDataProvider inside loadProfile
       }
     });
-    _initStepTracker();
+    MasterDataProvider.instance.initStepTracking();
     MasterDataProvider.instance.addListener(_onMasterDataChanged);
   }
 
@@ -133,9 +128,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     WidgetsBinding.instance.removeObserver(this);
     MasterDataProvider.instance.removeListener(_onMasterDataChanged);
     tabController.dispose();
-    _stepSub?.cancel();
-    _stepSaveTimer?.cancel();
-    _healthPollTimer?.cancel();
+    // Step engine lives in MasterDataProvider — not tied to this screen's lifecycle.
     super.dispose();
   }
 
@@ -148,11 +141,9 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.detached) {
-      // ✅ App going to background - save current steps
-      _flushPendingStepSave();
-      // ❌ Don't cancel timer! Let it continue in background
-      // _healthPollTimer?.cancel();  // ← Remove this
-      // _stepSub?.cancel();  // ← Remove this
+      // ✅ Step engine (MasterDataProvider) saves locally on every reading
+      // already — nothing to flush here, and it keeps running independent
+      // of this screen's lifecycle.
     } else if (state == AppLifecycleState.resumed) {
       // ✅ App resumed - fetch latest steps from Health API
       final now = DateTime.now();
@@ -160,7 +151,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           now.difference(_lastResumeTime!) >= const Duration(seconds: 30)) {
         _lastResumeTime = now;
         // ✅ Re-initialize to fetch latest data
-        _initStepTracker();
+        MasterDataProvider.instance.initStepTracking();
         // ✅ Force fresh data on resume — realtime websocket gets
         // suspended in background (esp. iOS), so a diet/workout change
         // made while app was closed/backgrounded can hide behind the
@@ -179,400 +170,6 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   bool stepPermanentlyDenied = false;
   bool _stepTrackerStarting = false;
 
-  Future<void> _initStepTracker() async {
-    if (kIsWeb) {
-      // ⚠️ Web browsers don't support step tracking — show a clear message
-      // instead of a blank/frozen step bar.
-      if (mounted) {
-        setState(() {
-          stepPermissionDenied = true;
-          stepPermanentlyDenied = false;
-          stepIssueCanOpenSettings = false;
-          stepIssueMessage =
-              "Step counting isn't available on web. Use the Android or iPhone app to track steps.";
-        });
-      }
-      return;
-    }
-    if (_stepTrackerStarting) return;
-    _stepTrackerStarting = true;
-    _flushPendingStepSave();
-    final gotHealth = await _tryInitHealthSource();
-    if (!gotHealth) await _initRawSensorTracker();
-    _stepTrackerStarting = false;
-  }
-
-  Future<bool> _tryInitHealthSource() async {
-    try {
-      final health = Health();
-      await health.configure();
-      const types = [HealthDataType.STEPS];
-      const permissions = [HealthDataAccess.READ];
-      final hasPermission =
-          await health.hasPermissions(types, permissions: permissions) ?? false;
-      final granted = hasPermission ||
-          await health.requestAuthorization(types, permissions: permissions);
-      if (!granted) {
-        debugPrint('⚠️ Health permission denied');
-        return false;
-      }
-
-      final ok = await _fetchHealthSteps();
-      if (!ok) return false;
-
-      _usingHealthSource = true;
-      if (mounted) {
-        setState(() {
-          stepPermissionDenied = false;
-          stepPermanentlyDenied = false;
-          stepIssueMessage = null;
-          stepIssueCanOpenSettings = false;
-        });
-      }
-      _healthPollTimer?.cancel();
-      // ✅ Poll every 60 seconds for updated steps from Health API
-      // This works even when app is in background
-      _healthPollTimer = Timer.periodic(
-        const Duration(seconds: 60),
-        (_) => _fetchHealthSteps(),
-      );
-      return true;
-    } catch (_) {
-      debugPrint('❌ Health API failed: $_');
-      return false;
-    }
-  }
-
-  Future<bool> _fetchHealthSteps() async {
-    try {
-      final nowUtc = DateTime.now().toUtc();
-      final now = nowUtc.add(const Duration(hours: 5, minutes: 30));
-      final istMidnightUtc = DateTime.utc(
-        now.year,
-        now.month,
-        now.day,
-      ).subtract(const Duration(hours: 5, minutes: 30));
-      final steps =
-          await Health().getTotalStepsInInterval(istMidnightUtc, nowUtc) ?? 0;
-      if (mounted) {
-        setState(() => todaySteps = steps);
-        _stepSaveTimer?.cancel();
-        _stepSaveTimer = Timer(const Duration(seconds: 60), _saveTodaySteps);
-      }
-      return true;
-    } catch (_) {
-      if (_usingHealthSource) {
-        _usingHealthSource = false;
-        _healthPollTimer?.cancel();
-        await _initRawSensorTracker();
-      }
-      return false;
-    }
-  }
-
-  Future<void> _initRawSensorTracker() async {
-    final status = PlatformHelper.isIOS
-        ? await Permission.sensors.request()
-        : await Permission.activityRecognition.request();
-    if (!status.isGranted) {
-      if (mounted) {
-        setState(() {
-          stepPermissionDenied = true;
-          stepPermanentlyDenied = status.isPermanentlyDenied;
-          stepIssueCanOpenSettings = true;
-          stepIssueMessage = status.isPermanentlyDenied
-              ? (PlatformHelper.isIOS
-                  ? 'Motion & Fitness access is off. Turn it on in Settings > Privacy > Motion & Fitness to see your steps.'
-                  : 'Physical activity permission is off. Turn it on in Settings > Apps > Conquer Club > Permissions to see your steps.')
-              : 'Step tracking needs motion/activity permission. Tap below to allow it.';
-        });
-      }
-      return;
-    }
-    if (mounted) {
-      setState(() {
-        stepPermissionDenied = false;
-        stepPermanentlyDenied = false;
-        stepIssueMessage = null;
-        stepIssueCanOpenSettings = false;
-      });
-    }
-    _stepSub?.cancel();
-    _stepSub = Pedometer.stepCountStream.listen(
-      (event) async {
-        await _resolveBaseline(event.steps);
-        final delta = event.steps - (_stepsAtMidnight ?? event.steps);
-        if (mounted) {
-          setState(() {
-            todaySteps = delta < 0 ? 0 : delta.clamp(0, 1000000);
-          });
-          _stepSaveTimer?.cancel();
-          _stepSaveTimer = Timer(const Duration(seconds: 20), _saveTodaySteps);
-        }
-      },
-      onError: (_) async {
-        final status = PlatformHelper.isIOS
-            ? await Permission.sensors.status
-            : await Permission.activityRecognition.status;
-        if (!status.isGranted) {
-          if (mounted) {
-            setState(() {
-              stepPermissionDenied = true;
-              stepPermanentlyDenied = status.isPermanentlyDenied;
-              stepIssueCanOpenSettings = true;
-              stepIssueMessage = status.isPermanentlyDenied
-                  ? (PlatformHelper.isIOS
-                      ? 'Motion & Fitness access is off. Turn it on in Settings > Privacy > Motion & Fitness to see your steps.'
-                      : 'Physical activity permission is off. Turn it on in Settings > Apps > Conquer Club > Permissions to see your steps.')
-                  : 'Step tracking needs motion/activity permission. Tap below to allow it.';
-            });
-          }
-          return;
-        }
-        if (mounted) {
-          setState(() {
-            stepIssueCanOpenSettings = false;
-            stepIssueMessage =
-                'Step sensor is not responding right now. Retrying...';
-          });
-        }
-        await Future.delayed(const Duration(seconds: 5));
-        if (mounted) _initRawSensorTracker();
-      },
-    );
-  }
-
-  String _todayKey() {
-    final now = DateTime.now().toUtc().add(
-          const Duration(hours: 5, minutes: 30),
-        );
-    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-  }
-
-  String _fmtDateKey(DateTime d) =>
-      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
-
-  // ✅ Runs once per app-open. Catches any day(s) whose final step count
-  // never got saved (net was off at 11PM cutoff, app killed, etc).
-  // Works identically on Android (Health Connect) and iOS (HealthKit) —
-  // both support historical range queries via the same Health() API.
-  // Egress: 1 select total (covers all missing days) + upsert only for
-  // days whose value actually changed. Zero extra calls on a normal day.
-  Future<void> _backfillMissingStepDays(String userId) async {
-    if (!isMembershipActive) return;
-
-    // ✅ Don't backfill if Health permission isn't currently granted — avoids
-    // writing a false "0 steps" day when we simply can't read real data.
-    // Silent check only (no prompt) — the existing step card already handles
-    // asking the member to grant/open settings.
-    final hasStepPermission = await Health().hasPermissions(
-          const [HealthDataType.STEPS],
-          permissions: const [HealthDataAccess.READ],
-        ) ??
-        false;
-    if (!hasStepPermission) return; // retries automatically next app open
-
-    final prefs = await SharedPreferences.getInstance();
-    final lastSynced = prefs.getString('last_step_sync_date');
-    final nowIst = DateTime.now().toUtc().add(
-          const Duration(hours: 5, minutes: 30),
-        );
-    final todayIst = DateTime.utc(nowIst.year, nowIst.month, nowIst.day);
-
-    if (lastSynced == null) {
-      await prefs.setString('last_step_sync_date', _fmtDateKey(todayIst));
-      return;
-    }
-
-    final parts = lastSynced.split('-');
-    final lastDate = DateTime.utc(
-      int.parse(parts[0]),
-      int.parse(parts[1]),
-      int.parse(parts[2]),
-    );
-    var cursor = lastDate.add(const Duration(days: 1));
-    final earliestAllowed = todayIst.subtract(const Duration(days: 30));
-    if (cursor.isBefore(earliestAllowed)) cursor = earliestAllowed;
-    if (!cursor.isBefore(todayIst)) return;
-
-    final missingDates = <DateTime>[];
-    for (var d = cursor;
-        d.isBefore(todayIst);
-        d = d.add(const Duration(days: 1))) {
-      missingDates.add(d);
-    }
-
-    try {
-      final existingRows = await Supabase.instance.client
-          .from('step_logs')
-          .select('log_date, steps')
-          .eq('member_id', userId)
-          .gte('log_date', _fmtDateKey(missingDates.first))
-          .lt('log_date', _fmtDateKey(todayIst));
-      final existingMap = <String, int>{
-        for (final r in List<Map<String, dynamic>>.from(existingRows))
-          r['log_date'].toString().substring(0, 10):
-              (r['steps'] as num?)?.toInt() ?? 0,
-      };
-
-      for (final d in missingDates) {
-        final dateKey = _fmtDateKey(d);
-        final dayStartUtc = d.subtract(const Duration(hours: 5, minutes: 30));
-        final dayEndUtc = dayStartUtc.add(const Duration(days: 1));
-        int steps;
-        try {
-          steps =
-              await Health().getTotalStepsInInterval(dayStartUtc, dayEndUtc) ??
-                  0;
-        } catch (_) {
-          return; // Health/network failure — retry remaining dates next open.
-        }
-        if (existingMap[dateKey] != steps) {
-          await _upsertStepLog(userId, dateKey, steps);
-        }
-      }
-      await prefs.setString('last_step_sync_date', _fmtDateKey(todayIst));
-    } catch (_) {
-      // Network failure — last_step_sync_date left untouched, retries next open.
-    }
-  }
-
-  Future<void> _resolveBaseline(int cumulativeSteps) async {
-    if (_stepsAtMidnight != null && _baselineDate == _todayKey()) return;
-    final prefs = await SharedPreferences.getInstance();
-    final storedDate = prefs.getString('step_baseline_date');
-    final storedBaseline = prefs.getInt('step_baseline_value');
-    final todayKey = _todayKey();
-    if (storedDate == todayKey && storedBaseline != null) {
-      if (cumulativeSteps < storedBaseline) {
-        _stepsAtMidnight = cumulativeSteps;
-      } else {
-        _stepsAtMidnight = storedBaseline;
-      }
-    } else {
-      _stepsAtMidnight = cumulativeSteps;
-    }
-    _baselineDate = todayKey;
-    await prefs.setString('step_baseline_date', todayKey);
-    await prefs.setInt('step_baseline_value', _stepsAtMidnight!);
-  }
-
-  Future<bool> _doSaveStep(String userId, String logDate) async {
-    final ok = await _upsertStepLog(userId, logDate, todaySteps);
-    final prefs = await SharedPreferences.getInstance();
-    if (!ok) {
-      // ✅ Store pending save locally (works even if app is killed)
-      await prefs.setString('pending_step_log_date', logDate);
-      await prefs.setInt('pending_step_log_value', todaySteps);
-      return false;
-    } else {
-      if (prefs.getString('pending_step_log_date') == logDate) {
-        await prefs.remove('pending_step_log_date');
-        await prefs.remove('pending_step_log_value');
-      }
-      return true;
-    }
-  }
-
-  Future<void> _saveTodaySteps() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-    if (!isMembershipActive) return; // expired days: don't collect/write steps
-
-    final prefs = await SharedPreferences.getInstance();
-    final pendingDate = prefs.getString('pending_step_log_date');
-    final pendingSteps = prefs.getInt('pending_step_log_value');
-    final todayKey = _todayKey();
-
-    // ✅ Read the shared throttle clock so a widget rebuild (or a different
-    // screen like StepCounterScreen also writing steps) can't reset/bypass
-    // the 4-hour write limit — one clock, shared via SharedPreferences.
-    if (_lastStepSaveTime == null) {
-      final storedTime = prefs.getString('last_step_save_time');
-      if (storedTime != null) {
-        _lastStepSaveTime = DateTime.tryParse(storedTime);
-      }
-    }
-
-    // ✅ Try to flush pending first if it exists
-    if (pendingDate != null && pendingSteps != null) {
-      final ok = await _upsertStepLog(userId, pendingDate, pendingSteps);
-      if (ok) {
-        // Pending flushed successfully - remove it
-        await prefs.remove('pending_step_log_date');
-        await prefs.remove('pending_step_log_value');
-        // ✅ ONLY update throttle state if pending is from TODAY
-        if (pendingDate == todayKey) {
-          // Today's pending was flushed - use its value as baseline
-          _lastSavedSteps = pendingSteps;
-          _lastStepSaveTime = DateTime.now();
-        }
-        // If pending is from yesterday or older, DON'T update _lastSavedSteps
-        // because mixing dates would corrupt the throttle calculation
-      } else {
-        // Pending still failing - don't proceed with today's save
-        // to avoid creating another pending record for the same day
-        return;
-      }
-    }
-
-    final now = DateTime.now();
-    final logDate = _todayKey();
-
-    // ✅ First save of the day - always save
-    if (_lastSavedSteps == -1) {
-      final success = await _doSaveStep(userId, logDate);
-      if (success) {
-        _lastSavedSteps = todaySteps;
-        _lastStepSaveTime = now;
-        await prefs.setString('last_step_save_time', now.toIso8601String());
-      }
-      return;
-    }
-
-    // ✅ Save to Supabase only once every 6 hours. UI stays live regardless —
-    // this only gates how often we write to the database.
-    final timeSinceLastSave = _lastStepSaveTime == null
-        ? Duration.zero
-        : now.difference(_lastStepSaveTime!);
-    if (timeSinceLastSave < _stepSaveThrottle) {
-      return; // Skip write - 6 hours haven't passed yet
-    }
-
-    final success = await _doSaveStep(userId, logDate);
-    if (success) {
-      _lastSavedSteps = todaySteps;
-      _lastStepSaveTime = now;
-    }
-  }
-
-  Future<bool> _upsertStepLog(String userId, String date, int steps) async {
-    try {
-      await Supabase.instance.client.from('step_logs').upsert({
-        'member_id': userId,
-        'log_date': date,
-        'steps': steps,
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      }, onConflict: 'member_id,log_date');
-      return true;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<void> _flushPendingStepSave() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-    final prefs = await SharedPreferences.getInstance();
-    final date = prefs.getString('pending_step_log_date');
-    final steps = prefs.getInt('pending_step_log_value');
-    if (date == null || steps == null) return;
-    final ok = await _upsertStepLog(userId, date, steps);
-    if (ok) {
-      await prefs.remove('pending_step_log_date');
-      await prefs.remove('pending_step_log_value');
-    }
-  }
 
   int _getDaysLeft(String? endDateStr) {
     if (endDateStr == null) return -1;
@@ -626,16 +223,18 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
           DateTime.tryParse(profile?['created_at'] ?? '') ?? signupDate;
 
       isMembershipActive = data.isMembershipActive;
-      // ✅ Backfill any missed step-log days (net-off protection) —
-      // fire-and-forget, active members only, only writes days that changed.
-      _backfillMissingStepDays(userId);
+      // ✅ Missed-day backfill now handled entirely inside
+      // MasterDataProvider.syncPendingSteps() (offline-first engine).
       isMembershipExpiringSoon = daysLeft > 0 && daysLeft <= 30;
       isNewMember = membershipEndDate.isEmpty || daysLeft <= 0;
 
       // ✅ Update state from provider data
       setState(() {
         currentStreak = data.currentStreak;
-        todaySteps = data.todaySteps;
+        todaySteps =
+            MasterDataProvider.instance.getLocalTodaySteps() > data.todaySteps
+                ? MasterDataProvider.instance.getLocalTodaySteps()
+                : data.todaySteps;
         isLoadingStreak = false;
 
         // ✅ Tasks
@@ -1945,7 +1544,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       await openAppSettings();
       return;
     }
-    await _initStepTracker();
+    await MasterDataProvider.instance.initStepTracking();
   }
 
   Widget _buildCoachBanner() {

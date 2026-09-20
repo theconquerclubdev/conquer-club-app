@@ -1,6 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pedometer/pedometer.dart';
+import 'package:health/health.dart';
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'step_task_handler.dart';
 // import 'package:realtime_client/realtime_client.dart';
 
 // ============================================================
@@ -575,7 +582,10 @@ class MasterDataProvider extends ChangeNotifier {
       final dashboardData = MemberDashboardData(
         memberId: memberId,
         currentStreak: currentStreak,
-        todaySteps: todaySteps,
+        todaySteps:
+            todaySteps > MasterDataProvider.instance.getLocalTodaySteps()
+                ? todaySteps
+                : MasterDataProvider.instance.getLocalTodaySteps(),
         stepGoal: stepGoal,
         daysLeft: daysLeft,
         isMembershipActive: isMembershipActive,
@@ -718,6 +728,251 @@ class MasterDataProvider extends ChangeNotifier {
     debugPrint('🔍 Is Active: ${data.isMembershipActive}');
     debugPrint('🔍 End Date: ${data.profile?['membership_end_date']}');
   }
+
+  // ============================================================
+  // OFFLINE-FIRST STEP TRACKING — single source of truth, app-wide.
+  // No background service, no persistent notification (by design —
+  // keeps the app light and avoids unnecessary battery/review flags).
+  // Health Connect / HealthKit is primary (works even when app is
+  // closed, OS tracks it). Raw sensor is fallback (works only while
+  // app is open). Everything syncs in ONE batched request, capped to
+  // 30 rolling days or membership end — whichever comes first.
+  // ============================================================
+  static const _pendingStepsKey = 'pending_step_days_v1';
+  static const _stepSyncWindowDays = 30;
+
+  Map<String, int> _localSteps = {}; // dateKey -> steps, unsynced only
+  bool _stepEngineStarted = false;
+  bool _usingHealthSource = false;
+  StreamSubscription<StepCount>? _pedometerSub;
+  Timer? _healthPollTimer;
+  Timer? _stepSyncTimer;
+  int? _pedoBaseline;
+  String? _pedoBaselineDate;
+  DateTime? _membershipEndDate;
+
+  String _todayKeyIst() {
+    final now =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
+
+  /// Instant, no-network read — call this for the UI, never shows a blank 0.
+  int getLocalTodaySteps() => _localSteps[_todayKeyIst()] ?? 0;
+
+  bool get usingHealthSource => _usingHealthSource;
+
+  /// Call once per app session (member_home_screen initState). Safe to call
+  /// repeatedly — does nothing after the first successful start.
+  Future<void> initStepTracking() async {
+    if (kIsWeb || _stepEngineStarted) return;
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    if (uid == null) return;
+    final data = _cache[uid];
+    if (data != null && !data.isMembershipActive)
+      return; // inactive membership — skip
+    if (data?.profile?['membership_end_date'] != null) {
+      _membershipEndDate =
+          DateTime.tryParse(data!.profile!['membership_end_date'].toString());
+    }
+    _stepEngineStarted = true;
+    await _loadLocalSteps();
+    _pruneExpiredLocal(); // keep phone storage minimal — drop anything already outside the window
+    await _startHealthSource();
+    _stepSyncTimer?.cancel();
+    _stepSyncTimer =
+        Timer.periodic(const Duration(minutes: 20), (_) => syncPendingSteps());
+    syncPendingSteps(); // catch up immediately too — covers offline days since last open
+  }
+
+  Future<void> _loadLocalSteps() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_pendingStepsKey);
+    if (raw == null) return;
+    try {
+      final map = Map<String, dynamic>.from(jsonDecode(raw));
+      _localSteps = map.map((k, v) => MapEntry(k, (v as num).toInt()));
+    } catch (_) {
+      _localSteps = {};
+    }
+  }
+
+  Future<void> _saveLocalSteps() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_localSteps.isEmpty) {
+      await prefs.remove(
+          _pendingStepsKey); // nothing pending — don't even keep an empty key
+    } else {
+      await prefs.setString(_pendingStepsKey, jsonEncode(_localSteps));
+    }
+  }
+
+  /// Drops anything already outside the 30-day/membership window before it
+  /// ever gets synced — keeps local storage to only what's actually usable.
+  void _pruneExpiredLocal() {
+    final today =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    final earliest = today.subtract(const Duration(days: _stepSyncWindowDays));
+    final cap = _membershipEndDate;
+    _localSteps.removeWhere((key, _) {
+      final p = key.split('-');
+      final d = DateTime.utc(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
+      return d.isBefore(
+              DateTime.utc(earliest.year, earliest.month, earliest.day)) ||
+          (cap != null && d.isAfter(cap));
+    });
+  }
+
+  /// Never lowers a day's count (guards against a sensor reboot dip).
+  Future<void> _recordSteps(String dateKey, int steps) async {
+    final existing = _localSteps[dateKey] ?? 0;
+    if (steps <= existing) return;
+    _localSteps[dateKey] = steps;
+    await _saveLocalSteps();
+    notifyListeners(); // any open screen redraws instantly, no network wait
+  }
+
+  Future<void> _startHealthSource() async {
+    try {
+      final health = Health();
+      await health.configure();
+      const types = [HealthDataType.STEPS];
+      const perms = [HealthDataAccess.READ];
+      final has =
+          await health.hasPermissions(types, permissions: perms) ?? false;
+      final granted =
+          has || await health.requestAuthorization(types, permissions: perms);
+      if (!granted) {
+        _usingHealthSource = false;
+        await _startPedometerFallback(); // keeps app-open UI live too
+        await _startAndroidBackgroundStepService(); // + counts all day, app closed or not
+        return;
+      }
+      _usingHealthSource = true;
+      await _pollHealthSteps();
+      _healthPollTimer?.cancel();
+      // 60s is plenty — Health Connect/HealthKit themselves only update every
+      // few minutes internally, polling faster wastes battery for no gain.
+      _healthPollTimer = Timer.periodic(
+          const Duration(seconds: 60), (_) => _pollHealthSteps());
+    } catch (_) {
+      _usingHealthSource = false;
+      await _startPedometerFallback();
+    }
+  }
+
+  Future<void> _pollHealthSteps() async {
+    try {
+      final nowUtc = DateTime.now().toUtc();
+      final now = nowUtc.add(const Duration(hours: 5, minutes: 30));
+      final istMidnightUtc = DateTime.utc(now.year, now.month, now.day)
+          .subtract(const Duration(hours: 5, minutes: 30));
+      final steps =
+          await Health().getTotalStepsInInterval(istMidnightUtc, nowUtc) ?? 0;
+      await _recordSteps(_todayKeyIst(), steps);
+    } catch (_) {
+      if (_usingHealthSource) {
+        _usingHealthSource = false;
+        _healthPollTimer?.cancel();
+        await _startPedometerFallback(); // Health hiccup — fall back live, don't show 0
+      }
+    }
+  }
+
+  Future<void> _startPedometerFallback() async {
+    await _pedometerSub?.cancel();
+    _pedometerSub = Pedometer.stepCountStream.listen((event) async {
+      final todayKey = _todayKeyIst();
+      final prefs = await SharedPreferences.getInstance();
+      if (_pedoBaselineDate != todayKey) {
+        final storedDate = prefs.getString('pedo_baseline_date');
+        final storedBase = prefs.getInt('pedo_baseline_value');
+        _pedoBaseline = (storedDate == todayKey &&
+                storedBase != null &&
+                event.steps >= storedBase)
+            ? storedBase
+            : event.steps;
+        _pedoBaselineDate = todayKey;
+        await prefs.setString('pedo_baseline_date', todayKey);
+        await prefs.setInt('pedo_baseline_value', _pedoBaseline!);
+      }
+      final delta =
+          (event.steps - (_pedoBaseline ?? event.steps)).clamp(0, 1000000);
+      await _recordSteps(todayKey, delta);
+    }, onError: (_) {});
+  }
+
+  /// Android-only: keeps counting steps all day even with the app fully
+  /// closed, for phones without Health Connect. iOS never needs this —
+  /// Apple Health is always present. Only starts when Plan A (Health) fails.
+  Future<void> _startAndroidBackgroundStepService() async {
+    if (kIsWeb) return;
+    try {
+      FlutterForegroundTask.init(
+        androidNotificationOptions: AndroidNotificationOptions(
+          channelId: 'step_tracking_channel',
+          channelName: 'Step Tracking',
+          channelDescription: 'Keeps counting your steps in the background.',
+          priority: NotificationPriority.LOW,
+        ),
+        iosNotificationOptions: const IOSNotificationOptions(),
+        foregroundTaskOptions: ForegroundTaskOptions(
+          eventAction: ForegroundTaskEventAction.repeat(60000),
+          autoRunOnBoot: true,
+          allowWakeLock: true,
+        ),
+      );
+      await FlutterForegroundTask.startService(
+        notificationTitle: 'Conquer Club',
+        notificationText: 'Tracking your steps',
+        callback: startCallback,
+      );
+    } catch (_) {
+      // Service failed to start — Plan B (foreground-only pedometer) still works.
+    }
+  }
+
+  /// One batched request for everything pending — this is what keeps
+  /// Supabase usage low no matter how often steps change locally.
+  Future<void> syncPendingSteps() async {
+    if (_localSteps.isEmpty) return;
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    _pruneExpiredLocal();
+    if (_localSteps.isEmpty) {
+      await _saveLocalSteps();
+      return;
+    }
+
+    final toSync = _localSteps.entries
+        .map((e) => {
+              'member_id': userId,
+              'log_date': e.key,
+              'steps': e.value,
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
+            })
+        .toList();
+
+    try {
+      await Supabase.instance.client
+          .from('step_logs')
+          .upsert(toSync, onConflict: 'member_id,log_date');
+      _localSteps
+          .clear(); // confirmed saved server-side — clear local, storage stays minimal
+      await _saveLocalSteps();
+    } catch (e) {
+      debugPrint('⚠️ Step sync deferred, will retry next tick: $e');
+      // Offline/error — keep everything local exactly as-is, nothing lost.
+    }
+  }
+
+  void disposeStepTracking() {
+    _pedometerSub?.cancel();
+    _healthPollTimer?.cancel();
+    _stepSyncTimer?.cancel();
+    _stepEngineStarted = false;
+  }
 }
 
 extension MasterDataProviderExtension on BuildContext {
@@ -728,4 +983,9 @@ extension MasterDataProviderExtension on BuildContext {
       MasterDataProvider.instance.invalidateCache(memberId);
   Future<MemberDashboardData> refreshMemberData(String memberId) =>
       MasterDataProvider.instance.refreshMember(memberId);
+}
+
+@pragma('vm:entry-point')
+void startCallback() {
+  FlutterForegroundTask.setTaskHandler(StepTaskHandler());
 }

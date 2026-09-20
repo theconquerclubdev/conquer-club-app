@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import '../providers/master_data_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'share_streak_camera_screen.dart';
 
 // Simple StreakModel defined inline
 class StreakModel {
@@ -398,6 +399,27 @@ THE CONQUER CLUB
               ),
             ),
             const SizedBox(height: 16),
+            _shareOptionTile(
+              icon: Icons.camera_alt,
+              title: 'Camera',
+              subtitle: 'Take a photo with your streak overlay',
+              onTap: () {
+                Navigator.pop(context);
+                final currentStreak = _stats['currentStreak'] ?? 0;
+                final currentStreakStart =
+                    _stats['currentStreakStart'] as DateTime?;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ShareStreakCameraScreen(
+                      currentStreak: currentStreak,
+                      currentStreakStart: currentStreakStart,
+                    ),
+                  ),
+                );
+              },
+            ),
+            const Divider(color: Colors.grey, height: 1),
             _shareOptionTile(
               icon: Icons.photo_library,
               title: 'Instagram Story',

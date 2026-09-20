@@ -77,28 +77,8 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
       final todayKey = _fmt(today);
       if (widget.liveTodaySteps > (map[todayKey] ?? 0)) {
         map[todayKey] = widget.liveTodaySteps;
-        // ✅ Respect the same shared 4-hour throttle clock member_home_screen
-        // uses, so opening this screen can't bypass the write-frequency rule.
-        final prefs = await SharedPreferences.getInstance();
-        final storedTime = prefs.getString('last_step_save_time');
-        final lastSave =
-            storedTime != null ? DateTime.tryParse(storedTime) : null;
-        final dueForSave = lastSave == null ||
-            DateTime.now().difference(lastSave) >= const Duration(hours: 4);
-        if (dueForSave) {
-          try {
-            await Supabase.instance.client.from('step_logs').upsert({
-              'member_id': userId,
-              'log_date': todayKey,
-              'steps': widget.liveTodaySteps,
-              'updated_at': DateTime.now().toUtc().toIso8601String(),
-            }, onConflict: 'member_id,log_date');
-            await prefs.setString(
-                'last_step_save_time', DateTime.now().toIso8601String());
-          } catch (e) {
-            debugPrint('❌ StepCounterScreen: Failed to save steps: $e');
-          }
-        }
+        // No direct write here anymore — MasterDataProvider owns saving/syncing
+        // steps (local-first, batched). This screen just displays.
       }
       if (mounted) {
         setState(() {
