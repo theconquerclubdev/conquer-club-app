@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../providers/master_data_provider.dart';
 import '../theme/app_theme.dart';
 
 /// Camera + streak-design overlay, photo capture, color/B&W toggle, share.
@@ -40,11 +42,26 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
   Uint8List? _capturedBytes;
   bool _isBlackAndWhite = false;
   final GlobalKey _compositeKey = GlobalKey();
+  String? _workoutName;
 
   @override
   void initState() {
     super.initState();
     _initCamera();
+    _loadWorkoutName();
+  }
+
+  Future<void> _loadWorkoutName() async {
+    try {
+      final userId = Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) return;
+      final dashboardData =
+          await MasterDataProvider.instance.fetchMemberData(userId);
+      if (!mounted) return;
+      setState(() {
+        _workoutName = dashboardData.latestWorkout?['workout_name'] as String?;
+      });
+    } catch (_) {}
   }
 
   Future<void> _initCamera() async {
@@ -173,7 +190,7 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 24),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.32),
+          color: Colors.black.withOpacity(0.18),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Column(
@@ -228,6 +245,54 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
     );
   }
 
+  // Shows today's workout name (as stored, unmodified) on weekdays, or
+  // "TASK COMPLETED" on Sunday once the Sunday streak requirement is met.
+  Widget _workoutOrTaskRow() {
+    final now = DateTime.now();
+    if (now.weekday == DateTime.sunday) {
+      if (widget.currentStreak <= 0) return const SizedBox.shrink();
+      return const Padding(
+        padding: EdgeInsets.only(top: 4),
+        child: Row(
+          children: [
+            Icon(Icons.check_circle, color: AppColors.gold, size: 12),
+            SizedBox(width: 4),
+            Text(
+              'TASK COMPLETED',
+              style: TextStyle(
+                color: AppColors.gold,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_workoutName == null || _workoutName!.trim().isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          const Icon(Icons.fitness_center, color: AppColors.gold, size: 12),
+          const SizedBox(width: 4),
+          Expanded(
+            child: Text(
+              _workoutName!,
+              style: const TextStyle(
+                color: AppColors.gold,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   // ── Bottom stat card: streak, date, weekday, real app-icon logo, ──
   // ── tagline — compact, sits in the lower third only. ──
   Widget _bottomStatCard() {
@@ -238,10 +303,10 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.35),
+          color: Colors.black.withOpacity(0.18),
           borderRadius: BorderRadius.circular(10),
           border:
-              Border.all(color: AppColors.gold.withOpacity(0.8), width: 1.2),
+              Border.all(color: AppColors.gold.withOpacity(0.45), width: 1.2),
         ),
         child: Row(
           children: [
@@ -268,14 +333,13 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
                   ),
                   Text(
                     DateFormat('d-MMM-yyyy').format(now),
-                    style:
-                        const TextStyle(color: Colors.white70, fontSize: 12),
+                    style: const TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                   Text(
                     DateFormat('EEEE').format(now),
-                    style:
-                        const TextStyle(color: Colors.white54, fontSize: 12),
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
+                  _workoutOrTaskRow(),
                 ],
               ),
             ),
