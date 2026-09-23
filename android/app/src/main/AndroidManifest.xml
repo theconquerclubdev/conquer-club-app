@@ -64,6 +64,17 @@
             android:name="androidx.work.impl.background.systemjob.SystemJobService"
             android:exported="true"
             android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- ✅ Lets us hand a captured image straight to Instagram (Feed share) -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.shareprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
     <queries>
         <intent>
@@ -74,5 +85,7 @@
         <package android:name="com.google.android.apps.fitness"/>
         <package android:name="com.sec.android.app.shealth"/>
         <package android:name="com.samsung.android.providers.context"/>
+        <!-- ✅ Needed to be able to target Instagram directly for Feed sharing -->
+        <package android:name="com.instagram.android"/>
     </queries>
 </manifest>

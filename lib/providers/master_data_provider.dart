@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pedometer/pedometer.dart';
 import 'package:health/health.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'step_task_handler.dart';
 // import 'package:realtime_client/realtime_client.dart';
 
@@ -844,8 +845,11 @@ class MasterDataProvider extends ChangeNotifier {
           has || await health.requestAuthorization(types, permissions: perms);
       if (!granted) {
         _usingHealthSource = false;
-        await _startPedometerFallback(); // keeps app-open UI live too
-        await _startAndroidBackgroundStepService(); // + counts all day, app closed or not
+        final activityStatus = await Permission.activityRecognition.request();
+        if (activityStatus.isGranted) {
+          await _startPedometerFallback(); // keeps app-open UI live too
+          await _startAndroidBackgroundStepService(); // + counts all day, app closed or not
+        }
         return;
       }
       _usingHealthSource = true;
@@ -857,7 +861,10 @@ class MasterDataProvider extends ChangeNotifier {
           const Duration(seconds: 60), (_) => _pollHealthSteps());
     } catch (_) {
       _usingHealthSource = false;
-      await _startPedometerFallback();
+      final activityStatus = await Permission.activityRecognition.request();
+      if (activityStatus.isGranted) {
+        await _startPedometerFallback();
+      }
     }
   }
 

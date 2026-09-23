@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import '../theme/app_theme.dart';
 
@@ -25,6 +28,9 @@ class ShareStreakCameraScreen extends StatefulWidget {
 }
 
 class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
+  static const _instagramChannel =
+      MethodChannel('com.conquerclub.app/instagram_share');
+
   CameraController? _controller;
   List<CameraDescription> _cameras = [];
   bool _initializing = true;
@@ -85,20 +91,24 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
     }
   }
 
-  Future<void> _shareComposite() async {
-    try {
-      final boundary = _compositeKey.currentContext!.findRenderObject()
-          as RenderRepaintBoundary;
-      final image = await boundary.toImage(pixelRatio: 3.0);
-      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
-      final pngBytes = byteData!.buffer.asUint8List();
+  // Shared by both destinations — renders the photo + overlay into one PNG.
+  Future<Uint8List> _renderComposite() async {
+    final boundary = _compositeKey.currentContext!.findRenderObject()
+        as RenderRepaintBoundary;
+    final image = await boundary.toImage(pixelRatio: 3.0);
+    final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+    return byteData!.buffer.asUint8List();
+  }
 
+  // "Status" — normal share sheet, every app (WhatsApp, Snapchat, Instagram, etc.)
+  Future<void> _shareStatus() async {
+    try {
+      final pngBytes = await _renderComposite();
       final xFile = XFile.fromData(
         pngBytes,
         mimeType: 'image/png',
         name: 'conquer_club_streak.png',
       );
-
       await Share.shareXFiles(
         [xFile],
         text: 'CONSISTENCY. DISCIPLINE. RESULTS. — THE CONQUER CLUB',
@@ -112,107 +122,209 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
     }
   }
 
-  // The gold-frame streak card, drawn as pure widgets — no image asset,
-  // so it sits as a genuinely see-through overlay on the camera feed.
-  Widget _streakOverlay() {
-    final streak = widget.currentStreak;
-    return IgnorePointer(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 60),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border.all(color: AppColors.gold, width: 2),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Padding(
-                padding: const EdgeInsets.only(top: 24),
-                child: Column(
-                  children: [
-                    const Text(
-                      'THE',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        letterSpacing: 3,
-                        fontWeight: FontWeight.w600,
-                        shadows: [Shadow(blurRadius: 6, color: Colors.black)],
-                      ),
-                    ),
-                    Text(
-                      'CONQUER',
-                      style: TextStyle(
-                        color: AppColors.gold,
-                        fontSize: 34,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 2,
-                        shadows: const [
-                          Shadow(blurRadius: 8, color: Colors.black),
-                        ],
-                      ),
-                    ),
-                    const Text(
-                      'CLUB',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 22,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 4,
-                        shadows: [Shadow(blurRadius: 6, color: Colors.black)],
-                      ),
-                    ),
-                  ],
-                ),
+  // "Feed" — opens Instagram directly, skipping the app picker (Android).
+  // Falls back to the normal share sheet if Instagram isn't installed,
+  // or on iOS where this direct-targeting trick isn't available.
+  Future<void> _shareFeed() async {
+    try {
+      final pngBytes = await _renderComposite();
+      final tempDir = await getTemporaryDirectory();
+      final file = File('${tempDir.path}/conquer_club_feed.png');
+      await file.writeAsBytes(pngBytes);
+
+      bool openedInstagram = false;
+      if (Platform.isAndroid) {
+        try {
+          openedInstagram = await _instagramChannel.invokeMethod<bool>(
+                'shareToInstagramFeed',
+                {'path': file.path},
+              ) ??
+              false;
+        } catch (_) {
+          openedInstagram = false;
+        }
+      }
+
+      if (!openedInstagram) {
+        final xFile = XFile.fromData(
+          pngBytes,
+          mimeType: 'image/png',
+          name: 'conquer_club_streak.png',
+        );
+        await Share.shareXFiles(
+          [xFile],
+          text: 'CONSISTENCY. DISCIPLINE. RESULTS. — THE CONQUER CLUB',
+          subject: 'My Conquer Club Streak',
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('❌ Error sharing: $e')),
+      );
+    }
+  }
+
+  // ── Top header: "THE CONQUER CLUB", sitting a little lower than before, ──
+  // ── with a translucent dark panel behind just this text block. ──
+  Widget _topHeader() {
+    return Padding(
+      padding: const EdgeInsets.only(top: 24),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 24),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.32),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'THE',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                letterSpacing: 3,
+                fontWeight: FontWeight.w600,
+                shadows: [Shadow(blurRadius: 6, color: Colors.black)],
               ),
-              Column(
-                children: [
-                  Text(
-                    streak > 0 ? '🔥 $streak DAY${streak > 1 ? 'S' : ''}' : '🔥 NO STREAK',
-                    style: const TextStyle(
+            ),
+            const SizedBox(height: 2),
+            Text(
+              'CONQUER',
+              style: TextStyle(
+                color: AppColors.gold,
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.5,
+                shadows: const [Shadow(blurRadius: 8, color: Colors.black)],
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(width: 28, height: 1.5, color: AppColors.gold),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Text(
+                    'CLUB',
+                    style: TextStyle(
                       color: Colors.white,
-                      fontSize: 30,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                      shadows: [Shadow(blurRadius: 8, color: Colors.black)],
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 3,
+                      shadows: const [
+                        Shadow(blurRadius: 6, color: Colors.black),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 4),
+                ),
+                Container(width: 28, height: 1.5, color: AppColors.gold),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Bottom stat card: streak, date, weekday, real app-icon logo, ──
+  // ── tagline — compact, sits in the lower third only. ──
+  Widget _bottomStatCard() {
+    final streak = widget.currentStreak;
+    final now = DateTime.now();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.35),
+          borderRadius: BorderRadius.circular(10),
+          border:
+              Border.all(color: AppColors.gold.withOpacity(0.8), width: 1.2),
+        ),
+        child: Row(
+          children: [
+            Text(
+              streak > 0 ? '🔥' : '⚪',
+              style: const TextStyle(fontSize: 22),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    DateFormat('d-MMM-yyyy').format(DateTime.now()),
+                    streak > 0
+                        ? '$streak DAY${streak > 1 ? 'S' : ''}'
+                        : 'NO STREAK',
                     style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 14,
-                      shadows: [Shadow(blurRadius: 4, color: Colors.black)],
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                      shadows: [Shadow(blurRadius: 6, color: Colors.black)],
                     ),
+                  ),
+                  Text(
+                    DateFormat('d-MMM-yyyy').format(now),
+                    style:
+                        const TextStyle(color: Colors.white70, fontSize: 12),
+                  ),
+                  Text(
+                    DateFormat('EEEE').format(now),
+                    style:
+                        const TextStyle(color: Colors.white54, fontSize: 12),
                   ),
                 ],
               ),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 24),
-                child: RichText(
-                  text: const TextSpan(
-                    style: TextStyle(fontSize: 11, letterSpacing: 1),
-                    children: [
-                      TextSpan(
-                        text: 'CONSISTENCY. ',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                      TextSpan(
-                        text: 'DISCIPLINE. ',
-                        style: TextStyle(color: AppColors.gold),
-                      ),
-                      TextSpan(
-                        text: 'RESULTS.',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+            Image.asset(
+              'assets/images/app_logo.png',
+              width: 30,
+              height: 30,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _tagline() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: RichText(
+        textAlign: TextAlign.center,
+        text: TextSpan(
+          style: const TextStyle(fontSize: 9, letterSpacing: 1),
+          children: [
+            const TextSpan(
+                text: 'CONSISTENCY. ', style: TextStyle(color: Colors.white)),
+            TextSpan(
+                text: 'DISCIPLINE. ', style: TextStyle(color: AppColors.gold)),
+            const TextSpan(
+                text: 'RESULTS.', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _streakOverlay() {
+    return IgnorePointer(
+      child: SafeArea(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            _topHeader(),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _bottomStatCard(),
+                _tagline(),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -220,10 +332,26 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
 
   // Simple grayscale color matrix for the B&W toggle.
   static const _grayscaleMatrix = <double>[
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0.2126, 0.7152, 0.0722, 0, 0,
-    0, 0, 0, 1, 0,
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0.2126,
+    0.7152,
+    0.0722,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
   ];
 
   @override
@@ -264,61 +392,91 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
                   ),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+              SingleChildScrollView(
+                // Wrapped so these controls never overflow on shorter
+                // screens — they scroll instead of erroring.
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _editButton(
-                      icon: Icons.color_lens,
-                      label: 'Color',
-                      selected: !_isBlackAndWhite,
-                      onTap: () => setState(() => _isBlackAndWhite = false),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          _editButton(
+                            icon: Icons.color_lens,
+                            label: 'Color',
+                            selected: !_isBlackAndWhite,
+                            onTap: () =>
+                                setState(() => _isBlackAndWhite = false),
+                          ),
+                          _editButton(
+                            icon: Icons.filter_b_and_w,
+                            label: 'B & W',
+                            selected: _isBlackAndWhite,
+                            onTap: () =>
+                                setState(() => _isBlackAndWhite = true),
+                          ),
+                        ],
+                      ),
                     ),
-                    _editButton(
-                      icon: Icons.filter_b_and_w,
-                      label: 'B & W',
-                      selected: _isBlackAndWhite,
-                      onTap: () => setState(() => _isBlackAndWhite = true),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: () =>
+                                  setState(() => _capturedBytes = null),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.white,
+                                side: const BorderSide(color: Colors.white54),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                              ),
+                              child: const Text('Retake'),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: OutlinedButton(
+                              onPressed: _shareStatus,
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppColors.gold,
+                                side: BorderSide(color: AppColors.gold),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                              ),
+                              child: const Text(
+                                'Status',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: ElevatedButton(
+                              onPressed: _shareFeed,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppColors.gold,
+                                foregroundColor: Colors.black,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                              ),
+                              child: const Text(
+                                'Feed',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(height: 8),
                   ],
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () => setState(() => _capturedBytes = null),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: Colors.white,
-                          side: const BorderSide(color: Colors.white54),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        child: const Text('Retake'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: ElevatedButton(
-                        onPressed: _shareComposite,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.gold,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                        ),
-                        child: const Text(
-                          'Share',
-                          style: TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
             ],
           ),
         ),
@@ -341,7 +499,8 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
                   child: Align(
                     alignment: Alignment.topLeft,
                     child: IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white, size: 28),
+                      icon: const Icon(Icons.close,
+                          color: Colors.white, size: 28),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ),
@@ -350,7 +509,7 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
                   child: Align(
                     alignment: Alignment.bottomCenter,
                     child: Padding(
-                      padding: const EdgeInsets.only(bottom: 24),
+                      padding: const EdgeInsets.only(bottom: 100),
                       child: GestureDetector(
                         onTap: _takePhoto,
                         child: Container(
@@ -396,7 +555,8 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
             child: Icon(icon, color: selected ? Colors.black : Colors.white),
           ),
           const SizedBox(height: 4),
-          Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          Text(label,
+              style: const TextStyle(color: Colors.white70, fontSize: 12)),
         ],
       ),
     );
