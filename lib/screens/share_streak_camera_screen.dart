@@ -59,7 +59,7 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
           await MasterDataProvider.instance.fetchMemberData(userId);
       if (!mounted) return;
       setState(() {
-        _workoutName = dashboardData.latestWorkout?['workout_name'] as String?;
+        _workoutName = dashboardData.todayWorkout?['workout_name'] as String?;
       });
     } catch (_) {}
   }

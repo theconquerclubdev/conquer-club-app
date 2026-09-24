@@ -32,6 +32,7 @@ class MemberDashboardData {
   final Map<String, dynamic>? tasksToday;
   final Map<String, dynamic>? latestDiet;
   final Map<String, dynamic>? latestWorkout;
+  final Map<String, dynamic>? todayWorkout;
   final DateTime? fetchedAt;
 
   const MemberDashboardData({
@@ -50,6 +51,7 @@ class MemberDashboardData {
     this.tasksToday,
     this.latestDiet,
     this.latestWorkout,
+    this.todayWorkout,
     this.fetchedAt,
   });
 
@@ -517,6 +519,7 @@ class MasterDataProvider extends ChangeNotifier {
       bool workoutCompletedToday = false;
       Map<String, dynamic>? latestDiet;
       Map<String, dynamic>? latestWorkout;
+      Map<String, dynamic>? todayWorkout;
       String? photoFrontUpdatedAt;
       String? photoBackUpdatedAt;
 
@@ -553,6 +556,10 @@ class MasterDataProvider extends ChangeNotifier {
         // Fetch latest workout the same way, so the member-side popup can
         // detect a new/updated workout plan too.
         latestWorkout = extra['latest_workout'] as Map<String, dynamic>?;
+
+        // ✅ Today's actual assigned workout (matched by day_of_week server-side)
+        // — this is the one the streak-share card should use.
+        todayWorkout = extra['today_workout'] as Map<String, dynamic>?;
 
         // Fetch today's photo-upload timestamps (IST-bounded) for Sunday task card.
         final photoFrontRaw = extra['photo_front_updated_at'] as String?;
@@ -603,6 +610,7 @@ class MasterDataProvider extends ChangeNotifier {
         },
         latestDiet: latestDiet,
         latestWorkout: latestWorkout,
+        todayWorkout: todayWorkout,
         fetchedAt: DateTime.now(),
       );
 
