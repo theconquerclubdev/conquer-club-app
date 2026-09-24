@@ -303,50 +303,90 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.18),
-          borderRadius: BorderRadius.circular(10),
+          color: Colors.black.withOpacity(0.55),
+          borderRadius: BorderRadius.circular(12),
           border:
-              Border.all(color: AppColors.gold.withOpacity(0.45), width: 1.2),
+              Border.all(color: AppColors.gold.withOpacity(0.9), width: 1.5),
         ),
         child: Row(
           children: [
-            Text(
-              streak > 0 ? '🔥' : '⚪',
-              style: const TextStyle(fontSize: 22),
+            // Left: app logo
+            Container(
+              width: 52,
+              height: 52,
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.black.withOpacity(0.35),
+                border: Border.all(
+                    color: AppColors.gold.withOpacity(0.6), width: 1.2),
+              ),
+              child: Image.asset(
+                'assets/images/app_logo.png',
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stacktrace) {
+                  debugPrint('❌ logo load failed: $error');
+                  return const Icon(Icons.error, color: Colors.red, size: 32);
+                },
+              ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 10),
+            // Divider line
+            Container(
+              width: 1,
+              height: 48,
+              color: Colors.white.withOpacity(0.25),
+            ),
+            const SizedBox(width: 10),
+            // Middle: streak + progress text + date/day + workout
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     streak > 0
-                        ? '$streak DAY${streak > 1 ? 'S' : ''}'
+                        ? '$streak DAY${streak > 1 ? 'S' : ''} STREAK'
                         : 'NO STREAK',
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 18,
+                      fontSize: 20,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 0.5,
                       shadows: [Shadow(blurRadius: 6, color: Colors.black)],
                     ),
                   ),
+                  const SizedBox(height: 2),
                   Text(
-                    DateFormat('d-MMM-yyyy').format(now),
-                    style: const TextStyle(color: Colors.white70, fontSize: 12),
+                    streak > 0 ? 'GOOD PROGRESS' : '',
+                    style: const TextStyle(
+                      color: AppColors.gold,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 1,
+                    ),
                   ),
-                  Text(
-                    DateFormat('EEEE').format(now),
-                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      const Icon(Icons.calendar_today,
+                          color: AppColors.gold, size: 12),
+                      const SizedBox(width: 6),
+                      Text(
+                        DateFormat('d-MMM-yyyy').format(now),
+                        style: const TextStyle(
+                            color: Colors.white70, fontSize: 12),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        DateFormat('EEEE').format(now),
+                        style: const TextStyle(
+                            color: Colors.white54, fontSize: 12),
+                      ),
+                    ],
                   ),
                   _workoutOrTaskRow(),
                 ],
               ),
-            ),
-            Image.asset(
-              'assets/images/app_logo.png',
-              width: 30,
-              height: 30,
             ),
           ],
         ),
