@@ -288,6 +288,26 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
       } while (
           compressed != null && compressed.length > _maxBytes && quality >= 20);
 
+      if (compressed != null && compressed.length > _maxBytes) {
+        // Stage 1 (quality floor 20, target 80KB) didn't fit.
+        // Stage 2: no quality floor, keep going till it fits 150KB.
+        const _fallbackMaxBytes = 150 * 1024;
+        int fallbackQuality = 15;
+        while (compressed != null &&
+            compressed.length > _fallbackMaxBytes &&
+            fallbackQuality >= 1) {
+          compressed = await FlutterImageCompress.compressWithList(
+            bytes,
+            format: CompressFormat.webp,
+            quality: fallbackQuality,
+            minWidth: newWidth,
+            minHeight: newHeight,
+            keepExif: false,
+          );
+          fallbackQuality -= 2;
+        }
+      }
+
       return compressed ?? bytes;
     } catch (e) {
       debugPrint('Web compression error: $e');
@@ -418,6 +438,26 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
         );
         quality -= 10;
       } while (result != null && result.length > _maxBytes && quality >= 20);
+
+      if (result != null && result.length > _maxBytes) {
+        // Stage 1 (quality floor 20, target 80KB) didn't fit.
+        // Stage 2: no quality floor, keep going till it fits 150KB.
+        const _fallbackMaxBytes = 150 * 1024;
+        int fallbackQuality = 15;
+        while (result != null &&
+            result.length > _fallbackMaxBytes &&
+            fallbackQuality >= 1) {
+          result = await FlutterImageCompress.compressWithFile(
+            sourcePath,
+            format: CompressFormat.webp,
+            quality: fallbackQuality,
+            minWidth: 1080,
+            minHeight: 1350,
+            keepExif: false,
+          );
+          fallbackQuality -= 2;
+        }
+      }
       return result;
     } catch (e) {
       debugPrint('Compression error: $e');
