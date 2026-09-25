@@ -369,6 +369,7 @@ THE CONQUER CLUB
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (context) => Container(
         decoration: const BoxDecoration(
           color: Color(0xFF1a1a1a),
@@ -378,86 +379,91 @@ THE CONQUER CLUB
           ),
         ),
         padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade600,
-                borderRadius: BorderRadius.circular(2),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade600,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-            const Text(
-              'Share Your Streak',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+              const SizedBox(height: 20),
+              const Text(
+                'Share Your Streak',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            _shareOptionTile(
-              icon: Icons.camera_alt,
-              title: 'Camera',
-              subtitle: 'Take a photo with your streak overlay',
-              onTap: () {
-                Navigator.pop(context);
-                final currentStreak = _stats['currentStreak'] ?? 0;
-                final currentStreakStart =
-                    _stats['currentStreakStart'] as DateTime?;
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ShareStreakCameraScreen(
-                      currentStreak: currentStreak,
-                      currentStreakStart: currentStreakStart,
+              const SizedBox(height: 16),
+              _shareOptionTile(
+                icon: Icons.camera_alt,
+                title: 'Camera',
+                subtitle: 'Take a photo with your streak overlay',
+                onTap: () {
+                  Navigator.pop(context);
+                  final currentStreak = _stats['currentStreak'] ?? 0;
+                  final currentStreakStart =
+                      _stats['currentStreakStart'] as DateTime?;
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ShareStreakCameraScreen(
+                        currentStreak: currentStreak,
+                        currentStreakStart: currentStreakStart,
+                      ),
                     ),
-                  ),
-                );
-              },
-            ),
-            const Divider(color: Colors.grey, height: 1),
-            _shareOptionTile(
-              icon: Icons.photo_library,
-              title: 'Instagram Story',
-              subtitle: 'Share as a story with background image',
-              onTap: () {
-                Navigator.pop(context);
-                _shareWithImage(context, 'instagram_story', shareText);
-              },
-            ),
-            const Divider(color: Colors.grey, height: 1),
-            _shareOptionTile(
-              icon: Icons.grid_on,
-              title: 'Instagram Post',
-              subtitle: 'Share as a feed post',
-              onTap: () {
-                Navigator.pop(context);
-                _shareWithImage(context, 'instagram_post', shareText);
-              },
-            ),
-            const Divider(color: Colors.grey, height: 1),
-            _shareOptionTile(
-              icon: Icons.chat_bubble_outline,
-              title: 'Snapchat',
-              subtitle: 'Send as a snap',
-              onTap: () {
-                Navigator.pop(context);
-                _shareWithImage(context, 'snapchat', shareText);
-              },
-            ),
-            const SizedBox(height: 8),
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text(
-                'Cancel',
-                style: TextStyle(color: Colors.grey),
+                  );
+                },
               ),
-            ),
-          ],
+              const Divider(color: Colors.grey, height: 1),
+              _shareOptionTile(
+                icon: Icons.photo_library,
+                title: 'Instagram Story',
+                subtitle: 'Share as a story with background image',
+                onTap: () {
+                  Navigator.pop(context);
+                  _shareWithImage(context, 'instagram_story', shareText);
+                },
+              ),
+              const Divider(color: Colors.grey, height: 1),
+              _shareOptionTile(
+                icon: Icons.grid_on,
+                title: 'Instagram Post',
+                subtitle: 'Share as a feed post',
+                onTap: () {
+                  Navigator.pop(context);
+                  _shareWithImage(context, 'instagram_post', shareText);
+                },
+              ),
+              const Divider(color: Colors.grey, height: 1),
+              _shareOptionTile(
+                icon: Icons.chat_bubble_outline,
+                title: 'Snapchat',
+                subtitle: 'Send as a snap',
+                onTap: () {
+                  Navigator.pop(context);
+                  _shareWithImage(context, 'snapchat', shareText);
+                },
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

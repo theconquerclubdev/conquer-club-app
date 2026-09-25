@@ -255,8 +255,11 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
         padding: EdgeInsets.only(top: 4),
         child: Row(
           children: [
-            Icon(Icons.check_circle, color: AppColors.gold, size: 12),
-            SizedBox(width: 4),
+            SizedBox(
+                width: 24,
+                child:
+                    Icon(Icons.check_circle, color: AppColors.gold, size: 12)),
+            SizedBox(width: 10),
             Text(
               'TASK COMPLETED',
               style: TextStyle(
@@ -276,15 +279,22 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
       padding: const EdgeInsets.only(top: 4),
       child: Row(
         children: [
-          const Icon(Icons.fitness_center, color: AppColors.gold, size: 12),
-          const SizedBox(width: 4),
+          const SizedBox(
+              width: 24,
+              child:
+                  Icon(Icons.fitness_center, color: AppColors.gold, size: 14)),
+          const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              _workoutName!,
-              style: const TextStyle(
-                color: AppColors.gold,
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                _workoutName!,
+                style: const TextStyle(
+                  color: AppColors.gold,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -293,101 +303,159 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
     );
   }
 
-  // ── Bottom stat card: streak, date, weekday, real app-icon logo, ──
-  // ── tagline — compact, sits in the lower third only. ──
+  // ── Streak sticker: app icon, streak/progress, date/day, workout ──
   Widget _bottomStatCard() {
     final streak = widget.currentStreak;
     final now = DateTime.now();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 18),
         decoration: BoxDecoration(
-          color: Colors.black.withOpacity(0.55),
-          borderRadius: BorderRadius.circular(12),
-          border:
-              Border.all(color: AppColors.gold.withOpacity(0.9), width: 1.5),
+          color: Colors.black.withOpacity(0.78),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: AppColors.gold,
+            width: 2.5,
+          ),
         ),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
-            // Left: app logo
-            Container(
-              width: 52,
-              height: 52,
-              padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.black.withOpacity(0.35),
-                border: Border.all(
-                    color: AppColors.gold.withOpacity(0.6), width: 1.2),
-              ),
-              child: Image.asset(
-                'assets/images/app_logo.png',
-                fit: BoxFit.contain,
-                errorBuilder: (context, error, stacktrace) {
-                  debugPrint('❌ logo load failed: $error');
-                  return const Icon(Icons.error, color: Colors.red, size: 32);
-                },
-              ),
-            ),
-            const SizedBox(width: 10),
-            // Divider line
-            Container(
-              width: 1,
-              height: 48,
-              color: Colors.white.withOpacity(0.25),
-            ),
-            const SizedBox(width: 10),
-            // Middle: streak + progress text + date/day + workout
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    streak > 0
-                        ? '$streak DAY${streak > 1 ? 'S' : ''} STREAK'
-                        : 'NO STREAK',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 0.5,
-                      shadows: [Shadow(blurRadius: 6, color: Colors.black)],
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    streak > 0 ? 'GOOD PROGRESS' : '',
-                    style: const TextStyle(
-                      color: AppColors.gold,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 1,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      const Icon(Icons.calendar_today,
-                          color: AppColors.gold, size: 12),
-                      const SizedBox(width: 6),
-                      Text(
-                        DateFormat('d-MMM-yyyy').format(now),
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 12),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: SizedBox(
+                width: 460,
+                child: Row(
+                  children: [
+                    // Left: app logo
+                    SizedBox(
+                      width: 52,
+                      height: 52,
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Image.asset(
+                            'assets/images/app_logo.png',
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stacktrace) {
+                              debugPrint('❌ logo load failed: $error');
+                              return const Icon(Icons.error,
+                                  color: Colors.red, size: 32);
+                            },
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      Text(
-                        DateFormat('EEEE').format(now),
-                        style: const TextStyle(
-                            color: Colors.white54, fontSize: 12),
+                    ),
+                    const SizedBox(width: 10),
+                    Container(
+                      width: 1,
+                      height: 70,
+                      color: Colors.white.withOpacity(0.25),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // Middle: streak + progress
+                    Expanded(
+                      flex: 5,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              streak > 0
+                                  ? '$streak DAY${streak > 1 ? 'S' : ''} STREAK'
+                                  : 'NO STREAK',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 21,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                                shadows: [
+                                  Shadow(blurRadius: 6, color: Colors.black),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            streak > 0 ? 'GOOD PROGRESS' : '',
+                            style: const TextStyle(
+                              color: AppColors.gold,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                  _workoutOrTaskRow(),
-                ],
+                    ),
+
+                    const SizedBox(width: 12),
+                    Container(
+                      width: 1,
+                      height: 70,
+                      color: Colors.white.withOpacity(0.25),
+                    ),
+                    const SizedBox(width: 12),
+
+                    // Right: date/day + today's workout
+                    Expanded(
+                      flex: 7,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.calendar_today,
+                                color: AppColors.gold,
+                                size: 24,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  DateFormat('dd-MMM-yyyy')
+                                      .format(now)
+                                      .toUpperCase(),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 34),
+                            child: Text(
+                              DateFormat('EEEE').format(now).toUpperCase(),
+                              style: const TextStyle(
+                                color: Colors.white54,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                          ),
+                          _workoutOrTaskRow(),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
+            const SizedBox(height: 6),
+            _tagline(),
           ],
         ),
       ),
@@ -395,21 +463,18 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
   }
 
   Widget _tagline() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: RichText(
-        textAlign: TextAlign.center,
-        text: TextSpan(
-          style: const TextStyle(fontSize: 9, letterSpacing: 1),
-          children: [
-            const TextSpan(
-                text: 'CONSISTENCY. ', style: TextStyle(color: Colors.white)),
-            TextSpan(
-                text: 'DISCIPLINE. ', style: TextStyle(color: AppColors.gold)),
-            const TextSpan(
-                text: 'RESULTS.', style: TextStyle(color: Colors.white)),
-          ],
-        ),
+    return RichText(
+      textAlign: TextAlign.center,
+      text: TextSpan(
+        style: const TextStyle(fontSize: 9, letterSpacing: 1),
+        children: [
+          const TextSpan(
+              text: 'CONSISTENCY. ', style: TextStyle(color: Colors.white)),
+          TextSpan(
+              text: 'DISCIPLINE. ', style: TextStyle(color: AppColors.gold)),
+          const TextSpan(
+              text: 'RESULTS.', style: TextStyle(color: Colors.white)),
+        ],
       ),
     );
   }
@@ -425,7 +490,6 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 _bottomStatCard(),
-                _tagline(),
               ],
             ),
           ],
@@ -613,7 +677,9 @@ class _ShareStreakCameraScreenState extends State<ShareStreakCameraScreen> {
                   child: Align(
                     alignment: Alignment.bottomCenter,
                     child: Padding(
-                      padding: const EdgeInsets.only(bottom: 100),
+                      padding: EdgeInsets.only(
+                        bottom: MediaQuery.of(context).size.height * 0.18,
+                      ),
                       child: GestureDetector(
                         onTap: _takePhoto,
                         child: Container(
