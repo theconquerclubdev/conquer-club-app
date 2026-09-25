@@ -52,6 +52,10 @@ android/key.properties
 # Vercel
 .vercel/
 
+compress_supabase_progress_photos.py
+*.local.py
+D:/The CC Images/
+
 # Supabase
 supabase/.temp/
 
