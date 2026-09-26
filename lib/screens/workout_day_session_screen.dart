@@ -86,6 +86,27 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     super.deactivate();
   }
 
+  final Set<String> _expandedHistoryIds = {};
+  Map<String, List<Map<String, dynamic>>>? _allHistory;
+  bool _historyLoading = false;
+
+  Future<void> _toggleHistory(String workoutExerciseId) async {
+    if (_expandedHistoryIds.contains(workoutExerciseId)) {
+      setState(() => _expandedHistoryIds.remove(workoutExerciseId));
+      return;
+    }
+    setState(() => _expandedHistoryIds.add(workoutExerciseId));
+    if (_allHistory != null) return; // whole workout already fetched once
+    setState(() => _historyLoading = true);
+    final data = await MasterDataProvider.instance
+        .getWorkoutHistory(widget.workout['id']);
+    if (!mounted) return;
+    setState(() {
+      _allHistory = data;
+      _historyLoading = false;
+    });
+  }
+
   int get totalSetsCount =>
       exercises.fold(0, (sum, e) => sum + (e['sets'] as List).length);
 
@@ -495,43 +516,131 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
   }
 
   Widget _buildStartView() {
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.fitness_center, size: 72, color: AppColors.gold),
-          const SizedBox(height: 20),
-          Text(
-            widget.workout['workout_name'] ?? 'Workout',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
+    final screenWidth = MediaQuery.of(context).size.width;
+    final scale = (screenWidth / 400).clamp(0.85, 1.2);
+
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 600),
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+              child: Column(
+                children: [
+                  Icon(Icons.fitness_center,
+                      size: 40 * scale, color: AppColors.gold),
+                  SizedBox(height: 8 * scale),
+                  Text(
+                    widget.workout['workout_name'] ?? 'Workout',
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20 * scale,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  SizedBox(height: 4 * scale),
+                  Text(
+                    '${exercises.length} exercises · $totalSetsCount total sets',
+                    style: TextStyle(color: Colors.grey, fontSize: 13 * scale),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            '${exercises.length} exercises · $totalSetsCount total sets',
-            style: const TextStyle(color: Colors.grey, fontSize: 14),
-          ),
-          const SizedBox(height: 32),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.play_arrow, color: Colors.black),
-              label: const Text('START WORKOUT'),
-              onPressed: startWorkout,
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: exercises.length,
+                itemBuilder: (context, index) {
+                  final ex = exercises[index];
+                  final sets = ex['sets'] as List;
+                  final inputType = ex['input_type'] ?? 'Reps';
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppColors.cardDark,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          ex['name'] ?? 'Exercise',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14 * scale,
+                          ),
+                        ),
+                        Text(
+                          ex['body_part'] ?? '',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: AppColors.gold.withOpacity(0.8),
+                            fontSize: 11 * scale,
+                          ),
+                        ),
+                        SizedBox(height: 6 * scale),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: sets.map((s) {
+                            final label = inputType == 'kg × reps'
+                                ? '${s['coach_kg'] ?? '-'}kg × ${s['coach_reps'] ?? '-'}'
+                                : inputType == 'Min'
+                                    ? '${s['actual_minutes'] ?? 0}m ${s['actual_seconds'] ?? 0}s'
+                                    : '${s['coach_reps'] ?? '-'} reps';
+                            return Chip(
+                              label: Text(
+                                'Set ${s['set_number']}: $label',
+                                style: TextStyle(fontSize: 11 * scale),
+                              ),
+                              backgroundColor: Colors.grey.withOpacity(0.15),
+                              padding: EdgeInsets.zero,
+                              visualDensity: VisualDensity.compact,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Once you start, you can track your progress in real-time',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-            textAlign: TextAlign.center,
-          ),
-        ],
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      icon: const Icon(Icons.play_arrow, color: Colors.black),
+                      label: const Text('START WORKOUT'),
+                      onPressed: startWorkout,
+                    ),
+                  ),
+                  SizedBox(height: 16 * scale),
+                  Text(
+                    'Once you start, you can track your progress in real-time',
+                    style: TextStyle(
+                        color: Colors.grey.shade600, fontSize: 12 * scale),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -545,49 +654,60 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
       children: [
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
           color: AppColors.cardDark,
-          child: Column(
+          child: Row(
             children: [
               Text(
                 formatDuration(currentTotalSeconds),
                 style: const TextStyle(
                   color: Colors.white,
-                  fontSize: 40,
+                  fontSize: 24,
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                '$done / $total sets done',
-                style: TextStyle(color: AppColors.gold, fontSize: 13),
-              ),
-              const SizedBox(height: 10),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: LinearProgressIndicator(
-                  value: total == 0 ? 0 : done / total,
-                  minHeight: 6,
-                  backgroundColor: Colors.white12,
-                  color: AppColors.gold,
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '$done / $total sets done',
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: AppColors.gold, fontSize: 11),
+                    ),
+                    const SizedBox(height: 4),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: LinearProgressIndicator(
+                        value: total == 0 ? 0 : done / total,
+                        minHeight: 5,
+                        backgroundColor: Colors.white12,
+                        color: AppColors.gold,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 14),
+              const SizedBox(width: 10),
               SizedBox(
-                width: double.infinity,
+                width: 110,
                 child: isRunning
                     ? OutlinedButton.icon(
                         icon: const Icon(
                           Icons.pause,
                           color: Colors.redAccent,
+                          size: 16,
                         ),
                         label: const Text(
                           'PAUSE',
-                          style: TextStyle(color: Colors.redAccent),
+                          style:
+                              TextStyle(color: Colors.redAccent, fontSize: 12),
                         ),
                         style: OutlinedButton.styleFrom(
                           side: const BorderSide(color: Colors.redAccent),
-                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
                         ),
                         onPressed: pauseWorkout,
                       )
@@ -595,8 +715,13 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
                         icon: const Icon(
                           Icons.play_arrow,
                           color: Colors.black,
+                          size: 16,
                         ),
-                        label: const Text('RESUME'),
+                        label: const Text('RESUME',
+                            style: TextStyle(fontSize: 12)),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                        ),
                         onPressed: resumeWorkout,
                       ),
               ),
@@ -613,6 +738,28 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
               final sets = ex['sets'] as List;
               final exerciseDone = sets.every((s) => s['completed'] == true);
 
+              Widget cell(String label, Widget child) {
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 34,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          label,
+                          style:
+                              const TextStyle(color: Colors.grey, fontSize: 10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(child: child),
+                  ],
+                );
+              }
+
               return Container(
                 margin: const EdgeInsets.only(bottom: 12),
                 padding: const EdgeInsets.all(14),
@@ -626,15 +773,38 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      ex['name'] ?? 'Exercise',
-                      style: TextStyle(
-                        color: exerciseDone ? Colors.grey : Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                        decoration:
-                            exerciseDone ? TextDecoration.lineThrough : null,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            ex['name'] ?? 'Exercise',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: exerciseDone ? Colors.grey : Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 15,
+                              decoration: exerciseDone
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                            ),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 30,
+                          height: 30,
+                          child: IconButton(
+                            padding: EdgeInsets.zero,
+                            iconSize: 18,
+                            icon: Icon(
+                              _expandedHistoryIds.contains(id)
+                                  ? Icons.remove_circle_outline
+                                  : Icons.add_circle_outline,
+                              color: AppColors.gold,
+                            ),
+                            onPressed: () => _toggleHistory(id),
+                          ),
+                        ),
+                      ],
                     ),
                     Text(
                       ex['body_part'] ?? '',
@@ -643,31 +813,115 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
                         fontSize: 11,
                       ),
                     ),
+                    if (_expandedHistoryIds.contains(id))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: _historyLoading
+                            ? const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 8),
+                                child: Center(
+                                  child: SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: AppColors.gold,
+                                    ),
+                                  ),
+                                ),
+                              )
+                            : Builder(builder: (context) {
+                                final rows = _allHistory?[id] ?? [];
+                                if (rows.isEmpty) {
+                                  return const Text(
+                                    'No workout history for this exercise',
+                                    style: TextStyle(
+                                        color: Colors.grey, fontSize: 12),
+                                  );
+                                }
+                                final byDate =
+                                    <String, List<Map<String, dynamic>>>{};
+                                for (final r in rows) {
+                                  final d = r['date'].toString();
+                                  byDate.putIfAbsent(d, () => []).add(r);
+                                }
+                                final dates = byDate.keys.toList();
+                                return SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Table(
+                                    defaultColumnWidth:
+                                        const IntrinsicColumnWidth(),
+                                    border: TableBorder.all(
+                                      color: Colors.white.withOpacity(0.08),
+                                    ),
+                                    children: [
+                                      TableRow(children: [
+                                        const Padding(
+                                          padding: EdgeInsets.all(6),
+                                          child: SizedBox(),
+                                        ),
+                                        for (final d in dates)
+                                          Padding(
+                                            padding: const EdgeInsets.all(6),
+                                            child: Text(
+                                              d,
+                                              style: const TextStyle(
+                                                  color: Colors.grey,
+                                                  fontSize: 10),
+                                            ),
+                                          ),
+                                      ]),
+                                      for (var setNum = 1;
+                                          setNum <=
+                                              (byDate.values.first.length);
+                                          setNum++)
+                                        TableRow(children: [
+                                          Padding(
+                                            padding: const EdgeInsets.all(6),
+                                            child: Text(
+                                              'Set-$setNum',
+                                              style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 10),
+                                            ),
+                                          ),
+                                          for (final d in dates)
+                                            Padding(
+                                              padding: const EdgeInsets.all(6),
+                                              child: Builder(builder: (_) {
+                                                final match =
+                                                    byDate[d]!.firstWhere(
+                                                  (s) =>
+                                                      s['set_number'] == setNum,
+                                                  orElse: () => {},
+                                                );
+                                                if (match.isEmpty) {
+                                                  return const Text('-',
+                                                      style: TextStyle(
+                                                          color: Colors.grey,
+                                                          fontSize: 10));
+                                                }
+                                                final label = match['kg'] !=
+                                                        null
+                                                    ? 'Kg-${match['kg']} reps-${match['reps'] ?? '-'}'
+                                                    : match['minutes'] != null
+                                                        ? '${match['minutes']}m ${match['seconds'] ?? 0}s'
+                                                        : 'reps-${match['reps'] ?? '-'}';
+                                                return Text(
+                                                  label,
+                                                  style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 10),
+                                                );
+                                              }),
+                                            ),
+                                        ]),
+                                    ],
+                                  ),
+                                );
+                              }),
+                      ),
                     const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        const SizedBox(
-                          width: 36,
-                          child: Text(
-                            'SET',
-                            style: TextStyle(color: Colors.grey, fontSize: 11),
-                          ),
-                        ),
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            ex['input_type'] == 'kg × reps'
-                                ? 'ACTUAL (kg / reps)'
-                                : ex['input_type'] == 'Min'
-                                    ? 'ACTUAL (min / sec)'
-                                    : 'ACTUAL (reps)',
-                            style: const TextStyle(
-                                color: Colors.grey, fontSize: 11),
-                          ),
-                        ),
-                        const SizedBox(width: 36),
-                      ],
-                    ),
                     ...sets.asMap().entries.map((entry) {
                       final setIdx = entry.key;
                       final set = entry.value;
@@ -680,67 +934,134 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
                             SizedBox(
-                              width: 36,
-                              child: Text(
-                                '${set['set_number']}',
-                                style: const TextStyle(color: Colors.white),
+                              width: 44,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'SET-${set['set_number']}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                  ),
+                                ),
                               ),
                             ),
+                            const SizedBox(width: 6),
                             Expanded(
                               flex: 2,
                               child: Row(
                                 children: [
                                   if (inputType == 'kg × reps')
                                     Expanded(
-                                      child: setDone
-                                          ? Text(
-                                              '${set['actual_kg'] ?? '-'}',
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                              ),
-                                            )
-                                          : TextFormField(
-                                              initialValue: set['actual_kg']
-                                                      ?.toString() ??
-                                                  '',
-                                              keyboardType: const TextInputType
-                                                  .numberWithOptions(
-                                                decimal: true,
-                                              ),
-                                              style: const TextStyle(
-                                                color: Colors.white,
-                                                fontSize: 14,
-                                              ),
-                                              decoration: const InputDecoration(
-                                                isDense: true,
-                                                contentPadding:
-                                                    EdgeInsets.symmetric(
-                                                  vertical: 8,
+                                      child: cell(
+                                        'KG',
+                                        setDone
+                                            ? Text(
+                                                '${set['actual_kg'] ?? '-'}',
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                ),
+                                              )
+                                            : TextFormField(
+                                                initialValue: set['actual_kg']
+                                                        ?.toString() ??
+                                                    '',
+                                                keyboardType:
+                                                    const TextInputType
+                                                        .numberWithOptions(
+                                                  decimal: true,
+                                                ),
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 14,
+                                                ),
+                                                decoration:
+                                                    const InputDecoration(
+                                                  isDense: true,
+                                                  contentPadding:
+                                                      EdgeInsets.symmetric(
+                                                    vertical: 8,
+                                                    horizontal: 6,
+                                                  ),
+                                                  border: OutlineInputBorder(),
+                                                ),
+                                                onChanged: (v) =>
+                                                    updateActualValue(
+                                                  id,
+                                                  setIdx,
+                                                  'actual_kg',
+                                                  double.tryParse(v),
                                                 ),
                                               ),
-                                              onChanged: (v) =>
-                                                  updateActualValue(
-                                                id,
-                                                setIdx,
-                                                'actual_kg',
-                                                double.tryParse(v),
-                                              ),
-                                            ),
+                                      ),
                                     ),
                                   if (inputType == 'Min')
                                     Expanded(
-                                      child: setDone
+                                      child: cell(
+                                        'MIN',
+                                        setDone
+                                            ? Text(
+                                                '${set['actual_minutes'] ?? 0}',
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                ),
+                                              )
+                                            : TextFormField(
+                                                initialValue:
+                                                    set['actual_minutes']
+                                                            ?.toString() ??
+                                                        '',
+                                                keyboardType:
+                                                    TextInputType.number,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 14,
+                                                ),
+                                                decoration:
+                                                    const InputDecoration(
+                                                  isDense: true,
+                                                  contentPadding:
+                                                      EdgeInsets.symmetric(
+                                                    vertical: 8,
+                                                    horizontal: 6,
+                                                  ),
+                                                  border: OutlineInputBorder(),
+                                                ),
+                                                onChanged: (v) =>
+                                                    updateActualValue(
+                                                  id,
+                                                  setIdx,
+                                                  'actual_minutes',
+                                                  int.tryParse(v) ?? 0,
+                                                ),
+                                              ),
+                                      ),
+                                    ),
+                                  const SizedBox(width: 6),
+                                  Expanded(
+                                    child: cell(
+                                      inputType == 'Min' ? 'SEC' : 'REPS',
+                                      setDone
                                           ? Text(
-                                              '${set['actual_minutes'] ?? 0}',
+                                              inputType == 'Min'
+                                                  ? '${set['actual_seconds'] ?? 0}'
+                                                  : '${set['actual_reps'] ?? '-'}',
+                                              overflow: TextOverflow.ellipsis,
                                               style: const TextStyle(
                                                 color: Colors.white,
                                               ),
                                             )
                                           : TextFormField(
-                                              initialValue:
-                                                  set['actual_minutes']
+                                              initialValue: inputType == 'Min'
+                                                  ? (set['actual_seconds']
                                                           ?.toString() ??
-                                                      '',
+                                                      '')
+                                                  : (set['actual_reps']
+                                                          ?.toString() ??
+                                                      ''),
                                               keyboardType:
                                                   TextInputType.number,
                                               style: const TextStyle(
@@ -752,59 +1073,23 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
                                                 contentPadding:
                                                     EdgeInsets.symmetric(
                                                   vertical: 8,
+                                                  horizontal: 6,
                                                 ),
+                                                border: OutlineInputBorder(),
                                               ),
                                               onChanged: (v) =>
                                                   updateActualValue(
                                                 id,
                                                 setIdx,
-                                                'actual_minutes',
-                                                int.tryParse(v) ?? 0,
+                                                inputType == 'Min'
+                                                    ? 'actual_seconds'
+                                                    : 'actual_reps',
+                                                inputType == 'Min'
+                                                    ? (int.tryParse(v) ?? 0)
+                                                    : int.tryParse(v),
                                               ),
                                             ),
                                     ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: setDone
-                                        ? Text(
-                                            inputType == 'Min'
-                                                ? '${set['actual_seconds'] ?? 0}'
-                                                : '${set['actual_reps'] ?? '-'}',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          )
-                                        : TextFormField(
-                                            initialValue: inputType == 'Min'
-                                                ? (set['actual_seconds']
-                                                        ?.toString() ??
-                                                    '')
-                                                : (set['actual_reps']
-                                                        ?.toString() ??
-                                                    ''),
-                                            keyboardType: TextInputType.number,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 14,
-                                            ),
-                                            decoration: const InputDecoration(
-                                              isDense: true,
-                                              contentPadding:
-                                                  EdgeInsets.symmetric(
-                                                vertical: 8,
-                                              ),
-                                            ),
-                                            onChanged: (v) => updateActualValue(
-                                              id,
-                                              setIdx,
-                                              inputType == 'Min'
-                                                  ? 'actual_seconds'
-                                                  : 'actual_reps',
-                                              inputType == 'Min'
-                                                  ? (int.tryParse(v) ?? 0)
-                                                  : int.tryParse(v),
-                                            ),
-                                          ),
                                   ),
                                 ],
                               ),
@@ -1012,14 +1297,6 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
                   fontWeight: FontWeight.bold,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                'You are viewing this workout in read-only mode.',
-                style: TextStyle(
-                  color: Colors.grey.shade500,
-                  fontSize: 13,
-                ),
-              ),
               const SizedBox(height: 8),
               if (!widget.isViewOnly)
                 Container(
@@ -1039,11 +1316,10 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
                   ),
                 ),
               if (!widget.isViewOnly) const SizedBox(height: 8),
-              if (!widget.isViewOnly)
-                Text(
-                  'Total time: ${formatDuration(savedElapsedSeconds)}',
-                  style: TextStyle(color: AppColors.gold, fontSize: 13),
-                ),
+              Text(
+                'Total time: ${formatDuration(savedElapsedSeconds)}',
+                style: TextStyle(color: AppColors.gold, fontSize: 13),
+              ),
             ],
           ),
         ),

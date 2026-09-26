@@ -988,6 +988,30 @@ class MasterDataProvider extends ChangeNotifier {
     _stepSyncTimer?.cancel();
     _stepEngineStarted = false;
   }
+
+  // ✅ Whole-workout history in ONE RPC call, grouped by exercise. This is
+  // what _toggleHistory (screen) calls the first time any exercise's
+  // history is expanded, so every exercise after that is free (cached
+  // locally in the screen's _allHistory).
+  Future<Map<String, List<Map<String, dynamic>>>> getWorkoutHistory(
+    String workoutId,
+  ) async {
+    try {
+      final result = await Supabase.instance.client.rpc(
+        'get_workout_history',
+        params: {'p_workout_id': workoutId, 'p_limit': 4},
+      );
+      final map = Map<String, dynamic>.from(result ?? {});
+      final grouped = <String, List<Map<String, dynamic>>>{};
+      map.forEach((id, sets) {
+        grouped[id] = List<Map<String, dynamic>>.from(sets ?? []);
+      });
+      return grouped;
+    } catch (e) {
+      debugPrint('⚠️ Failed to load workout history: $e');
+      return {};
+    }
+  }
 }
 
 extension MasterDataProviderExtension on BuildContext {
