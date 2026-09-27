@@ -170,7 +170,6 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   bool stepPermanentlyDenied = false;
   bool _stepTrackerStarting = false;
 
-
   int _getDaysLeft(String? endDateStr) {
     if (endDateStr == null) return -1;
     try {
@@ -647,6 +646,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
                     todayName: todayName,
                     days: days,
                     isMembershipActive: isMembershipActive,
+                    onWorkoutSessionClosed: loadProfile,
                   ),
                   _MyDietsList(
                     memberId: userId,
@@ -1480,16 +1480,6 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
               ).then((_) => loadProfile()),
             ),
             _buildQuickActionIcon(
-              Icons.show_chart,
-              const Color(0xFF81C784),
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const WorkoutProgressScreen(),
-                ),
-              ),
-            ),
-            _buildQuickActionIcon(
               Icons.camera_alt_outlined,
               const Color(0xFFBA68C8),
               () => Navigator.push(
@@ -1843,12 +1833,14 @@ class _WeekWorkoutList extends StatefulWidget {
   final String todayName;
   final List<String> days;
   final bool isMembershipActive;
+  final VoidCallback? onWorkoutSessionClosed;
 
   const _WeekWorkoutList({
     required this.memberId,
     required this.todayName,
     required this.days,
     required this.isMembershipActive,
+    this.onWorkoutSessionClosed,
   });
 
   @override
@@ -1868,6 +1860,13 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
   void initState() {
     super.initState();
     load();
+    MasterDataProvider.instance.addListener(load);
+  }
+
+  @override
+  void dispose() {
+    MasterDataProvider.instance.removeListener(load);
+    super.dispose();
   }
 
   Future<void> load() async {
@@ -2117,7 +2116,10 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
                                     isViewOnly: isViewOnly,
                                   ),
                                 ),
-                              ).then((_) => load());
+                              ).then((_) {
+                                load();
+                                widget.onWorkoutSessionClosed?.call();
+                              });
                             }
                           : null,
                     ),
@@ -2197,6 +2199,13 @@ class _MyDietsListState extends State<_MyDietsList>
   void initState() {
     super.initState();
     load();
+    MasterDataProvider.instance.addListener(load);
+  }
+
+  @override
+  void dispose() {
+    MasterDataProvider.instance.removeListener(load);
+    super.dispose();
   }
 
   Future<void> load() async {

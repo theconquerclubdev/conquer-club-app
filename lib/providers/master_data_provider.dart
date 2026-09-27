@@ -522,6 +522,7 @@ class MasterDataProvider extends ChangeNotifier {
       Map<String, dynamic>? todayWorkout;
       String? photoFrontUpdatedAt;
       String? photoBackUpdatedAt;
+      bool measurementUpdatedToday = false;
 
       try {
         // Fetch workout status for today using IST boundaries
@@ -581,6 +582,17 @@ class MasterDataProvider extends ChangeNotifier {
             photoBackUpdatedAt = photoBackRaw;
           }
         }
+
+        // Sunday task card: was the latest measurement recorded today (IST)?
+        final measurementRecordedRaw = measurements?['recorded_at'] as String?;
+        if (measurementRecordedRaw != null) {
+          final measurementDate = DateTime.tryParse(measurementRecordedRaw);
+          if (measurementDate != null &&
+              !measurementDate.isBefore(startOfDay) &&
+              measurementDate.isBefore(endOfDay)) {
+            measurementUpdatedToday = true;
+          }
+        }
       } catch (e) {
         debugPrint(
           '⚠️ Non-streak data fetch failed for $memberId (streak kept intact): $e',
@@ -605,6 +617,7 @@ class MasterDataProvider extends ChangeNotifier {
         progressPhotos: null,
         tasksToday: {
           'workout_completed': workoutCompletedToday,
+          'measurement_updated': measurementUpdatedToday,
           'after_front_updated_at': photoFrontUpdatedAt,
           'after_back_updated_at': photoBackUpdatedAt,
         },
