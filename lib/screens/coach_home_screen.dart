@@ -1170,10 +1170,10 @@ class _MemberCard extends StatelessWidget {
     final memberId = member['id'] as String?;
     final masterData =
         memberId != null ? MasterDataProvider.instance.getData(memberId) : null;
-    final currentStreak = masterData?.currentStreak ?? 0;
-    if (memberId != null && masterData == null) {
-      MasterDataProvider.instance.fetchMemberData(memberId);
-    }
+    final currentStreak = (member['current_streak'] as num?)?.toInt() ??
+        masterData?.currentStreak ??
+        0;
+
     final daysLeft = member['days_left'] as int?;
 
     // ✅ DEBUG: Log streak values for this member

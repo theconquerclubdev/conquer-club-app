@@ -768,7 +768,10 @@ class _MemberProfileCoachViewScreenState
                                   builder: (_) => StepCounterScreen(
                                     liveTodaySteps: todaySteps,
                                     initialGoal: stepGoal,
-                                    signupDate: DateTime.now(),
+                                    signupDate: DateTime.tryParse(
+                                            '${widget.member['created_at']}') ??
+                                        DateTime.now(),
+                                    memberId: widget.member['id']?.toString(),
                                   ),
                                 ),
                               );

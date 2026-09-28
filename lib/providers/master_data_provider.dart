@@ -602,10 +602,11 @@ class MasterDataProvider extends ChangeNotifier {
       final dashboardData = MemberDashboardData(
         memberId: memberId,
         currentStreak: currentStreak,
-        todaySteps:
-            todaySteps > MasterDataProvider.instance.getLocalTodaySteps()
-                ? todaySteps
-                : MasterDataProvider.instance.getLocalTodaySteps(),
+        todaySteps: (memberId ==
+                    Supabase.instance.client.auth.currentUser?.id) &&
+                MasterDataProvider.instance.getLocalTodaySteps() > todaySteps
+            ? MasterDataProvider.instance.getLocalTodaySteps()
+            : todaySteps,
         stepGoal: stepGoal,
         daysLeft: daysLeft,
         isMembershipActive: isMembershipActive,

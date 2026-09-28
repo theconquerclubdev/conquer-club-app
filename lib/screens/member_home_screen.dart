@@ -245,7 +245,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
       // ✅ Coach info
       final coachId = profile?['assigned_coach_id'];
-      if (coachId != null) {
+      if (coachId != null && coach == null) {
         final coachData = await Supabase.instance.client
             .from('profiles')
             .select('full_name, email')

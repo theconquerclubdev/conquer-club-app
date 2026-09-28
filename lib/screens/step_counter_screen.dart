@@ -10,13 +10,14 @@ class StepCounterScreen extends StatefulWidget {
   final int liveTodaySteps;
   final int initialGoal;
   final DateTime signupDate;
+  final String? memberId;
   const StepCounterScreen({
     super.key,
     required this.liveTodaySteps,
     required this.initialGoal,
     required this.signupDate,
+    this.memberId,
   });
-
   @override
   State<StepCounterScreen> createState() => _StepCounterScreenState();
 }
@@ -58,7 +59,8 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
   }
 
   Future<void> _fetchRange(DateTime start) async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
+    final userId =
+        widget.memberId ?? Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
     try {
       final rows = await Supabase.instance.client

@@ -412,8 +412,6 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         _buildWeeklyPlanSection(),
-                        const SizedBox(height: 20),
-                        _buildStrengthRecordsTable(),
                       ],
                     ),
                   ),
@@ -761,7 +759,9 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
               Padding(
                 padding: const EdgeInsets.all(6),
                 child: Text(
-                  d,
+                  DateTime.tryParse(d) != null
+                      ? DateFormat('dd/MM/yy').format(DateTime.parse(d))
+                      : d,
                   style: const TextStyle(color: Colors.grey, fontSize: 10),
                 ),
               ),
