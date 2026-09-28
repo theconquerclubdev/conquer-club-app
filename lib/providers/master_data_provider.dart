@@ -1007,12 +1007,20 @@ class MasterDataProvider extends ChangeNotifier {
   // history is expanded, so every exercise after that is free (cached
   // locally in the screen's _allHistory).
   Future<Map<String, List<Map<String, dynamic>>>> getWorkoutHistory(
-    String workoutId,
-  ) async {
+    String workoutId, {
+    // Pass the member's id when a coach/admin is looking up someone
+    // else's history. Omit (or pass null) for a member checking their
+    // own — the RPC then defaults to auth.uid() same as before.
+    String? memberId,
+  }) async {
     try {
       final result = await Supabase.instance.client.rpc(
         'get_workout_history',
-        params: {'p_workout_id': workoutId, 'p_limit': 4},
+        params: {
+          'p_workout_id': workoutId,
+          'p_limit': 4,
+          if (memberId != null) 'p_member_id': memberId,
+        },
       );
       final map = Map<String, dynamic>.from(result ?? {});
       final grouped = <String, List<Map<String, dynamic>>>{};

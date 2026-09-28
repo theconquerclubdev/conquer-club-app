@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import '../providers/master_data_provider.dart';
 
 class WorkoutProgressScreen extends StatefulWidget {
   // Optional: pass this when a coach/admin is viewing a specific
@@ -52,10 +53,32 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
 
   bool _isLoadingRecords = false;
 
+  // ✅ Weekly Workout Plan preview (added — does NOT touch the table below)
+  final List<String> _weekDays = const [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+  String _todayName = '';
+  String? _selectedDay;
+  bool _weeklyLoading = true;
+  Map<String, Map<String, dynamic>> _weeklyWorkouts = {};
+  final Map<String, String> _todayStatus = {};
+  final Map<String, List<Map<String, dynamic>>> _dayExercisesCache = {};
+  bool _dayExLoading = false;
+  final Set<String> _expandedHistoryIds = {};
+  final Set<String> _historyLoadingWorkoutIds = {};
+  final Map<String, Map<String, List<Map<String, dynamic>>>> _historyCache = {};
+
   @override
   void initState() {
     super.initState();
     _loadData();
+    _loadWeeklyPlan();
   }
 
   Future<void> _loadData() async {
@@ -219,6 +242,137 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
     };
   }
 
+  // ============================================================
+  // Weekly Workout Plan — data loading (new, additive only)
+  // ============================================================
+  Future<void> _loadWeeklyPlan() async {
+    setState(() => _weeklyLoading = true);
+    try {
+      final userId =
+          widget.memberId ?? Supabase.instance.client.auth.currentUser?.id;
+      if (userId == null) {
+        if (mounted) setState(() => _weeklyLoading = false);
+        return;
+      }
+
+      final istNow =
+          DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+      _todayName = _weekDays[istNow.weekday - 1];
+
+      final data = await Supabase.instance.client
+          .from('workouts')
+          .select()
+          .eq('member_id', userId);
+
+      final map = <String, Map<String, dynamic>>{};
+      for (final w in List<Map<String, dynamic>>.from(data)) {
+        map[w['day_of_week'] as String] = w;
+      }
+
+      final todayWorkout = map[_todayName];
+      if (todayWorkout != null) {
+        final startOfDay = DateTime.utc(
+          istNow.year,
+          istNow.month,
+          istNow.day,
+        ).subtract(const Duration(hours: 5, minutes: 30));
+
+        final session = await Supabase.instance.client
+            .from('workout_sessions')
+            .select()
+            .eq('workout_id', todayWorkout['id'])
+            .eq('member_id', userId)
+            .gte('started_at', startOfDay.toIso8601String())
+            .order('started_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+
+        if (session != null) {
+          _todayStatus[todayWorkout['id'] as String] =
+              session['status'] ?? 'none';
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _weeklyWorkouts = map;
+        _selectedDay ??= _todayName;
+        _weeklyLoading = false;
+      });
+
+      final day = _selectedDay;
+      if (day != null) await _loadDayExercises(day);
+    } catch (e) {
+      debugPrint('⚠️ Error loading weekly plan: $e');
+      if (mounted) setState(() => _weeklyLoading = false);
+    }
+  }
+
+  Future<void> _selectDay(String day) async {
+    setState(() => _selectedDay = day);
+    await _loadDayExercises(day);
+  }
+
+  Future<void> _loadDayExercises(String day) async {
+    final workout = _weeklyWorkouts[day];
+    if (workout == null) return;
+    final workoutId = workout['id'] as String;
+    if (_dayExercisesCache.containsKey(workoutId)) return;
+
+    setState(() => _dayExLoading = true);
+    try {
+      final weData = await Supabase.instance.client
+          .from('workout_exercises')
+          .select(
+            'id, order_index, exercises(id, name, body_part, input_type), workout_sets(id, set_number, kg, reps, minutes, seconds)',
+          )
+          .eq('workout_id', workoutId)
+          .order('order_index', ascending: true);
+
+      final loaded = List<Map<String, dynamic>>.from(weData);
+      for (final we in loaded) {
+        final sets = List<Map<String, dynamic>>.from(we['workout_sets'] ?? []);
+        sets.sort((a, b) =>
+            (a['set_number'] as int).compareTo(b['set_number'] as int));
+        we['workout_sets'] = sets;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _dayExercisesCache[workoutId] = loaded;
+        _dayExLoading = false;
+      });
+    } catch (e) {
+      debugPrint('⚠️ Error loading day exercises: $e');
+      if (mounted) setState(() => _dayExLoading = false);
+    }
+  }
+
+  Future<void> _toggleExerciseHistory(String workoutId, String weId) async {
+    final key = '$workoutId|$weId';
+    if (_expandedHistoryIds.contains(key)) {
+      setState(() => _expandedHistoryIds.remove(key));
+      return;
+    }
+    setState(() => _expandedHistoryIds.add(key));
+    if (_historyCache.containsKey(workoutId)) return;
+
+    setState(() => _historyLoadingWorkoutIds.add(workoutId));
+    final data = await MasterDataProvider.instance.getWorkoutHistory(
+      workoutId,
+      memberId: widget.memberId,
+    );
+    if (!mounted) return;
+    setState(() {
+      _historyCache[workoutId] = data;
+      _historyLoadingWorkoutIds.remove(workoutId);
+    });
+  }
+
+  Future<void> _refreshAll() async {
+    await Future.wait([_loadData(), _loadWeeklyPlan()]);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -237,7 +391,7 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: AppColors.gold),
-            onPressed: _loadData,
+            onPressed: _refreshAll,
           ),
         ],
       ),
@@ -248,14 +402,416 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
           : _errorMessage != null
               ? _buildErrorView()
               : RefreshIndicator(
-                  onRefresh: _loadData,
+                  onRefresh: _refreshAll,
                   color: AppColors.gold,
                   backgroundColor: AppColors.cardDark,
-                  child: Padding(
+                  child: SingleChildScrollView(
+                    physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.all(16),
-                    child: _buildStrengthRecordsTable(),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildWeeklyPlanSection(),
+                        const SizedBox(height: 20),
+                        _buildStrengthRecordsTable(),
+                      ],
+                    ),
                   ),
                 ),
+    );
+  }
+
+  // ============================================================
+  // Weekly Workout Plan — UI (new, additive only)
+  // ============================================================
+  Widget _buildWeeklyPlanSection() {
+    if (_weeklyLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: CircularProgressIndicator(color: AppColors.gold),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.cardDark,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '📅 WEEKLY WORKOUT PLAN',
+            style: TextStyle(
+              color: AppColors.gold,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: 42,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _weekDays.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (context, i) {
+                final day = _weekDays[i];
+                final isToday = day == _todayName;
+                final isSelected = day == _selectedDay;
+                final workout = _weeklyWorkouts[day];
+                final status =
+                    workout != null ? _todayStatus[workout['id']] : null;
+                final isCompletedToday = isToday && status == 'completed';
+                final isInProgressToday = isToday && status == 'in_progress';
+
+                return GestureDetector(
+                  onTap: () => _selectDay(day),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? AppColors.gold.withOpacity(0.18)
+                          : Colors.white.withOpacity(0.03),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isSelected
+                            ? AppColors.gold
+                            : (isToday
+                                ? AppColors.gold.withOpacity(0.5)
+                                : Colors.white.withOpacity(0.08)),
+                        width: isSelected ? 1.4 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isCompletedToday)
+                          const Padding(
+                            padding: EdgeInsets.only(right: 4),
+                            child: Icon(
+                              Icons.check_circle,
+                              color: Colors.green,
+                              size: 14,
+                            ),
+                          ),
+                        if (isInProgressToday)
+                          const Padding(
+                            padding: EdgeInsets.only(right: 4),
+                            child: Icon(
+                              Icons.play_circle,
+                              color: AppColors.gold,
+                              size: 14,
+                            ),
+                          ),
+                        Text(
+                          day.substring(0, 3).toUpperCase(),
+                          style: TextStyle(
+                            color: isSelected
+                                ? AppColors.gold
+                                : (isToday ? Colors.white : Colors.grey),
+                            fontWeight: (isSelected || isToday)
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildSelectedDayWorkout(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSelectedDayWorkout() {
+    final day = _selectedDay;
+    if (day == null) return const SizedBox.shrink();
+    final workout = _weeklyWorkouts[day];
+    final isToday = day == _todayName;
+    final status = workout != null ? _todayStatus[workout['id']] : null;
+
+    if (workout == null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        child: Text(
+          'No workout assigned for $day',
+          style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
+        ),
+      );
+    }
+
+    final exercises = _dayExercisesCache[workout['id']] ?? [];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                workout['workout_name'] ?? 'Workout',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+            if (isToday && status == 'completed')
+              _statusBadge('Completed', Colors.green)
+            else if (isToday && status == 'in_progress')
+              _statusBadge('In Progress', AppColors.gold)
+            else if (isToday)
+              _statusBadge('Not started', Colors.grey)
+            else
+              _statusBadge('Preview', Colors.grey),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (_dayExLoading && exercises.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.gold,
+                ),
+              ),
+            ),
+          )
+        else if (exercises.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Text(
+              'No exercises added yet.',
+              style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+            ),
+          )
+        else
+          ...exercises.map(
+            (we) => _buildExerciseWithHistory(workout['id'] as String, we),
+          ),
+      ],
+    );
+  }
+
+  Widget _statusBadge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.15),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontSize: 10,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExerciseWithHistory(
+    String workoutId,
+    Map<String, dynamic> we,
+  ) {
+    final ex = we['exercises'] as Map<String, dynamic>? ?? {};
+    final weId = we['id'] as String;
+    final key = '$workoutId|$weId';
+    final inputType = ex['input_type'] ?? 'Reps';
+    final sets = List<Map<String, dynamic>>.from(we['workout_sets'] ?? []);
+    final expanded = _expandedHistoryIds.contains(key);
+    final historyLoading = _historyLoadingWorkoutIds.contains(workoutId);
+    final rows = _historyCache[workoutId]?[weId] ?? [];
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  ex['name'] ?? 'Exercise',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              SizedBox(
+                width: 28,
+                height: 28,
+                child: IconButton(
+                  padding: EdgeInsets.zero,
+                  iconSize: 16,
+                  icon: Icon(
+                    expanded
+                        ? Icons.remove_circle_outline
+                        : Icons.add_circle_outline,
+                    color: AppColors.gold,
+                  ),
+                  onPressed: () => _toggleExerciseHistory(workoutId, weId),
+                ),
+              ),
+            ],
+          ),
+          Text(
+            ex['body_part'] ?? '',
+            style: TextStyle(
+              color: AppColors.gold.withOpacity(0.8),
+              fontSize: 10,
+            ),
+          ),
+          const SizedBox(height: 4),
+          ...sets.map((s) {
+            String label;
+            if (inputType == 'kg × reps') {
+              label = '${s['kg'] ?? '-'} kg × ${s['reps'] ?? '-'} reps';
+            } else if (inputType == 'Min') {
+              label = '${s['minutes'] ?? 0}m ${s['seconds'] ?? 0}s';
+            } else {
+              label = '${s['reps'] ?? '-'} reps';
+            }
+            return Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                'Set ${s['set_number']}: $label',
+                style: const TextStyle(color: Colors.grey, fontSize: 11),
+              ),
+            );
+          }),
+          if (expanded)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: historyLoading
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Center(
+                        child: SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppColors.gold,
+                          ),
+                        ),
+                      ),
+                    )
+                  : rows.isEmpty
+                      ? const Text(
+                          'No workout history for this exercise',
+                          style: TextStyle(color: Colors.grey, fontSize: 11),
+                        )
+                      : _buildHistoryTable(rows),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryTable(List<Map<String, dynamic>> rows) {
+    final byDate = <String, List<Map<String, dynamic>>>{};
+    for (final r in rows) {
+      final d = r['date'].toString();
+      byDate.putIfAbsent(d, () => []).add(r);
+    }
+    final dates = byDate.keys.toList();
+    final maxSets =
+        byDate.values.fold<int>(0, (m, l) => l.length > m ? l.length : m);
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Table(
+        defaultColumnWidth: const IntrinsicColumnWidth(),
+        border: TableBorder.all(color: Colors.white.withOpacity(0.08)),
+        children: [
+          TableRow(children: [
+            const Padding(padding: EdgeInsets.all(6), child: SizedBox()),
+            for (final d in dates)
+              Padding(
+                padding: const EdgeInsets.all(6),
+                child: Text(
+                  d,
+                  style: const TextStyle(color: Colors.grey, fontSize: 10),
+                ),
+              ),
+          ]),
+          for (var setNum = 1; setNum <= maxSets; setNum++)
+            TableRow(children: [
+              Padding(
+                padding: const EdgeInsets.all(6),
+                child: Text(
+                  'Set-$setNum',
+                  style: const TextStyle(color: Colors.white, fontSize: 10),
+                ),
+              ),
+              for (final d in dates)
+                Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Builder(builder: (_) {
+                    final match = byDate[d]!.firstWhere(
+                      (s) => s['set_number'] == setNum,
+                      orElse: () => {},
+                    );
+                    if (match.isEmpty) {
+                      return const Text(
+                        '-',
+                        style: TextStyle(color: Colors.grey, fontSize: 10),
+                      );
+                    }
+                    final kg = match['kg'];
+                    final reps = match['reps'];
+                    final minutes = match['minutes'];
+                    final seconds = match['seconds'];
+                    String txt;
+                    if (kg != null && (kg != 0 || (reps ?? 0) != 0)) {
+                      txt = '$kg×${reps ?? '-'}';
+                    } else if ((minutes ?? 0) != 0 || (seconds ?? 0) != 0) {
+                      txt = '${minutes ?? 0}m${seconds ?? 0}s';
+                    } else if (reps != null) {
+                      txt = '$reps';
+                    } else {
+                      txt = '-';
+                    }
+                    return Text(
+                      txt,
+                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                    );
+                  }),
+                ),
+            ]),
+        ],
+      ),
     );
   }
 
