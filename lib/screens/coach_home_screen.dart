@@ -983,9 +983,10 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                         onTap: () async {
                           final memberId =
                               filteredMembers[index]['id'] as String?;
-                          // ✅ Invalidate cache BEFORE opening the profile
+                          // ✅ Tiny server check BEFORE opening the profile:
+                          // cache is cleared only if the member really changed
                           if (memberId != null) {
-                            _dataProvider.invalidateCache(memberId);
+                            await _dataProvider.invalidateIfChanged(memberId);
                           }
                           await Navigator.push(
                             context,

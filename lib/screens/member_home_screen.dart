@@ -159,10 +159,17 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         // fires the moment member reopens app.
         final resumedUserId = Supabase.instance.client.auth.currentUser?.id;
         if (resumedUserId != null) {
-          MasterDataProvider.instance.invalidateCache(resumedUserId);
+          // One tiny server check: cache is cleared only if something
+          // really changed while the app slept.
+          MasterDataProvider.instance
+              .invalidateIfChanged(resumedUserId)
+              .whenComplete(() {
+            if (mounted) loadProfile();
+          });
+        } else {
+          // ✅ Task status is loaded via MasterDataProvider in loadProfile()
+          loadProfile();
         }
-        // ✅ Task status is loaded via MasterDataProvider in loadProfile()
-        loadProfile();
       }
     }
   }
@@ -548,8 +555,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     ).then((_) {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
-        MasterDataProvider.instance.invalidateCache(userId);
-        loadProfile();
+        MasterDataProvider.instance
+            .invalidateIfChanged(userId)
+            .whenComplete(() {
+          if (mounted) loadProfile();
+        });
       }
     });
   }
@@ -561,8 +571,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     ).then((_) {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
-        MasterDataProvider.instance.invalidateCache(userId);
-        loadProfile();
+        MasterDataProvider.instance
+            .invalidateIfChanged(userId)
+            .whenComplete(() {
+          if (mounted) loadProfile();
+        });
       }
     });
   }
@@ -587,8 +600,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     ).then((_) {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
-        MasterDataProvider.instance.invalidateCache(userId);
-        loadProfile();
+        MasterDataProvider.instance
+            .invalidateIfChanged(userId)
+            .whenComplete(() {
+          if (mounted) loadProfile();
+        });
       }
     });
   }
@@ -601,8 +617,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     ).then((_) {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
-        MasterDataProvider.instance.invalidateCache(userId);
-        loadProfile();
+        MasterDataProvider.instance
+            .invalidateIfChanged(userId)
+            .whenComplete(() {
+          if (mounted) loadProfile();
+        });
       }
     });
   }
@@ -614,8 +633,11 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     ).then((_) {
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
-        MasterDataProvider.instance.invalidateCache(userId);
-        loadProfile();
+        MasterDataProvider.instance
+            .invalidateIfChanged(userId)
+            .whenComplete(() {
+          if (mounted) loadProfile();
+        });
       }
     });
   }

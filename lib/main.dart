@@ -86,7 +86,11 @@ class AppLifecycleObserver extends WidgetsBindingObserver {
     try {
       // Import master_data_provider here
       final provider = MasterDataProvider.instance;
-      final memberIds = provider.cachedMemberIds;
+      // Only refresh the signed-in user's own cached data. Other members
+      // (coach/admin views) refresh when their screen opens or via realtime.
+      final ownId = Supabase.instance.client.auth.currentUser?.id;
+      final memberIds =
+          provider.cachedMemberIds.where((id) => id == ownId).toList();
 
       for (final memberId in memberIds) {
         try {

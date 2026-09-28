@@ -138,7 +138,11 @@ class MasterDataProvider extends ChangeNotifier {
     // the CURRENT user/role needs. Fixes a gap where logging out (or
     // switching role on the same device) could leave a previous
     // member's filtered channels and cached data still active.
-    _authStateSub = Supabase.instance.client.auth.onAuthStateChange.listen((_) {
+    _authStateSub =
+        Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+      // Hourly token refresh is not a user change — skip it so we don't
+      // wipe the cache and re-subscribe channels for nothing.
+      if (data.event == AuthChangeEvent.tokenRefreshed) return;
       _refineRealtimeForCurrentUser();
     });
     _refineRealtimeForCurrentUser();
@@ -262,6 +266,9 @@ class MasterDataProvider extends ChangeNotifier {
   final Map<String, MemberDashboardData> _cache = {};
   final Map<String, DateTime> _cacheTimestamps = {};
   final Map<String, Future<MemberDashboardData>> _inFlight = {};
+  final Map<String, String> _changeStamps = {};
+  final Map<String, DateTime> _lastValidated = {};
+  final Map<String, Future<bool>> _stampChecks = {};
   final Map<String, bool> _loadingStates = {};
   final Map<String, String?> _errorStates = {};
   RealtimeChannel? _profilesChannel;
@@ -395,6 +402,14 @@ class MasterDataProvider extends ChangeNotifier {
       if (data.isFresh()) {
         return data;
       }
+      // Older than 3 min: one tiny server check instead of 3 heavy calls.
+      // Nothing changed -> keep cache. Changed or unsure -> full fetch below.
+      if (await _isCacheStillValid(memberId)) {
+        return data;
+      }
+      if (_inFlight.containsKey(memberId)) {
+        return _inFlight[memberId]!;
+      }
     }
 
     _loadingStates[memberId] = true;
@@ -439,6 +454,9 @@ class MasterDataProvider extends ChangeNotifier {
 
       // 🚀 Fetch profile and streak in parallel instead of one-after-another —
       // they don't depend on each other, so this cuts one full round trip.
+      // Ask for the change stamp FIRST (runs in parallel) so a change that
+      // lands while we load is still caught by the next check.
+      final stampFuture = _fetchChangeStamp(memberId);
       final profileFuture = Supabase.instance.client
           .from('profiles')
           .select(
@@ -628,6 +646,13 @@ class MasterDataProvider extends ChangeNotifier {
         fetchedAt: DateTime.now(),
       );
 
+      final stamp = await stampFuture;
+      if (stamp != null) {
+        _changeStamps[memberId] = stamp;
+        _lastValidated[memberId] = DateTime.now();
+      } else {
+        _changeStamps.remove(memberId);
+      }
       _cache[memberId] = dashboardData;
       _cacheTimestamps[memberId] = DateTime.now();
       pruneCache();
@@ -678,6 +703,56 @@ class MasterDataProvider extends ChangeNotifier {
     _cacheTimestamps.clear();
     _errorStates.clear();
     notifyListeners();
+  }
+
+  Future<String?> _fetchChangeStamp(String memberId) async {
+    try {
+      final v = await Supabase.instance.client.rpc(
+        'get_member_change_stamp',
+        params: {'p_member_id': memberId},
+      );
+      return v is String ? v : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// true = server says nothing changed since we cached (keep cache).
+  /// false = changed, or we can't tell (caller should refetch).
+  Future<bool> _isCacheStillValid(
+    String memberId, {
+    Duration maxAge = const Duration(minutes: 3),
+  }) {
+    final known = _changeStamps[memberId];
+    if (known == null || !_cache.containsKey(memberId)) {
+      return Future.value(false);
+    }
+    final last = _lastValidated[memberId];
+    if (last != null && DateTime.now().difference(last) < maxAge) {
+      return Future.value(true);
+    }
+    final running = _stampChecks[memberId];
+    if (running != null) return running;
+    final check = () async {
+      final latest = await _fetchChangeStamp(memberId);
+      final same = latest != null && latest == known;
+      if (same) _lastValidated[memberId] = DateTime.now();
+      return same;
+    }();
+    _stampChecks[memberId] = check;
+    check.whenComplete(() => _stampChecks.remove(memberId));
+    return check;
+  }
+
+  /// Call when the app returns from background (realtime may have slept).
+  /// One tiny call; cache is cleared only if something really changed.
+  Future<void> invalidateIfChanged(String memberId) async {
+    if (!_cache.containsKey(memberId)) return;
+    final valid = await _isCacheStillValid(
+      memberId,
+      maxAge: const Duration(seconds: 10),
+    );
+    if (!valid) invalidateCache(memberId);
   }
 
   Future<MemberDashboardData> refreshMember(String memberId) async {
