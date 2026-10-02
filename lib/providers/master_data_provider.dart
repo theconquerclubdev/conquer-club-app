@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint, mapEquals;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -119,6 +119,44 @@ class MemberDashboardData {
   // step/workout/measurement/photo writes when this is false.
   bool get canCollectData =>
       isMembershipActive && (profile?['is_active'] == true);
+
+  /// Copy with some fields replaced (used to patch realtime changes in
+  /// place). fetchedAt is reset so the patched copy counts as fresh.
+  MemberDashboardData copyWith({
+    int? currentStreak,
+    int? stepGoal,
+    double? currentWeight,
+    double? heightCm,
+    int? daysLeft,
+    bool? isMembershipActive,
+    Map<String, dynamic>? profile,
+    Map<String, dynamic>? measurements,
+    List<Map<String, dynamic>>? measurementHistory,
+    Map<String, dynamic>? tasksToday,
+    Map<String, dynamic>? latestDiet,
+    Map<String, dynamic>? latestWorkout,
+    Map<String, dynamic>? todayWorkout,
+  }) {
+    return MemberDashboardData(
+      memberId: memberId,
+      currentStreak: currentStreak ?? this.currentStreak,
+      todaySteps: todaySteps,
+      stepGoal: stepGoal ?? this.stepGoal,
+      daysLeft: daysLeft ?? this.daysLeft,
+      isMembershipActive: isMembershipActive ?? this.isMembershipActive,
+      currentWeight: currentWeight ?? this.currentWeight,
+      heightCm: heightCm ?? this.heightCm,
+      profile: profile ?? this.profile,
+      measurements: measurements ?? this.measurements,
+      measurementHistory: measurementHistory ?? this.measurementHistory,
+      progressPhotos: progressPhotos,
+      tasksToday: tasksToday ?? this.tasksToday,
+      latestDiet: latestDiet ?? this.latestDiet,
+      latestWorkout: latestWorkout ?? this.latestWorkout,
+      todayWorkout: todayWorkout ?? this.todayWorkout,
+      fetchedAt: DateTime.now(),
+    );
+  }
 }
 
 // ============================================================
@@ -138,8 +176,9 @@ class MasterDataProvider extends ChangeNotifier {
     // the CURRENT user/role needs. Fixes a gap where logging out (or
     // switching role on the same device) could leave a previous
     // member's filtered channels and cached data still active.
-    _authStateSub =
-        Supabase.instance.client.auth.onAuthStateChange.listen((data) {
+    _authStateSub = Supabase.instance.client.auth.onAuthStateChange.listen((
+      data,
+    ) {
       // Hourly token refresh is not a user change — skip it so we don't
       // wipe the cache and re-subscribe channels for nothing.
       if (data.event == AuthChangeEvent.tokenRefreshed) return;
@@ -335,25 +374,205 @@ class MasterDataProvider extends ChangeNotifier {
     final memberId = newRecord['id'] as String?;
     if (memberId == null) return;
 
-    // Refresh this member's data
-    _refreshMemberOnChange(memberId);
+    // Patch the cached profile straight from the realtime row (0 calls).
+    final cached = _cache[memberId];
+    final oldProfile = cached?.profile;
+    if (cached == null || oldProfile == null) return;
+
+    final profile = Map<String, dynamic>.from(oldProfile);
+    var changed = false;
+    for (final k in oldProfile.keys) {
+      if (newRecord.containsKey(k) && profile[k] != newRecord[k]) {
+        profile[k] = newRecord[k];
+        changed = true;
+      }
+    }
+    if (!changed) return;
+
+    // Same IST days-left math as _fetchFromSupabase.
+    final today =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    int daysLeft = -1;
+    bool isMembershipActive = false;
+    if (profile['membership_end_date'] != null) {
+      try {
+        final endDate = DateTime.parse(profile['membership_end_date']);
+        daysLeft = endDate.difference(today).inDays;
+        isMembershipActive = daysLeft >= 0;
+      } catch (_) {}
+    }
+    if (profile.containsKey('days_left')) profile['days_left'] = daysLeft;
+    if (profile.containsKey('is_membership_active')) {
+      profile['is_membership_active'] = isMembershipActive;
+    }
+
+    _applyPatch(
+      memberId,
+      cached.copyWith(
+        profile: profile,
+        stepGoal: (profile['step_goal'] as num?)?.toInt() ?? 10000,
+        heightCm: (profile['height_cm'] as num?)?.toDouble(),
+        daysLeft: daysLeft,
+        isMembershipActive: isMembershipActive,
+      ),
+    );
   }
 
   void _handlePaymentChange(Map<String, dynamic> newRecord) {
-    final memberId = newRecord['member_id'] as String?;
-    if (memberId == null) return;
-
-    // Refresh this member's data (membership status may have changed)
-    _refreshMemberOnChange(memberId);
+    // Dashboard bundle holds no payment rows. A payment only reaches the
+    // dashboard through the profiles row (trigger + membership dates), and
+    // that already fires _handleProfileChange. Refetching here = duplicate.
   }
 
   void _handleMemberTableChange(Map<String, dynamic> newRecord) {
     final memberId = newRecord['member_id'] as String?;
     if (memberId == null) return;
 
-    // Diet / workout / measurement changed — refresh this member's cache
-    // so any screen watching MasterDataProvider updates within seconds.
-    _refreshMemberOnChange(memberId);
+    // Not cached = nothing to patch (same as before).
+    final cached = _cache[memberId];
+    if (cached == null) return;
+
+    // The 3 channels share this handler; each table has a unique column.
+    if (newRecord.containsKey('recorded_at')) {
+      final patched = _patchMeasurement(cached, newRecord);
+      if (patched == null) return;
+      _applyPatch(memberId, patched);
+      _refreshStreak(memberId); // streak is computed, so 1 small RPC
+    } else if (newRecord.containsKey('day_of_week')) {
+      final patched = _patchWorkout(cached, newRecord);
+      if (patched != null) _applyPatch(memberId, patched);
+    } else if (newRecord.containsKey('slot')) {
+      final patched = _patchDiet(cached, newRecord);
+      if (patched != null) _applyPatch(memberId, patched);
+    } else {
+      _refreshMemberOnChange(memberId);
+    }
+  }
+
+  // Patched data goes into the cache now; listeners are told after a short
+  // local pause so a burst of row events (coach saving 7 days) = 1 reload.
+  Timer? _patchNotifyTimer;
+  void _applyPatch(String memberId, MemberDashboardData patched) {
+    _cache[memberId] = patched;
+    _cacheTimestamps[memberId] = DateTime.now();
+    _notifyPatched();
+  }
+
+  void _notifyPatched() {
+    _patchNotifyTimer?.cancel();
+    _patchNotifyTimer =
+        Timer(const Duration(milliseconds: 1500), notifyListeners);
+  }
+
+  // true when [a] is a later instant than [b].
+  bool _isAfter(dynamic a, dynamic b) {
+    final x = DateTime.tryParse('$a');
+    final y = DateTime.tryParse('$b');
+    if (x == null) return false;
+    if (y == null) return true;
+    return x.isAfter(y);
+  }
+
+  String _istWeekday() {
+    const names = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
+    final ist =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    return names[ist.weekday - 1];
+  }
+
+  // Server rule: latest diet = most recently updated row.
+  MemberDashboardData? _patchDiet(
+    MemberDashboardData c,
+    Map<String, dynamic> row,
+  ) {
+    final cur = c.latestDiet;
+    if (cur != null && !_isAfter(row['updated_at'], cur['updated_at'])) {
+      return null; // older row, or echo of what we already have
+    }
+    return c.copyWith(latestDiet: row);
+  }
+
+  // Server rules: latest workout = most recently updated row; today's
+  // workout = the row whose day_of_week is today (IST).
+  MemberDashboardData? _patchWorkout(
+    MemberDashboardData c,
+    Map<String, dynamic> row,
+  ) {
+    final cur = c.latestWorkout;
+    final newerLatest =
+        cur == null || _isAfter(row['updated_at'], cur['updated_at']);
+    final curToday = c.todayWorkout;
+    final changeToday =
+        '${row['day_of_week']}'.toLowerCase() == _istWeekday().toLowerCase() &&
+            !(curToday != null &&
+                curToday['id'] == row['id'] &&
+                curToday['updated_at'] == row['updated_at']);
+    if (!newerLatest && !changeToday) return null;
+    return c.copyWith(
+      latestWorkout: newerLatest ? row : null,
+      todayWorkout: changeToday ? row : null,
+    );
+  }
+
+  // Server rules: history = 16 newest rows; latest = newest of them.
+  MemberDashboardData? _patchMeasurement(
+    MemberDashboardData c,
+    Map<String, dynamic> row,
+  ) {
+    final history = List<Map<String, dynamic>>.from(c.measurementHistory);
+    final i = history.indexWhere((m) => m['id'] == row['id']);
+    if (i >= 0 && mapEquals(history[i], row)) return null; // own-write echo
+    if (i >= 0) history.removeAt(i);
+    history.add(row);
+    history.sort((a, b) {
+      final x = DateTime.tryParse('${a['recorded_at']}') ?? DateTime(0);
+      final y = DateTime.tryParse('${b['recorded_at']}') ?? DateTime(0);
+      return y.compareTo(x);
+    });
+    if (history.length > 16) history.removeRange(16, history.length);
+    final latest = history.first;
+
+    // Same IST "today" window as _fetchFromSupabase.
+    final today =
+        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    final startOfDay = DateTime.utc(today.year, today.month, today.day)
+        .subtract(const Duration(hours: 5, minutes: 30));
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+    final d = DateTime.tryParse('${latest['recorded_at']}');
+    final updatedToday =
+        d != null && !d.isBefore(startOfDay) && d.isBefore(endOfDay);
+
+    return c.copyWith(
+      measurements: latest,
+      measurementHistory: history,
+      currentWeight: (latest['weight_kg'] as num?)?.toDouble(),
+      tasksToday: {...?c.tasksToday, 'measurement_updated': updatedToday},
+    );
+  }
+
+  // The only extra call a measurement change needs.
+  Future<void> _refreshStreak(String memberId) async {
+    try {
+      final r = await Supabase.instance.client.rpc(
+        'get_current_streak',
+        params: {'p_member_id': memberId},
+      );
+      final s = r is Map ? (r['current_streak'] as num?)?.toInt() : null;
+      final c = _cache[memberId];
+      if (s == null || c == null || s == c.currentStreak) return;
+      _cache[memberId] = c.copyWith(currentStreak: s);
+      _notifyPatched();
+    } catch (e) {
+      debugPrint('⚠️ Streak refresh failed for $memberId: $e');
+    }
   }
 
   void _refreshMemberOnChange(String memberId) {
@@ -735,7 +954,10 @@ class MasterDataProvider extends ChangeNotifier {
     if (running != null) return running;
     final check = () async {
       final latest = await _fetchChangeStamp(memberId);
-      final same = latest != null && latest == known;
+      // Server unreachable: keep the good cache. Wiping it only to get the
+      // "Unknown / expired" fallback would lock a paid member out.
+      if (latest == null) return true;
+      final same = latest == known;
       if (same) _lastValidated[memberId] = DateTime.now();
       return same;
     }();
@@ -763,9 +985,14 @@ class MasterDataProvider extends ChangeNotifier {
   /// Pure math for cache pruning, pulled out so it can be tested directly
   /// without needing a real MasterDataProvider/Supabase instance.
   static List<String> keysToPrune(
-      List<String> sortedKeys, int entryCount, int maxEntries) {
-    final removeCount =
-        (sortedKeys.length - maxEntries).clamp(0, sortedKeys.length);
+    List<String> sortedKeys,
+    int entryCount,
+    int maxEntries,
+  ) {
+    final removeCount = (sortedKeys.length - maxEntries).clamp(
+      0,
+      sortedKeys.length,
+    );
     return sortedKeys.sublist(0, removeCount);
   }
 
@@ -850,8 +1077,9 @@ class MasterDataProvider extends ChangeNotifier {
   DateTime? _membershipEndDate;
 
   String _todayKeyIst() {
-    final now =
-        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    final now = DateTime.now().toUtc().add(
+          const Duration(hours: 5, minutes: 30),
+        );
     return '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
   }
 
@@ -870,16 +1098,19 @@ class MasterDataProvider extends ChangeNotifier {
     if (data != null && !data.isMembershipActive)
       return; // inactive membership — skip
     if (data?.profile?['membership_end_date'] != null) {
-      _membershipEndDate =
-          DateTime.tryParse(data!.profile!['membership_end_date'].toString());
+      _membershipEndDate = DateTime.tryParse(
+        data!.profile!['membership_end_date'].toString(),
+      );
     }
     _stepEngineStarted = true;
     await _loadLocalSteps();
     _pruneExpiredLocal(); // keep phone storage minimal — drop anything already outside the window
     await _startHealthSource();
     _stepSyncTimer?.cancel();
-    _stepSyncTimer =
-        Timer.periodic(const Duration(minutes: 20), (_) => syncPendingSteps());
+    _stepSyncTimer = Timer.periodic(
+      const Duration(minutes: 20),
+      (_) => syncPendingSteps(),
+    );
     syncPendingSteps(); // catch up immediately too — covers offline days since last open
   }
 
@@ -899,7 +1130,8 @@ class MasterDataProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     if (_localSteps.isEmpty) {
       await prefs.remove(
-          _pendingStepsKey); // nothing pending — don't even keep an empty key
+        _pendingStepsKey,
+      ); // nothing pending — don't even keep an empty key
     } else {
       await prefs.setString(_pendingStepsKey, jsonEncode(_localSteps));
     }
@@ -908,15 +1140,17 @@ class MasterDataProvider extends ChangeNotifier {
   /// Drops anything already outside the 30-day/membership window before it
   /// ever gets synced — keeps local storage to only what's actually usable.
   void _pruneExpiredLocal() {
-    final today =
-        DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
+    final today = DateTime.now().toUtc().add(
+          const Duration(hours: 5, minutes: 30),
+        );
     final earliest = today.subtract(const Duration(days: _stepSyncWindowDays));
     final cap = _membershipEndDate;
     _localSteps.removeWhere((key, _) {
       final p = key.split('-');
       final d = DateTime.utc(int.parse(p[0]), int.parse(p[1]), int.parse(p[2]));
       return d.isBefore(
-              DateTime.utc(earliest.year, earliest.month, earliest.day)) ||
+            DateTime.utc(earliest.year, earliest.month, earliest.day),
+          ) ||
           (cap != null && d.isAfter(cap));
     });
   }
@@ -955,7 +1189,9 @@ class MasterDataProvider extends ChangeNotifier {
       // 60s is plenty — Health Connect/HealthKit themselves only update every
       // few minutes internally, polling faster wastes battery for no gain.
       _healthPollTimer = Timer.periodic(
-          const Duration(seconds: 60), (_) => _pollHealthSteps());
+        const Duration(seconds: 60),
+        (_) => _pollHealthSteps(),
+      );
     } catch (_) {
       _usingHealthSource = false;
       final activityStatus = await Permission.activityRecognition.request();
@@ -969,8 +1205,11 @@ class MasterDataProvider extends ChangeNotifier {
     try {
       final nowUtc = DateTime.now().toUtc();
       final now = nowUtc.add(const Duration(hours: 5, minutes: 30));
-      final istMidnightUtc = DateTime.utc(now.year, now.month, now.day)
-          .subtract(const Duration(hours: 5, minutes: 30));
+      final istMidnightUtc = DateTime.utc(
+        now.year,
+        now.month,
+        now.day,
+      ).subtract(const Duration(hours: 5, minutes: 30));
       final steps =
           await Health().getTotalStepsInInterval(istMidnightUtc, nowUtc) ?? 0;
       await _recordSteps(_todayKeyIst(), steps);
@@ -1000,8 +1239,10 @@ class MasterDataProvider extends ChangeNotifier {
         await prefs.setString('pedo_baseline_date', todayKey);
         await prefs.setInt('pedo_baseline_value', _pedoBaseline!);
       }
-      final delta =
-          (event.steps - (_pedoBaseline ?? event.steps)).clamp(0, 1000000);
+      final delta = (event.steps - (_pedoBaseline ?? event.steps)).clamp(
+        0,
+        1000000,
+      );
       await _recordSteps(todayKey, delta);
     }, onError: (_) {});
   }
@@ -1050,12 +1291,14 @@ class MasterDataProvider extends ChangeNotifier {
     }
 
     final toSync = _localSteps.entries
-        .map((e) => {
-              'member_id': userId,
-              'log_date': e.key,
-              'steps': e.value,
-              'updated_at': DateTime.now().toUtc().toIso8601String(),
-            })
+        .map(
+          (e) => {
+            'member_id': userId,
+            'log_date': e.key,
+            'steps': e.value,
+            'updated_at': DateTime.now().toUtc().toIso8601String(),
+          },
+        )
         .toList();
 
     try {

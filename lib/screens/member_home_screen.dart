@@ -341,6 +341,14 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   /// in sync so the coach banner always shows the current "Assigned on /
   /// Updated on" date, not just at the moment it changes. Runs after
   /// realtime pushes AND on app open.
+  // Same moment in time = same plan version, even if the text format differs.
+  bool _sameTime(String? a, String? b) {
+    if (a == b) return true;
+    final x = DateTime.tryParse(a ?? '');
+    final y = DateTime.tryParse(b ?? '');
+    return x != null && y != null && x.isAtSameMomentAs(y);
+  }
+
   Future<void> _checkPlanUpdatePopups(
     MemberDashboardData data,
     String userId,
@@ -371,7 +379,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final dietKey = 'diet_last_seen_$userId';
       final dietKindKey = 'diet_last_kind_$userId';
       final lastSeenDiet = prefs.getString(dietKey);
-      if (lastSeenDiet != dietUpdatedAt) {
+      if (!_sameTime(lastSeenDiet, dietUpdatedAt)) {
         final isFirstTime = lastSeenDiet == null;
         await prefs.setString(dietKey, dietUpdatedAt);
         await prefs.setString(
@@ -402,7 +410,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final workoutKey = 'workout_last_seen_$userId';
       final workoutKindKey = 'workout_last_kind_$userId';
       final lastSeenWorkout = prefs.getString(workoutKey);
-      if (lastSeenWorkout != workoutUpdatedAt) {
+      if (!_sameTime(lastSeenWorkout, workoutUpdatedAt)) {
         final isFirstTime = lastSeenWorkout == null;
         await prefs.setString(workoutKey, workoutUpdatedAt);
         await prefs.setString(
@@ -1877,17 +1885,28 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
   Map<String, Map<String, dynamic>> workouts = {};
   Map<String, String> todaySessionStatus = {};
   bool isLoading = true;
+  MemberDashboardData? _lastSeenData;
+
+  // Reload only when the dashboard bundle was really replaced, not on every
+  // step-count / loading-state notification.
+  void _onProviderChanged() {
+    final latest = MasterDataProvider.instance.getData(widget.memberId);
+    if (latest == null || identical(latest, _lastSeenData)) return;
+    _lastSeenData = latest;
+    load();
+  }
 
   @override
   void initState() {
     super.initState();
     load();
-    MasterDataProvider.instance.addListener(load);
+    _lastSeenData = MasterDataProvider.instance.getData(widget.memberId);
+    MasterDataProvider.instance.addListener(_onProviderChanged);
   }
 
   @override
   void dispose() {
-    MasterDataProvider.instance.removeListener(load);
+    MasterDataProvider.instance.removeListener(_onProviderChanged);
     super.dispose();
   }
 
@@ -2216,17 +2235,28 @@ class _MyDietsListState extends State<_MyDietsList>
 
   bool isLoading = true;
   List<Map<String, dynamic>> diets = [];
+  MemberDashboardData? _lastSeenData;
+
+  // Reload only when the dashboard bundle was really replaced, not on every
+  // step-count / loading-state notification.
+  void _onProviderChanged() {
+    final latest = MasterDataProvider.instance.getData(widget.memberId);
+    if (latest == null || identical(latest, _lastSeenData)) return;
+    _lastSeenData = latest;
+    load();
+  }
 
   @override
   void initState() {
     super.initState();
     load();
-    MasterDataProvider.instance.addListener(load);
+    _lastSeenData = MasterDataProvider.instance.getData(widget.memberId);
+    MasterDataProvider.instance.addListener(_onProviderChanged);
   }
 
   @override
   void dispose() {
-    MasterDataProvider.instance.removeListener(load);
+    MasterDataProvider.instance.removeListener(_onProviderChanged);
     super.dispose();
   }
 

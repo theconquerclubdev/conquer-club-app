@@ -31,7 +31,7 @@ class MemberProfileCoachViewScreen extends StatefulWidget {
 }
 
 class _MemberProfileCoachViewScreenState
-    extends State<MemberProfileCoachViewScreen> {
+    extends State<MemberProfileCoachViewScreen> with WidgetsBindingObserver {
   Map<String, dynamic>? measurements;
   List<Map<String, dynamic>> measurementHistory = [];
   List<Map<String, dynamic>> payments = [];
@@ -71,14 +71,28 @@ class _MemberProfileCoachViewScreenState
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     loadData();
     MasterDataProvider.instance.addListener(_onMasterDataChanged);
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     MasterDataProvider.instance.removeListener(_onMasterDataChanged);
     super.dispose();
+  }
+
+  // Realtime sleeps in the background. One tiny stamp check on resume; the
+  // cache is cleared (and reloaded) only if something really changed.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
+    if (state != AppLifecycleState.resumed) return;
+    final id = widget.member['id'];
+    await MasterDataProvider.instance.invalidateIfChanged(id);
+    if (mounted && MasterDataProvider.instance.getData(id) == null) {
+      loadData(refreshPayments: false);
+    }
   }
 
   void _onMasterDataChanged() {
