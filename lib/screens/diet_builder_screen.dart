@@ -517,6 +517,8 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
       if (mounted) {
         // Invalidate cache for the member
         MasterDataProvider.instance.invalidateCache(widget.memberId);
+        MasterDataProvider.instance.memberListDirty = true;
+        MasterDataProvider.instance.memberListDirty = true;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
               content: Text('${widget.dietType} Diet saved successfully!')),
@@ -1640,7 +1642,7 @@ class _FoodPickerSheetState extends State<_FoodPickerSheet> {
           await Supabase.instance.client.from('foods').select().order('name');
       data = List<Map<String, dynamic>>.from(fresh);
       await CacheManager.saveGeneric('cached_foods', data,
-          duration: const Duration(hours: 1));
+          duration: const Duration(days: 3650));
     }
     if (!mounted) return;
     setState(() {

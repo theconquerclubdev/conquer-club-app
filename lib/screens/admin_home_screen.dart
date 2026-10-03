@@ -23,12 +23,20 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
   // data and doesn't touch the server at all).
   final _dashboardKey = GlobalKey<_AdminDashboardTabState>();
   final _membersKey = GlobalKey<_AdminMembersTabState>();
+  final ValueNotifier<String?> _memberAlertFilter =
+      ValueNotifier<String?>(null);
   final _paymentsKey = GlobalKey<_AdminPaymentsTabState>();
   final _coachesKey = GlobalKey<_AdminCoachesTabState>();
 
   late final List<Widget> _tabs = [
-    AdminDashboardTab(key: _dashboardKey),
-    AdminMembersTab(key: _membersKey),
+    AdminDashboardTab(
+      key: _dashboardKey,
+      onOpenMembersWithFilter: (status) {
+        _memberAlertFilter.value = status;
+        tabController.animateTo(1);
+      },
+    ),
+    AdminMembersTab(key: _membersKey, alertFilter: _memberAlertFilter),
     AdminPaymentsTab(key: _paymentsKey),
     AdminCoachesTab(key: _coachesKey),
     const AdminSettingsTab(),
@@ -120,13 +128,18 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
 // DASHBOARD TAB
 // ============================================================
 class AdminDashboardTab extends StatefulWidget {
-  const AdminDashboardTab({super.key});
+  final void Function(String status)? onOpenMembersWithFilter;
+
+  const AdminDashboardTab({super.key, this.onOpenMembersWithFilter});
 
   @override
   State<AdminDashboardTab> createState() => _AdminDashboardTabState();
 }
 
-class _AdminDashboardTabState extends State<AdminDashboardTab> {
+class _AdminDashboardTabState extends State<AdminDashboardTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   bool isLoading = true;
   int activeMembers = 0;
   int activeCoaches = 0;
@@ -220,6 +233,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (isLoading) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.gold),
@@ -364,25 +378,29 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
               label: 'Ending in 2 days',
               count: membersEndingIn2Days,
               color: Colors.orange,
-              onTap: () => _showMemberList(context, 'Ending in 2 days'),
+              onTap: () =>
+                  widget.onOpenMembersWithFilter?.call('Ending in 2 days'),
             ),
             _AlertChip(
               label: 'Ending this month',
               count: membersEndingThisMonth,
               color: Colors.blue,
-              onTap: () => _showMemberList(context, 'Ending this month'),
+              onTap: () =>
+                  widget.onOpenMembersWithFilter?.call('Ending this month'),
             ),
             _AlertChip(
               label: 'Ending next month',
               count: membersEndingNextMonth,
               color: Colors.green,
-              onTap: () => _showMemberList(context, 'Ending next month'),
+              onTap: () =>
+                  widget.onOpenMembersWithFilter?.call('Ending next month'),
             ),
             _AlertChip(
               label: 'Membership Ended',
               count: membersEnded,
               color: Colors.red,
-              onTap: () => _showMemberList(context, 'Membership Ended'),
+              onTap: () =>
+                  widget.onOpenMembersWithFilter?.call('Membership Ended'),
             ),
             const SizedBox(height: 20),
             const Text(
@@ -641,8 +659,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
           latest[memberId] = d;
         }
       }
-      _latestDietsCache =
-          latest.values.cast<Map<String, dynamic>>().toList();
+      _latestDietsCache = latest.values.cast<Map<String, dynamic>>().toList();
     }
 
     final result = <Map<String, dynamic>>[];
@@ -669,6 +686,129 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
     }
 
     return result;
+  }
+}
+
+class _DietAlertList extends StatefulWidget {
+  final String status;
+  final ScrollController scrollController;
+
+  const _DietAlertList({
+    required this.status,
+    required this.scrollController,
+  });
+
+  @override
+  State<_DietAlertList> createState() => _DietAlertListState();
+}
+
+class _DietAlertListState extends State<_DietAlertList> {
+  static const int _pageSize = 20;
+  final List<Map<String, dynamic>> _items = [];
+  bool _loading = true;
+  bool _loadingMore = false;
+  bool _hasMore = false;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  // Server returns only the matching members, 20 per request
+  Future<void> _load({bool more = false}) async {
+    if (more) {
+      if (_loadingMore || !_hasMore) return;
+      setState(() => _loadingMore = true);
+    }
+    try {
+      final data = await Supabase.instance.client.rpc(
+        'get_diet_alert_members',
+        params: {
+          'p_status': widget.status,
+          'p_limit': _pageSize,
+          'p_offset': _items.length,
+        },
+      );
+      final rows = List<Map<String, dynamic>>.from(data);
+      final total = rows.isNotEmpty
+          ? (rows.first['total_count'] as num).toInt()
+          : _items.length;
+      if (!mounted) return;
+      setState(() {
+        _items.addAll(rows);
+        _hasMore = _items.length < total;
+        _loading = false;
+        _loadingMore = false;
+        _failed = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading diet alert list: $e');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadingMore = false;
+        _failed = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.gold),
+      );
+    }
+    if (_items.isEmpty) {
+      return Center(
+        child: Text(
+          _failed ? 'Unable to load. Please try again.' : 'No members found',
+          style: const TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+    return ListView.builder(
+      controller: widget.scrollController,
+      itemCount: _items.length + (_hasMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == _items.length) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: _loadingMore
+                  ? const SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.gold,
+                      ),
+                    )
+                  : TextButton(
+                      onPressed: () => _load(more: true),
+                      child: const Text(
+                        'Load More...',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
+            ),
+          );
+        }
+        final m = _items[index];
+        return ListTile(
+          title: Text(
+            m['full_name'] ?? 'Unknown',
+            style: const TextStyle(color: Colors.white),
+          ),
+          subtitle: Text(
+            'Last updated: ${m['last_diet_date'] ?? 'Never'}',
+            style: const TextStyle(color: Colors.grey),
+          ),
+        );
+      },
+    );
   }
 }
 
@@ -788,13 +928,18 @@ class _AlertChip extends StatelessWidget {
 // ADAPTIVE ADMIN MEMBERS TAB (0 to 5,000+ Members)
 // ============================================================
 class AdminMembersTab extends StatefulWidget {
-  const AdminMembersTab({super.key});
+  final ValueNotifier<String?>? alertFilter;
+
+  const AdminMembersTab({super.key, this.alertFilter});
 
   @override
   State<AdminMembersTab> createState() => _AdminMembersTabState();
 }
 
-class _AdminMembersTabState extends State<AdminMembersTab> {
+class _AdminMembersTabState extends State<AdminMembersTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   List<Map<String, dynamic>> members = [];
   List<Map<String, dynamic>> categories = [];
   List<Map<String, dynamic>> coaches = [];
@@ -808,25 +953,43 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
 
   // Always use server-side 20/page pagination (egress control) — client-side
   // full-table fetch mode disabled.
-  static const int kPaginationThreshold = 200;
-  bool get isClientSideMode => totalCount <= kPaginationThreshold;
 
   String searchQuery = '';
   String selectedCategory = 'All';
+  // Search text used by the last successful server fetch (skip identical requests)
+  String _lastFetchedSearch = '';
+  // Active dashboard-alert filter, e.g. 'Membership Ended'. null = none.
+  String? alertStatus;
+  // Ignores slow old responses when a newer request was started
+  int _fetchToken = 0;
   Timer? _searchDebounce;
   final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
+    // Opened from a dashboard alert? Start with that filter applied.
+    alertStatus = widget.alertFilter?.value;
+    widget.alertFilter?.value = null;
+    widget.alertFilter?.addListener(_onAlertFilterChanged);
     _loadInitialData();
   }
 
   @override
   void dispose() {
+    widget.alertFilter?.removeListener(_onAlertFilterChanged);
     _searchDebounce?.cancel();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  // Dashboard alert tapped while this tab is already alive.
+  void _onAlertFilterChanged() {
+    final status = widget.alertFilter?.value;
+    if (status == null) return;
+    widget.alertFilter?.value = null;
+    setState(() => alertStatus = status);
+    _fetchMembers(reset: true);
   }
 
   // 1. Initial Load: Fetch Categories, Coaches, Total Count, and Initial Members
@@ -852,13 +1015,6 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
       categories = List<Map<String, dynamic>>.from(results[0]);
       coaches = List<Map<String, dynamic>>.from(results[1]);
 
-      // Total count of members — head-only request, fetches ONLY the number,
-      // not the actual member rows (egress control).
-      totalCount = await Supabase.instance.client
-          .from('profiles')
-          .count(CountOption.exact)
-          .eq('role', 'member');
-
       await _fetchMembers(reset: true);
     } catch (e) {
       debugPrint('Error loading admin members: $e');
@@ -868,14 +1024,15 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
 
   // 2. Fetch Members (Auto-switches between Single-Query and Paginated)
   Future<void> _fetchMembers({bool reset = false}) async {
+    final int myToken = reset ? ++_fetchToken : _fetchToken;
     if (reset) {
       setState(() {
         currentOffset = 0;
         isLoading = true;
-        if (isClientSideMode) members.clear();
+        isLoadingMore = false;
       });
     } else {
-      if (isLoadingMore || !hasMoreData || isClientSideMode) return;
+      if (isLoadingMore || !hasMoreData) return;
       setState(() => isLoadingMore = true);
     }
 
@@ -889,48 +1046,62 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
           )
           .eq('role', 'member');
 
-      if (isClientSideMode) {
-        // 🚀 MODE A: <= 200 members -> Fetch all in 1 query, 0ms search
-        final data = await query.order('full_name');
-        final items = List<Map<String, dynamic>>.from(data);
+      // Server-side filter + 20/page pagination
+      final String fetchedSearch = searchQuery;
+      if (searchQuery.isNotEmpty) {
+        query = query.or(
+          'full_name.ilike.%$searchQuery%,email.ilike.%$searchQuery%',
+        );
+      }
+      if (selectedCategory != 'All') {
+        query = query.eq('category_id', selectedCategory);
+      }
+      if (alertStatus != null) {
+        final now = DateTime.now();
+        String ymd(DateTime d) => d.toIso8601String().substring(0, 10);
+        final today = DateTime(now.year, now.month, now.day);
+        if (alertStatus == 'Ending in 2 days') {
+          query = query
+              .gte('membership_end_date',
+                  ymd(DateTime(today.year, today.month, today.day + 2)))
+              .lt('membership_end_date',
+                  ymd(DateTime(today.year, today.month, today.day + 3)));
+        } else if (alertStatus == 'Ending this month') {
+          query = query
+              .gte('membership_end_date', ymd(DateTime(now.year, now.month, 1)))
+              .lt('membership_end_date',
+                  ymd(DateTime(now.year, now.month + 1, 1)));
+        } else if (alertStatus == 'Ending next month') {
+          query = query
+              .gte('membership_end_date',
+                  ymd(DateTime(now.year, now.month + 1, 1)))
+              .lt('membership_end_date',
+                  ymd(DateTime(now.year, now.month + 2, 1)));
+        } else if (alertStatus == 'Membership Ended') {
+          query = query.lt('membership_end_date', ymd(today));
+        }
+      }
 
-        if (mounted) {
-          setState(() {
+      final data = await query
+          .order('full_name')
+          .range(currentOffset, currentOffset + pageSize - 1);
+
+      final items = List<Map<String, dynamic>>.from(data);
+
+      // A newer request was started meanwhile -> drop this old response
+      if (mounted && myToken == _fetchToken) {
+        setState(() {
+          if (reset) {
             members = items;
-            hasMoreData = false;
-            isLoading = false;
-          });
-        }
-      } else {
-        // ⚡ MODE B: > 200 members -> Server-side filter + 20/page pagination
-        if (searchQuery.isNotEmpty) {
-          query = query.or(
-            'full_name.ilike.%$searchQuery%,email.ilike.%$searchQuery%',
-          );
-        }
-        if (selectedCategory != 'All') {
-          query = query.eq('category_id', selectedCategory);
-        }
-
-        final data = await query
-            .order('full_name')
-            .range(currentOffset, currentOffset + pageSize - 1);
-
-        final items = List<Map<String, dynamic>>.from(data);
-
-        if (mounted) {
-          setState(() {
-            if (reset) {
-              members = items;
-            } else {
-              members.addAll(items);
-            }
-            currentOffset += items.length;
-            hasMoreData = items.length == pageSize;
-            isLoading = false;
-            isLoadingMore = false;
-          });
-        }
+          } else {
+            members.addAll(items);
+          }
+          currentOffset += items.length;
+          hasMoreData = items.length == pageSize;
+          _lastFetchedSearch = fetchedSearch;
+          isLoading = false;
+          isLoadingMore = false;
+        });
       }
     } on PostgrestException catch (e) {
       debugPrint('Error fetching members: $e');
@@ -965,50 +1136,54 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
     }
   }
 
-  // Instant filtering for <= 200 members, server-filtered for > 200 members
+  // Server already filtered search/category/alert — `members` is final list
   List<Map<String, dynamic>> get _displayedMembers {
-    if (!isClientSideMode) {
-      // In server mode, `members` is already filtered by Postgres
-      return members;
-    }
-
-    // In client mode, filter in Dart memory (instant 0ms)
-    var list = members;
-    if (searchQuery.isNotEmpty) {
-      final q = searchQuery.toLowerCase();
-      list = list.where((m) {
-        final name = (m['full_name'] ?? '').toString().toLowerCase();
-        final email = (m['email'] ?? '').toString().toLowerCase();
-        return name.contains(q) || email.contains(q);
-      }).toList();
-    }
-    if (selectedCategory != 'All') {
-      list = list.where((m) => m['category_id'] == selectedCategory).toList();
-    }
-    return list;
+    return members;
   }
 
   void _onSearchChanged(String v) {
-    setState(() => searchQuery = v.trim());
+    final newSearch = v.trim();
+    if (newSearch == searchQuery) return;
+    setState(() => searchQuery = newSearch);
 
-    if (isClientSideMode) {
-      // Instant in-memory search
-      setState(() {});
-    } else {
-      // Instant server search - results appear immediately
-      _searchDebounce?.cancel();
+    // Wait until the user stops typing, then ONE Supabase request
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+      if (!mounted) return;
+      if (searchQuery == _lastFetchedSearch) return;
       _fetchMembers(reset: true);
-    }
+    });
   }
 
   void _onCategoryChanged(String? v) {
-    if (v == null) return;
+    if (v == null || v == selectedCategory) return;
     setState(() => selectedCategory = v);
+    _fetchMembers(reset: true);
+  }
 
-    if (isClientSideMode) {
-      setState(() {});
-    } else {
-      _fetchMembers(reset: true);
+  // Update only ONE member in the loaded list (no Supabase refetch)
+  void _patchMember(String memberId, Map<String, dynamic> changes) {
+    if (!mounted) return;
+    final i = members.indexWhere((m) => m['id'] == memberId);
+    if (i == -1) return;
+    setState(() => members[i] = {...members[i], ...changes});
+  }
+
+  // Fetch ONE member row (used after payment, DB trigger sets last_payment_*)
+  Future<void> _refreshOneMember(String memberId) async {
+    try {
+      final row = await Supabase.instance.client
+          .from('profiles')
+          .select(
+            'id, full_name, email, membership_start_date, membership_end_date, '
+            'category_id, is_active, assigned_coach_id, last_payment_amount, '
+            'last_payment_date, last_payment_method',
+          )
+          .eq('id', memberId)
+          .single();
+      _patchMember(memberId, Map<String, dynamic>.from(row));
+    } catch (e) {
+      debugPrint('Error refreshing member: $e');
     }
   }
 
@@ -1016,14 +1191,14 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
     await Supabase.instance.client
         .from('profiles')
         .update({'category_id': categoryId}).eq('id', memberId);
-    _fetchMembers(reset: true);
+    _patchMember(memberId, {'category_id': categoryId});
   }
 
   Future<void> _assignCoach(String memberId, String? coachId) async {
     await Supabase.instance.client
         .from('profiles')
         .update({'assigned_coach_id': coachId}).eq('id', memberId);
-    _fetchMembers(reset: true);
+    _patchMember(memberId, {'assigned_coach_id': coachId});
   }
 
   void _showPaymentSheet(Map<String, dynamic> member) {
@@ -1033,7 +1208,7 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
       isScrollControlled: true,
       builder: (_) => AdminMemberPaymentSheet(
         member: member,
-        onPaymentComplete: () => _fetchMembers(reset: true),
+        onPaymentComplete: () => _refreshOneMember(member['id']),
       ),
     );
   }
@@ -1050,6 +1225,7 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final displayedList = _displayedMembers;
 
     return Column(
@@ -1087,6 +1263,25 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
             ],
           ),
         ),
+        if (alertStatus != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: InputChip(
+                label: Text(
+                  alertStatus!,
+                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                ),
+                backgroundColor: AppColors.cardDark,
+                deleteIconColor: AppColors.gold,
+                onDeleted: () {
+                  setState(() => alertStatus = null);
+                  _fetchMembers(reset: true);
+                },
+              ),
+            ),
+          ),
         Expanded(
           child: isLoading
               ? const Center(
@@ -1386,7 +1581,8 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
                                             .update({
                                           'is_active': !isActive
                                         }).eq('id', m['id']);
-                                        _fetchMembers(reset: true);
+                                        _patchMember(
+                                            m['id'], {'is_active': !isActive});
                                       },
                                     ),
                                   ],

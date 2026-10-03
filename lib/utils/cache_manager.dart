@@ -75,6 +75,16 @@ class CacheManager {
     } catch (_) {}
   }
 
+  /// Remove one generic cache entry so the next read fetches fresh data
+  static Future<void> removeGeneric(String key) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(key);
+      await prefs.remove('${key}_timestamp');
+      await prefs.remove('${key}_duration_minutes');
+    } catch (_) {}
+  }
+
   /// Generic cache read for static reference data (foods, coaches, etc)
   static Future<List<Map<String, dynamic>>?> getGeneric(String key) async {
     try {

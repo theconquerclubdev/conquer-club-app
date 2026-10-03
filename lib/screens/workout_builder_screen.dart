@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import '../providers/master_data_provider.dart';
+import '../utils/cache_manager.dart';
 
 class WorkoutBuilderScreen extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -31,12 +32,21 @@ class _WorkoutBuilderScreenState extends State<WorkoutBuilderScreen> {
   }
 
   Future<void> loadExercises() async {
-    final data = await Supabase.instance.client
-        .from('exercises')
-        .select()
-        .order('body_part');
+    List<Map<String, dynamic>> data;
+    final cached = await CacheManager.getGeneric('cached_exercises');
+    if (cached != null) {
+      data = cached;
+    } else {
+      final fresh = await Supabase.instance.client
+          .from('exercises')
+          .select()
+          .order('body_part');
+      data = List<Map<String, dynamic>>.from(fresh);
+      await CacheManager.saveGeneric('cached_exercises', data,
+          duration: const Duration(hours: 1));
+    }
     setState(() {
-      allExercises = List<Map<String, dynamic>>.from(data);
+      allExercises = data;
       isLoadingExercises = false;
     });
   }

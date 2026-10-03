@@ -9,6 +9,7 @@ import 'package:health/health.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'step_task_handler.dart';
+import '../utils/cache_manager.dart';
 // import 'package:realtime_client/realtime_client.dart';
 
 // ============================================================
@@ -196,6 +197,8 @@ class MasterDataProvider extends ChangeNotifier {
       await _dietsChannel?.unsubscribe();
       await _workoutsChannel?.unsubscribe();
       await _measurementsChannel?.unsubscribe();
+      await _exercisesChannel?.unsubscribe();
+      await _foodsChannel?.unsubscribe();
       invalidateAllCache();
 
       final uid = Supabase.instance.client.auth.currentUser?.id;
@@ -315,9 +318,36 @@ class MasterDataProvider extends ChangeNotifier {
   RealtimeChannel? _dietsChannel;
   RealtimeChannel? _workoutsChannel;
   RealtimeChannel? _measurementsChannel;
+  RealtimeChannel? _exercisesChannel;
+  RealtimeChannel? _foodsChannel;
 
   void _initRealtimeSubscription() {
     final client = Supabase.instance.client;
+
+    // Exercise/food library cache: cleared on app start (covers changes made
+    // while app was closed), then cleared on any admin add/delete/edit.
+    CacheManager.removeGeneric('cached_exercises');
+    CacheManager.removeGeneric('cached_foods');
+
+    _exercisesChannel = client
+        .channel('public:exercises')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'exercises',
+          callback: (payload) => CacheManager.removeGeneric('cached_exercises'),
+        )
+        .subscribe();
+
+    _foodsChannel = client
+        .channel('public:foods')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'foods',
+          callback: (payload) => CacheManager.removeGeneric('cached_foods'),
+        )
+        .subscribe();
 
     _profilesChannel = client
         .channel('public:profiles')
@@ -598,6 +628,8 @@ class MasterDataProvider extends ChangeNotifier {
     _dietsChannel?.unsubscribe();
     _workoutsChannel?.unsubscribe();
     _measurementsChannel?.unsubscribe();
+    _exercisesChannel?.unsubscribe();
+    _foodsChannel?.unsubscribe();
     super.dispose();
   }
 
@@ -965,6 +997,10 @@ class MasterDataProvider extends ChangeNotifier {
     check.whenComplete(() => _stampChecks.remove(memberId));
     return check;
   }
+
+  /// Set true when a diet/workout is saved. Coach member list reloads after
+  /// returning from a profile only when this is true.
+  bool memberListDirty = false;
 
   /// Call when the app returns from background (realtime may have slept).
   /// One tiny call; cache is cleared only if something really changed.

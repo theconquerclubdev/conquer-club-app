@@ -84,7 +84,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
 
   Future<void> _loadPermissionsAndMembers() async {
     await _loadPermissions();
-    await loadMembers();
+    await loadMembers(refreshStats: true);
   }
 
   Future<void> _checkExistingDeletionRequest() async {
@@ -239,7 +239,8 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   // displays, and search works across ALL members — not just the
   // ones already paged in.
   // ============================================================
-  Future<void> loadMembers({bool reset = true}) async {
+  Future<void> loadMembers(
+      {bool reset = true, bool refreshStats = false}) async {
     if (!mounted) return;
 
     if (reset) {
@@ -304,7 +305,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
 
       // Dashboard stat tiles are computed server-side too, so they stay
       // correct across the whole member set instead of only the loaded page.
-      if (reset) {
+      if (reset && refreshStats) {
         unawaited(_loadStats());
       }
     } on PostgrestException catch (e) {
@@ -595,7 +596,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
     }
 
     return RefreshIndicator(
-      onRefresh: () => loadMembers(reset: true),
+      onRefresh: () => loadMembers(reset: true, refreshStats: true),
       color: AppColors.gold,
       backgroundColor: AppColors.cardDark,
       child: SingleChildScrollView(
@@ -943,7 +944,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                   ),
                 )
               : RefreshIndicator(
-                  onRefresh: () => loadMembers(reset: true),
+                  onRefresh: () => loadMembers(reset: true, refreshStats: true),
                   color: AppColors.gold,
                   backgroundColor: AppColors.cardDark,
                   child: ListView.builder(
@@ -988,6 +989,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                           if (memberId != null) {
                             await _dataProvider.invalidateIfChanged(memberId);
                           }
+                          _dataProvider.memberListDirty = false;
                           await Navigator.push(
                             context,
                             MaterialPageRoute(
@@ -998,7 +1000,24 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                               ),
                             ),
                           );
-                          loadMembers(reset: true);
+                          // Diet saved inside the profile -> update ONLY this
+                          // member's row locally (no Supabase call, no reload)
+                          if (_dataProvider.memberListDirty) {
+                            _dataProvider.memberListDirty = false;
+                            final i = allMembers
+                                .indexWhere((m) => m['id'] == memberId);
+                            if (mounted && memberId != null && i != -1) {
+                              setState(() {
+                                allMembers[i] = {
+                                  ...allMembers[i],
+                                  'has_diet': true,
+                                  'latest_diet':
+                                      DateTime.now().toUtc().toIso8601String(),
+                                };
+                                filteredMembers = allMembers;
+                              });
+                            }
+                          }
                         },
                         formatDate: formatDate,
                       );
@@ -1170,8 +1189,9 @@ class _MemberCardState extends State<_MemberCard> {
   @override
   void initState() {
     super.initState();
-    _masterData =
-        _memberId != null ? MasterDataProvider.instance.getData(_memberId!) : null;
+    _masterData = _memberId != null
+        ? MasterDataProvider.instance.getData(_memberId!)
+        : null;
     MasterDataProvider.instance.addListener(_onProviderChanged);
   }
 
@@ -1181,8 +1201,9 @@ class _MemberCardState extends State<_MemberCard> {
     // List re-sorted/filtered and this slot now holds a different member —
     // re-sync so we're not comparing against the previous occupant's data.
     if (oldWidget.member['id'] != widget.member['id']) {
-      _masterData =
-          _memberId != null ? MasterDataProvider.instance.getData(_memberId!) : null;
+      _masterData = _memberId != null
+          ? MasterDataProvider.instance.getData(_memberId!)
+          : null;
     }
   }
 
@@ -1264,202 +1285,198 @@ class _MemberCardState extends State<_MemberCard> {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 4),
-          decoration: BoxDecoration(
-            color: AppColors.cardDark,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: hasEditPermissions
-                  ? AppColors.gold.withOpacity(0.15)
-                  : (isActive
-                      ? Colors.white.withOpacity(0.04)
-                      : Colors.red.withOpacity(0.15)),
-            ),
-          ),
-          child: Material(
-            color: Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: onTap,
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                child: Row(
+      decoration: BoxDecoration(
+        color: AppColors.cardDark,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: hasEditPermissions
+              ? AppColors.gold.withOpacity(0.15)
+              : (isActive
+                  ? Colors.white.withOpacity(0.04)
+                  : Colors.red.withOpacity(0.15)),
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Row(
+              children: [
+                // Avatar
+                Stack(
                   children: [
-                    // Avatar
-                    Stack(
-                      children: [
-                        Container(
-                          width: 32,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              colors: isActive
-                                  ? [
-                                      AppColors.gold,
-                                      AppColors.gold.withOpacity(0.6)
-                                    ]
-                                  : [Colors.grey, Colors.grey.withOpacity(0.6)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(
-                            child: Text(
-                              initial,
-                              style: TextStyle(
-                                color: isActive
-                                    ? Colors.black
-                                    : Colors.grey.shade700,
-                                fontSize: 12,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
+                    Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: isActive
+                              ? [
+                                  AppColors.gold,
+                                  AppColors.gold.withOpacity(0.6)
+                                ]
+                              : [Colors.grey, Colors.grey.withOpacity(0.6)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Text(
+                          initial,
+                          style: TextStyle(
+                            color:
+                                isActive ? Colors.black : Colors.grey.shade700,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
-                        Positioned(
-                          bottom: 0,
-                          right: 0,
-                          child: Container(
-                            width: 10,
-                            height: 10,
-                            decoration: BoxDecoration(
-                              color: isActive ? Colors.green : Colors.red,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: AppColors.cardDark,
-                                width: 1.5,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                    const SizedBox(width: 8),
-
-                    // Name + Goal + Membership Status
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              Text(
-                                name,
-                                style: TextStyle(
-                                  color: isActive
-                                      ? Colors.white
-                                      : Colors.grey.shade400,
-                                  fontSize: isSmall ? 11 : 13,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 1,
-                              ),
-                              if (isActive &&
-                                  daysLeft != null &&
-                                  daysLeft >= 0) ...[
-                                const SizedBox(width: 4),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 4,
-                                    vertical: 1,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.gold.withOpacity(0.2),
-                                    borderRadius: BorderRadius.circular(4),
-                                    border: Border.all(
-                                      color: AppColors.gold.withOpacity(0.3),
-                                    ),
-                                  ),
-                                  child: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Text(
-                                        '🔥',
-                                        style: TextStyle(fontSize: 8),
-                                      ),
-                                      const SizedBox(width: 2),
-                                      Text(
-                                        '$currentStreak',
-                                        style: TextStyle(
-                                          color: AppColors.gold,
-                                          fontSize: isSmall ? 7 : 9,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                              const SizedBox(width: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 4, vertical: 1),
-                                decoration: BoxDecoration(
-                                  color: membershipColor.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  membershipStatus,
-                                  style: TextStyle(
-                                    color: membershipColor,
-                                    fontSize: isSmall ? 7 : 9,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ],
+                    Positioned(
+                      bottom: 0,
+                      right: 0,
+                      child: Container(
+                        width: 10,
+                        height: 10,
+                        decoration: BoxDecoration(
+                          color: isActive ? Colors.green : Colors.red,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: AppColors.cardDark,
+                            width: 1.5,
                           ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 8),
+
+                // Name + Goal + Membership Status
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Row(
+                        children: [
                           Text(
-                            goal,
+                            name,
                             style: TextStyle(
-                              color: Colors.grey.shade500,
-                              fontSize: isSmall ? 8 : 10,
+                              color: isActive
+                                  ? Colors.white
+                                  : Colors.grey.shade400,
+                              fontSize: isSmall ? 11 : 13,
+                              fontWeight: FontWeight.w600,
                             ),
                             overflow: TextOverflow.ellipsis,
                             maxLines: 1,
                           ),
-                          if (member['coach_name'] != null)
-                            Text(
-                              'Coach: ${member['coach_name']}',
-                              style: TextStyle(
-                                color: AppColors.gold.withOpacity(0.7),
-                                fontSize: isSmall ? 7 : 9,
+                          if (isActive &&
+                              daysLeft != null &&
+                              daysLeft >= 0) ...[
+                            const SizedBox(width: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 1,
                               ),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
+                              decoration: BoxDecoration(
+                                color: AppColors.gold.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(
+                                  color: AppColors.gold.withOpacity(0.3),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Text(
+                                    '🔥',
+                                    style: TextStyle(fontSize: 8),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    '$currentStreak',
+                                    style: TextStyle(
+                                      color: AppColors.gold,
+                                      fontSize: isSmall ? 7 : 9,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          Text(
-                            dietStatus,
-                            style: TextStyle(
-                              color: dietColor,
-                              fontSize: isSmall ? 7 : 9,
-                              fontWeight: FontWeight.w500,
+                          ],
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: membershipColor.withOpacity(0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              membershipStatus,
+                              style: TextStyle(
+                                color: membershipColor,
+                                fontSize: isSmall ? 7 : 9,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    ),
+                      Text(
+                        goal,
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: isSmall ? 8 : 10,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                      if (member['coach_name'] != null)
+                        Text(
+                          'Coach: ${member['coach_name']}',
+                          style: TextStyle(
+                            color: AppColors.gold.withOpacity(0.7),
+                            fontSize: isSmall ? 7 : 9,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      Text(
+                        dietStatus,
+                        style: TextStyle(
+                          color: dietColor,
+                          fontSize: isSmall ? 7 : 9,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
-                    // Stats
-                    Row(
-                      children: [
-                        _buildStat(
-                            'Workout', lastWorkoutText, isActive, isSmall),
-                        const SizedBox(width: 4),
-                        _buildStat(
-                            'Diet', hasDiet ? '✅' : '❌', isActive, isSmall),
-                      ],
-                    ),
+                // Stats
+                Row(
+                  children: [
+                    _buildStat('Workout', lastWorkoutText, isActive, isSmall),
+                    const SizedBox(width: 4),
+                    _buildStat('Diet', hasDiet ? '✅' : '❌', isActive, isSmall),
                   ],
                 ),
-              ),
+              ],
             ),
           ),
-        );
+        ),
+      ),
+    );
   }
 
   Widget _buildStat(String label, String value, bool isActive, bool isSmall) {
