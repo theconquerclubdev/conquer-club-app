@@ -1,4 +1,4 @@
-import 'dart:async'; // 👈 ADD THIS IMPORT HERE
+import 'dart:async'; //  ADD THIS IMPORT HERE
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
@@ -17,7 +17,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen>
     with SingleTickerProviderStateMixin {
   late TabController tabController;
 
-  // ✅ Keys let the AppBar refresh button call the ACTUAL reload method
+  //  Keys let the AppBar refresh button call the ACTUAL reload method
   // of whichever tab is currently visible, instead of just calling
   // setState(() {}) on the parent (which only re-renders already-cached
   // data and doesn't touch the server at all).
@@ -153,9 +153,11 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
 
   Future<void> _loadStats() async {
     if (!mounted) return;
+    _membersWithEndDateCache = null;
+    _latestDietsCache = null;
     setState(() => isLoading = true);
     try {
-      // ✅ SINGLE RPC CALL — replaces 4 separate queries!
+      //  SINGLE RPC CALL — replaces 4 separate queries!
       final result = await Supabase.instance.client.rpc('get_dashboard_stats');
 
       // Pending payment count (kept separate from the RPC so a failure
@@ -498,38 +500,54 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
     );
   }
 
+  List<Map<String, dynamic>>? _membersWithEndDateCache;
+
   Future<List> _getMembersForStatus(String status) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    var query = Supabase.instance.client
-        .from('profiles')
-        .select('id, full_name, email, membership_end_date')
-        .eq('role', 'member');
+    _membersWithEndDateCache ??= List<Map<String, dynamic>>.from(
+      await Supabase.instance.client
+          .from('profiles')
+          .select('id, full_name, email, membership_end_date')
+          .eq('role', 'member'),
+    );
+
+    bool inRange(dynamic raw, DateTime start, DateTime end) {
+      if (raw == null) return false;
+      final d = DateTime.tryParse(raw.toString());
+      if (d == null) return false;
+      return !d.isBefore(start) && d.isBefore(end);
+    }
 
     if (status == 'Ending in 2 days') {
-      final twoDays = today.add(const Duration(days: 2));
-      final threeDays = today.add(const Duration(days: 3));
-      query = query
-          .gte('membership_end_date', twoDays.toIso8601String())
-          .lt('membership_end_date', threeDays.toIso8601String());
+      final start = today.add(const Duration(days: 2));
+      final end = today.add(const Duration(days: 3));
+      return _membersWithEndDateCache!
+          .where((m) => inRange(m['membership_end_date'], start, end))
+          .toList();
     } else if (status == 'Ending this month') {
       final start = DateTime(now.year, now.month, 1);
       final end = DateTime(now.year, now.month + 1, 1);
-      query = query
-          .gte('membership_end_date', start.toIso8601String())
-          .lt('membership_end_date', end.toIso8601String());
+      return _membersWithEndDateCache!
+          .where((m) => inRange(m['membership_end_date'], start, end))
+          .toList();
     } else if (status == 'Ending next month') {
       final start = DateTime(now.year, now.month + 1, 1);
       final end = DateTime(now.year, now.month + 2, 1);
-      query = query
-          .gte('membership_end_date', start.toIso8601String())
-          .lt('membership_end_date', end.toIso8601String());
+      return _membersWithEndDateCache!
+          .where((m) => inRange(m['membership_end_date'], start, end))
+          .toList();
     } else if (status == 'Membership Ended') {
-      query = query.lt('membership_end_date', today.toIso8601String());
+      return _membersWithEndDateCache!.where((m) {
+        final raw = m['membership_end_date'];
+        if (raw == null) return false;
+        final d = DateTime.tryParse(raw.toString());
+        return d != null && d.isBefore(today);
+      }).toList();
     }
 
-    return await query;
+    return _membersWithEndDateCache!;
   }
 
   void _showDietList(BuildContext context, String status) {
@@ -604,26 +622,31 @@ class _AdminDashboardTabState extends State<AdminDashboardTab> {
     );
   }
 
+  List<Map<String, dynamic>>? _latestDietsCache;
+
   Future<List> _getDietMembers(String status) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    final diets = await Supabase.instance.client
-        .from('diets')
-        .select('member_id, updated_at, profiles(full_name, email)')
-        .order('updated_at', ascending: false);
+    if (_latestDietsCache == null) {
+      final diets = await Supabase.instance.client
+          .from('diets')
+          .select('member_id, updated_at, profiles(full_name, email)')
+          .order('updated_at', ascending: false);
 
-    final Map<String, dynamic> latest = {};
-    for (final d in diets) {
-      final memberId = d['member_id'] as String;
-      if (!latest.containsKey(memberId)) {
-        latest[memberId] = d;
+      final Map<String, dynamic> latest = {};
+      for (final d in diets) {
+        final memberId = d['member_id'] as String;
+        if (!latest.containsKey(memberId)) {
+          latest[memberId] = d;
+        }
       }
+      _latestDietsCache =
+          latest.values.cast<Map<String, dynamic>>().toList();
     }
 
     final result = <Map<String, dynamic>>[];
-    for (final entry in latest.entries) {
-      final data = entry.value;
+    for (final data in _latestDietsCache!) {
       final lastDate = DateTime.tryParse(data['updated_at'] as String);
       if (lastDate == null) continue;
       final daysSince = today.difference(lastDate).inDays;
@@ -786,7 +809,7 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
   // Always use server-side 20/page pagination (egress control) — client-side
   // full-table fetch mode disabled.
   static const int kPaginationThreshold = 200;
-  bool get isClientSideMode => false;
+  bool get isClientSideMode => totalCount <= kPaginationThreshold;
 
   String searchQuery = '';
   String selectedCategory = 'All';
@@ -1150,7 +1173,7 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
                                               fontSize: 12,
                                             ),
                                           ),
-                                          // ✅ Membership dates
+                                          //  Membership dates
                                           Wrap(
                                             spacing: 6,
                                             runSpacing: 2,
@@ -1249,7 +1272,7 @@ class _AdminMembersTabState extends State<AdminMembersTab> {
                                         ],
                                       ),
                                     ),
-                                    // ✅ Last payment info
+                                    //  Last payment info
                                     if (m['last_payment_amount'] != null)
                                       Container(
                                         padding: const EdgeInsets.symmetric(
@@ -2000,7 +2023,7 @@ class _AdminPaymentsTabState extends State<AdminPaymentsTab> {
         });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('✅ Payment verified — membership activated'),
+            content: Text(' Payment verified — membership activated'),
             backgroundColor: Colors.green,
           ),
         );
@@ -2387,7 +2410,7 @@ class _AdminMemberPaymentSheetState extends State<AdminMemberPaymentSheet> {
       return;
     }
 
-    // ✅ Fix: If using custom dates but no plan selected, use a default
+    //  Fix: If using custom dates but no plan selected, use a default
     if (_useCustomDates && selectedPlan == null) {
       // Use a default plan for display purposes
       selectedPlan = '1_month';
@@ -2396,7 +2419,7 @@ class _AdminMemberPaymentSheetState extends State<AdminMemberPaymentSheet> {
     setState(() => isProcessing = true);
 
     try {
-      // ✅ Fix: Safely find plan with null check
+      //  Fix: Safely find plan with null check
       final plan = _plans.firstWhere(
         (p) => p['key'] == selectedPlan,
         orElse: () => _plans.first, // Fallback to first plan if not found
@@ -2594,7 +2617,7 @@ class _AdminMemberPaymentSheetState extends State<AdminMemberPaymentSheet> {
               ),
               const SizedBox(height: 12),
 
-              // ✅ Custom Date Override Toggle
+              //  Custom Date Override Toggle
               SwitchListTile(
                 contentPadding: EdgeInsets.zero,
                 title: const Text(

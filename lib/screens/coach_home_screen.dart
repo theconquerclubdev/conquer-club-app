@@ -1143,7 +1143,7 @@ class _AlertChip extends StatelessWidget {
 // ============================================================
 // MEMBER CARD
 // ============================================================
-class _MemberCard extends StatelessWidget {
+class _MemberCard extends StatefulWidget {
   final Map<String, dynamic> member;
   final bool canEditDiet;
   final bool canEditWorkout;
@@ -1159,7 +1159,58 @@ class _MemberCard extends StatelessWidget {
   });
 
   @override
+  State<_MemberCard> createState() => _MemberCardState();
+}
+
+class _MemberCardState extends State<_MemberCard> {
+  MemberDashboardData? _masterData;
+
+  String? get _memberId => widget.member['id'] as String?;
+
+  @override
+  void initState() {
+    super.initState();
+    _masterData =
+        _memberId != null ? MasterDataProvider.instance.getData(_memberId!) : null;
+    MasterDataProvider.instance.addListener(_onProviderChanged);
+  }
+
+  @override
+  void didUpdateWidget(_MemberCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // List re-sorted/filtered and this slot now holds a different member —
+    // re-sync so we're not comparing against the previous occupant's data.
+    if (oldWidget.member['id'] != widget.member['id']) {
+      _masterData =
+          _memberId != null ? MasterDataProvider.instance.getData(_memberId!) : null;
+    }
+  }
+
+  @override
+  void dispose() {
+    MasterDataProvider.instance.removeListener(_onProviderChanged);
+    super.dispose();
+  }
+
+  // Provider notifies on ANY of the 500 members changing. Only rebuild THIS
+  // card when THIS member's cached data object actually changed — patches
+  // create a new object via copyWith(), so identical() stays true for every
+  // other member and no other card rebuilds.
+  void _onProviderChanged() {
+    final id = _memberId;
+    final latest = id != null ? MasterDataProvider.instance.getData(id) : null;
+    if (identical(latest, _masterData)) return;
+    _masterData = latest;
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final member = widget.member;
+    final canEditDiet = widget.canEditDiet;
+    final canEditWorkout = widget.canEditWorkout;
+    final onTap = widget.onTap;
+    final formatDate = widget.formatDate;
     final name = member['full_name'] ?? 'No name';
     final goal = member['goal'] ?? 'No goal';
     final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
@@ -1168,18 +1219,12 @@ class _MemberCard extends StatelessWidget {
     final hasDiet = member['has_diet'] ?? false;
     final hasEditPermissions = canEditDiet || canEditWorkout;
     final isSmall = MediaQuery.of(context).size.width < 360;
-    final memberId = member['id'] as String?;
-    final masterData =
-        memberId != null ? MasterDataProvider.instance.getData(memberId) : null;
+    final masterData = _masterData;
     final currentStreak = (member['current_streak'] as num?)?.toInt() ??
         masterData?.currentStreak ??
         0;
 
     final daysLeft = member['days_left'] as int?;
-
-    // ✅ DEBUG: Log streak values for this member
-    debugPrint(
-        '🔍 Member: $name, current_streak: $currentStreak, daysLeft: $daysLeft, isActive: $isActive');
 
     // ✅ Membership days left
     String membershipStatus = '';
@@ -1217,11 +1262,8 @@ class _MemberCard extends StatelessWidget {
 
     final lastWorkoutText = formatDate(member['latest_workout']);
 
-    return AnimatedBuilder(
-      animation: MasterDataProvider.instance,
-      builder: (context, _) {
-        return Container(
-          margin: const EdgeInsets.only(bottom: 4),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 4),
           decoration: BoxDecoration(
             color: AppColors.cardDark,
             borderRadius: BorderRadius.circular(8),
@@ -1418,8 +1460,6 @@ class _MemberCard extends StatelessWidget {
             ),
           ),
         );
-      },
-    );
   }
 
   Widget _buildStat(String label, String value, bool isActive, bool isSmall) {
