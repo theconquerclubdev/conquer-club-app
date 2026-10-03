@@ -593,43 +593,9 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
                 ),
                 const SizedBox(height: 12),
                 Expanded(
-                  child: FutureBuilder(
-                    future: _getDietMembers(status),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const Center(
-                          child: CircularProgressIndicator(
-                            color: AppColors.gold,
-                          ),
-                        );
-                      }
-                      final members = snapshot.data as List;
-                      if (members.isEmpty) {
-                        return const Center(
-                          child: Text(
-                            'No members found',
-                            style: TextStyle(color: Colors.grey),
-                          ),
-                        );
-                      }
-                      return ListView.builder(
-                        controller: scrollController,
-                        itemCount: members.length,
-                        itemBuilder: (context, index) {
-                          final m = members[index];
-                          return ListTile(
-                            title: Text(
-                              m['full_name'] ?? 'Unknown',
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                            subtitle: Text(
-                              'Last updated: ${m['last_diet_date'] ?? 'Never'}',
-                              style: const TextStyle(color: Colors.grey),
-                            ),
-                          );
-                        },
-                      );
-                    },
+                  child: _DietAlertList(
+                    status: status,
+                    scrollController: scrollController,
                   ),
                 ),
               ],
