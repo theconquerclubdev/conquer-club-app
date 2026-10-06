@@ -233,6 +233,8 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
   String? dietId;
   DateTime? lastUpdated;
   String? coachOwnName;
+  static String? _cachedCoachOwnId;
+  static String? _cachedCoachOwnName;
   double calorieTarget = 3000;
   double proteinTarget = 150;
   double carbsTarget = 300;
@@ -263,21 +265,28 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
     setState(() => isLoading = true);
     try {
       final coachId = Supabase.instance.client.auth.currentUser?.id;
-      if (coachId != null) {
+      if (coachId != null &&
+          _cachedCoachOwnId == coachId &&
+          _cachedCoachOwnName != null) {
+        coachOwnName = _cachedCoachOwnName;
+      } else if (coachId != null) {
         final coachProfile = await Supabase.instance.client
             .from('profiles')
             .select('full_name, email')
             .eq('id', coachId)
             .maybeSingle();
         coachOwnName = coachProfile?['full_name'] ?? coachProfile?['email'];
+        _cachedCoachOwnId = coachId;
+        _cachedCoachOwnName = coachOwnName;
       }
 
       final diet = await Supabase.instance.client
           .from('diets')
           .select(
-              'id, name, calorie_target, protein_target, carbs_target, fats_target, diet_type_preset, updated_at')
+              'id, name, calorie_target, protein_target, carbs_target, fats_target, diet_type_preset, updated_at, diet_items(id, section, quantity, order_index, foods(id, name, base_quantity, base_unit, calories, protein, carbs, fats))')
           .eq('member_id', widget.memberId)
           .eq('slot', widget.slot)
+          .order('order_index', referencedTable: 'diet_items')
           .maybeSingle();
 
       if (diet == null) {
@@ -304,12 +313,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
       carbsTargetController.text = carbsTarget.toString();
       fatsTargetController.text = fatsTarget.toString();
 
-      final items = await Supabase.instance.client
-          .from('diet_items')
-          .select(
-              'id, section, quantity, order_index, foods(id, name, base_quantity, base_unit, calories, protein, carbs, fats)')
-          .eq('diet_id', dietId!)
-          .order('order_index');
+      final items = (diet['diet_items'] as List?) ?? [];
 
       for (final s in kDietSections) {
         sections[s] = [];
@@ -498,7 +502,9 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
           .eq('diet_id', newDietId);
 
       final rowsToInsert = <Map<String, dynamic>>[];
-      int orderIndex = 0;
+      int orderIndex = kDietSections.fold<int>(
+              0, (total, s) => total + sections[s]!.length) -
+          1;
       for (final section in kDietSections) {
         for (final item in sections[section]!) {
           rowsToInsert.add({
@@ -506,7 +512,7 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
             'section': section,
             'food_id': item.foodId,
             'quantity': item.quantity,
-            'order_index': orderIndex++,
+            'order_index': orderIndex--,
           });
         }
       }
@@ -517,7 +523,6 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
       if (mounted) {
         // Invalidate cache for the member
         MasterDataProvider.instance.invalidateCache(widget.memberId);
-        MasterDataProvider.instance.memberListDirty = true;
         MasterDataProvider.instance.memberListDirty = true;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

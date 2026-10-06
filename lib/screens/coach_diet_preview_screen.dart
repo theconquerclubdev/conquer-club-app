@@ -13,8 +13,7 @@ class CoachDietPreviewScreen extends StatefulWidget {
   const CoachDietPreviewScreen({super.key, required this.member});
 
   @override
-  State<CoachDietPreviewScreen> createState() =>
-      _CoachDietPreviewScreenState();
+  State<CoachDietPreviewScreen> createState() => _CoachDietPreviewScreenState();
 }
 
 class _CoachDietPreviewScreenState extends State<CoachDietPreviewScreen> {
@@ -153,9 +152,11 @@ class _DietSlotPreviewState extends State<_DietSlotPreview> {
     try {
       final dietData = await Supabase.instance.client
           .from('diets')
-          .select()
+          .select(
+              '*, diet_items(id, section, quantity, order_index, foods(id, name, base_quantity, base_unit, calories, protein, carbs, fats))')
           .eq('member_id', widget.memberId)
           .eq('slot', widget.slot)
+          .order('order_index', referencedTable: 'diet_items')
           .maybeSingle();
 
       if (dietData == null) {
@@ -168,12 +169,7 @@ class _DietSlotPreviewState extends State<_DietSlotPreview> {
         return;
       }
 
-      final items = await Supabase.instance.client
-          .from('diet_items')
-          .select(
-              'id, section, quantity, order_index, foods(id, name, base_quantity, base_unit, calories, protein, carbs, fats)')
-          .eq('diet_id', dietData['id'])
-          .order('order_index');
+      final items = (dietData['diet_items'] as List?) ?? [];
 
       final grouped = {for (final s in kDietSections) s: <DietFoodItem>[]};
       for (final item in items) {
