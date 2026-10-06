@@ -1713,9 +1713,7 @@ class _AdminCoachesTabState extends State<AdminCoachesTab> {
     final email = emailController.text.trim();
     final password = passwordController.text.trim();
     final fullName = nameController.text.trim();
-    emailController.dispose();
-    passwordController.dispose();
-    nameController.dispose();
+    // Not disposed here: the dialog is still animating closed and would crash.
 
     if (result == true) {
       try {

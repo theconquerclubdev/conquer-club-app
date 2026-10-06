@@ -363,46 +363,10 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
   }
 
   Future<void> _editTarget() async {
-    final controller = TextEditingController(text: stepGoal.toString());
     final result = await showDialog<int>(
       context: context,
-      builder: (_) => AlertDialog(
-        backgroundColor: AppColors.cardDark,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        title: const Text('Daily Step Target',
-            style: TextStyle(color: Colors.white, fontSize: 17)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          style: const TextStyle(color: Colors.white, fontSize: 18),
-          decoration: InputDecoration(
-            hintText: 'e.g. 10000',
-            hintStyle: TextStyle(color: Colors.grey.shade600),
-            suffixText: 'steps',
-            suffixStyle: const TextStyle(color: Colors.grey),
-            enabledBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: AppColors.gold.withOpacity(0.3)),
-            ),
-            focusedBorder: const UnderlineInputBorder(
-              borderSide: BorderSide(color: AppColors.gold),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () =>
-                Navigator.pop(context, int.tryParse(controller.text.trim())),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
+      builder: (_) => _StepTargetDialog(initialGoal: stepGoal),
     );
-    controller.dispose();
     if (result != null && result > 0 && mounted) {
       setState(() => stepGoal = result);
       final userId = Supabase.instance.client.auth.currentUser?.id;
@@ -1081,6 +1045,71 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
         stat('$kcal', 'kcal'),
         stat(km.toStringAsFixed(1), 'km'),
         stat('$mins', 'mins'),
+      ],
+    );
+  }
+}
+
+/// Owns its own text controller, so it is disposed only after the dialog
+/// has fully closed (disposing it right after showDialog returns crashes).
+class _StepTargetDialog extends StatefulWidget {
+  final int initialGoal;
+  const _StepTargetDialog({required this.initialGoal});
+
+  @override
+  State<_StepTargetDialog> createState() => _StepTargetDialogState();
+}
+
+class _StepTargetDialogState extends State<_StepTargetDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialGoal.toString());
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: AppColors.cardDark,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      title: const Text('Daily Step Target',
+          style: TextStyle(color: Colors.white, fontSize: 17)),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        style: const TextStyle(color: Colors.white, fontSize: 18),
+        decoration: InputDecoration(
+          hintText: 'e.g. 10000',
+          hintStyle: TextStyle(color: Colors.grey.shade600),
+          suffixText: 'steps',
+          suffixStyle: const TextStyle(color: Colors.grey),
+          enabledBorder: UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.gold.withOpacity(0.3)),
+          ),
+          focusedBorder: const UnderlineInputBorder(
+            borderSide: BorderSide(color: AppColors.gold),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+        ),
+        ElevatedButton(
+          onPressed: () =>
+              Navigator.pop(context, int.tryParse(_controller.text.trim())),
+          child: const Text('Save'),
+        ),
       ],
     );
   }

@@ -66,7 +66,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
         ],
       ),
     );
-    controller.dispose();
+    // Not disposed here: the dialog is still animating closed and would crash.
 
     if (newPassword == null || newPassword.length < 6) return;
 
