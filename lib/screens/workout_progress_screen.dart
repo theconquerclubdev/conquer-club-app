@@ -246,6 +246,7 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
   // Weekly Workout Plan — data loading (new, additive only)
   // ============================================================
   Future<void> _loadWeeklyPlan() async {
+    debugPrint('DEBUG _loadWeeklyPlan() called from:\n${StackTrace.current}');
     setState(() => _weeklyLoading = true);
     try {
       final userId =

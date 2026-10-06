@@ -170,6 +170,7 @@ class MasterDataProvider extends ChangeNotifier {
   static MasterDataProvider get instance => _instance;
 
   StreamSubscription<AuthState>? _authStateSub;
+  String? _realtimeUid = Supabase.instance.client.auth.currentUser?.id;
 
   MasterDataProvider._internal() {
     // ✅ One deterministic lifecycle for every auth change: always tear
@@ -183,6 +184,13 @@ class MasterDataProvider extends ChangeNotifier {
       // Hourly token refresh is not a user change — skip it so we don't
       // wipe the cache and re-subscribe channels for nothing.
       if (data.event == AuthChangeEvent.tokenRefreshed) return;
+      debugPrint('DEBUG auth event: ${data.event}');
+      if ((data.event == AuthChangeEvent.signedIn ||
+              data.event == AuthChangeEvent.initialSession) &&
+          data.session?.user.id == _realtimeUid) {
+        return;
+      }
+      _realtimeUid = data.session?.user.id;
       _refineRealtimeForCurrentUser();
     });
     _refineRealtimeForCurrentUser();
@@ -485,6 +493,7 @@ class MasterDataProvider extends ChangeNotifier {
   void _applyPatch(String memberId, MemberDashboardData patched) {
     _cache[memberId] = patched;
     _cacheTimestamps[memberId] = DateTime.now();
+    debugPrint('DEBUG applyPatch member=$memberId');
     _notifyPatched();
   }
 

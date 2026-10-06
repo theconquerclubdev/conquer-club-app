@@ -1886,6 +1886,8 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
   Map<String, String> todaySessionStatus = {};
   bool isLoading = true;
   MemberDashboardData? _lastSeenData;
+  DateTime _lastLoadAt = DateTime.fromMillisecondsSinceEpoch(0);
+  bool _isLoading = false;
 
   // Reload only when the dashboard bundle was really replaced, not on every
   // step-count / loading-state notification.
@@ -1893,6 +1895,7 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
     final latest = MasterDataProvider.instance.getData(widget.memberId);
     if (latest == null || identical(latest, _lastSeenData)) return;
     _lastSeenData = latest;
+    debugPrint('DEBUG workout list reload, fetchedAt=${latest.fetchedAt}');
     load();
   }
 
@@ -1911,48 +1914,66 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
   }
 
   Future<void> load() async {
-    setState(() => isLoading = true);
-    final data = await Supabase.instance.client
-        .from('workouts')
-        .select()
-        .eq('member_id', widget.memberId);
-
-    final List<dynamic> workoutsList = data as List<dynamic>;
-    final Map<String, Map<String, dynamic>> map = {};
-    for (var w in workoutsList) {
-      final workout = w as Map<String, dynamic>;
-      map[workout['day_of_week'] as String] = workout;
+    if (_isLoading) return;
+    final now = DateTime.now();
+    if (now.difference(_lastLoadAt) < const Duration(milliseconds: 800)) {
+      return;
     }
-
-    final todayWorkout = map[widget.todayName];
-    if (todayWorkout != null) {
-      final istNow = DateTime.now().toUtc().add(
-            const Duration(hours: 5, minutes: 30),
-          );
-      final startOfDay = DateTime.utc(
-        istNow.year,
-        istNow.month,
-        istNow.day,
-      ).subtract(const Duration(hours: 5, minutes: 30));
-      final session = await Supabase.instance.client
-          .from('workout_sessions')
+    _isLoading = true;
+    debugPrint(
+        'DEBUG WeekWorkoutList.load() called from:\n${StackTrace.current}');
+    if (mounted) setState(() => isLoading = true);
+    try {
+      final data = await Supabase.instance.client
+          .from('workouts')
           .select()
-          .eq('workout_id', todayWorkout['id'])
-          .eq('member_id', widget.memberId)
-          .gte('started_at', startOfDay.toIso8601String())
-          .order('started_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
+          .eq('member_id', widget.memberId);
 
-      if (session != null) {
-        todaySessionStatus[todayWorkout['id']] = session['status'];
+      final List<dynamic> workoutsList = data as List<dynamic>;
+      final Map<String, Map<String, dynamic>> map = {};
+      for (var w in workoutsList) {
+        final workout = w as Map<String, dynamic>;
+        map[workout['day_of_week'] as String] = workout;
+      }
+
+      final todayWorkout = map[widget.todayName];
+      if (todayWorkout != null) {
+        final istNow = DateTime.now().toUtc().add(
+              const Duration(hours: 5, minutes: 30),
+            );
+        final startOfDay = DateTime.utc(
+          istNow.year,
+          istNow.month,
+          istNow.day,
+        ).subtract(const Duration(hours: 5, minutes: 30));
+        final session = await Supabase.instance.client
+            .from('workout_sessions')
+            .select()
+            .eq('workout_id', todayWorkout['id'])
+            .eq('member_id', widget.memberId)
+            .gte('started_at', startOfDay.toIso8601String())
+            .order('started_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+
+        if (session != null) {
+          todaySessionStatus[todayWorkout['id']] = session['status'];
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          workouts = map;
+          isLoading = false;
+        });
+      }
+    } finally {
+      _lastLoadAt = DateTime.now();
+      _isLoading = false;
+      if (mounted && isLoading) {
+        setState(() => isLoading = false);
       }
     }
-
-    setState(() {
-      workouts = map;
-      isLoading = false;
-    });
   }
 
   @override

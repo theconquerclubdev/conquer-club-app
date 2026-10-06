@@ -6,7 +6,7 @@ version: 2.0.1+1  # Version 2.0.1, build number 1
 environment:
   sdk: '>=3.0.0 <4.0.0'
 
-dependencies:
+dependencies: 
   app_links: ^6.4.1
   flutter:
     sdk: flutter
