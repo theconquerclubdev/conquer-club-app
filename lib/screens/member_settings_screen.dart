@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import 'member_profile_edit_screen.dart';
+import 'pairing_qr_screen.dart';
 import 'signup_screen.dart'
     show kTermsAndConditionsUrl, kPrivacyPolicyUrl;
 
@@ -159,6 +160,16 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
             onTap: () => Navigator.push(
               context,
               MaterialPageRoute(builder: (_) => const MemberProfileEditScreen()),
+            ),
+          ),
+          _tile(
+            icon: Icons.qr_code_2,
+            color: const Color(0xFF5CD1B8),
+            title: 'Pairing QR code',
+            subtitle: 'Generate a scanable link to pair with your coach',
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const PairingQrScreen()),
             ),
           ),
           _tile(

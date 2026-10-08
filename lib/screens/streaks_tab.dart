@@ -69,7 +69,7 @@ class _StreaksTabState extends State<StreaksTab> {
     _loadData();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool force = false}) async {
     // ✅ Guard against overlapping calls
     if (_isLoadingData) return;
     _isLoadingData = true;
@@ -82,6 +82,20 @@ class _StreaksTabState extends State<StreaksTab> {
       final masterData = MasterDataProvider.instance;
       final dashboardData = await masterData.fetchMemberData(userId);
       final currentStreak = dashboardData.currentStreak;
+
+      // Same server stamp = nothing changed -> reuse, 0 Supabase calls
+      final savedStreak =
+          force ? null : masterData.readScreenCache(userId, 'streaks');
+      if (savedStreak != null) {
+        if (mounted) {
+          setState(() {
+            _streaks = List<StreakModel>.from(savedStreak['streaks']);
+            _stats = Map<String, dynamic>.from(savedStreak['stats']);
+            _isLoading = false;
+          });
+        }
+        return;
+      }
 
       // Calculate start date for current streak
       DateTime? currentStreakStart;
@@ -295,6 +309,17 @@ class _StreaksTabState extends State<StreaksTab> {
           _isLoading = false;
         });
       }
+      masterData.writeScreenCache(userId, 'streaks', {
+        'streaks': history,
+        'stats': {
+          'history': history,
+          'currentStreak': currentStreak,
+          'currentStreakStart': currentStreakStart,
+          'highestStreak': highestStreak,
+          'totalStreaks': totalStreaks,
+          'streakRate': streakRate,
+        },
+      });
     } catch (e) {
       debugPrint('Error loading streak data: $e');
       if (mounted) {
@@ -1005,7 +1030,7 @@ THE CONQUER CLUB
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: _loadData,
+            onPressed: () => _loadData(force: true),
           ),
         ],
       ),
@@ -1014,7 +1039,7 @@ THE CONQUER CLUB
               child: CircularProgressIndicator(color: AppColors.gold),
             )
           : RefreshIndicator(
-              onRefresh: _loadData,
+              onRefresh: () => _loadData(force: true),
               color: AppColors.gold,
               backgroundColor: AppColors.cardDark,
               child: CustomScrollView(

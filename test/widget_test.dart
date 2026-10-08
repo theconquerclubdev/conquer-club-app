@@ -7,6 +7,7 @@ import 'package:url_launcher_platform_interface/url_launcher_platform_interface.
 
 import 'package:conquer_club/main.dart';
 import 'package:conquer_club/providers/master_data_provider.dart';
+import 'package:conquer_club/utils/pairing_qr.dart';
 
 /// A fake url_launcher backend that just records what it was asked to open,
 /// instead of actually opening anything. This is the standard pattern for
@@ -82,6 +83,37 @@ void main() {
       final keys = List.generate(10, (i) => 'member_$i');
       final toRemove = MasterDataProvider.keysToPrune(keys, keys.length, 50);
       expect(toRemove, isEmpty);
+    });
+  });
+
+  group('Pairing QR generation', () {
+    test('buildPairingUri encodes the pairing payload', () {
+      final uri = buildPairingUri(
+        memberId: 'member-123',
+        coachId: 'coach-456',
+        role: 'member',
+        source: 'settings',
+      );
+
+      expect(uri.scheme, 'conquerclub');
+      expect(uri.host, 'pair');
+      expect(uri.queryParameters['memberId'], 'member-123');
+      expect(uri.queryParameters['coachId'], 'coach-456');
+      expect(uri.queryParameters['role'], 'member');
+      expect(uri.queryParameters['source'], 'settings');
+    });
+
+    test('parsePairingUri restores values from a pairing URL', () {
+      final uri = buildPairingUri(
+        memberId: 'member-123',
+        coachId: 'coach-456',
+        role: 'member',
+      );
+
+      final parsed = parsePairingUri(uri);
+      expect(parsed['memberId'], 'member-123');
+      expect(parsed['coachId'], 'coach-456');
+      expect(parsed['role'], 'member');
     });
   });
 }

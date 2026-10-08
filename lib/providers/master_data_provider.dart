@@ -318,6 +318,7 @@ class MasterDataProvider extends ChangeNotifier {
   final Map<String, Future<MemberDashboardData>> _inFlight = {};
   final Map<String, String> _changeStamps = {};
   final Map<String, DateTime> _lastValidated = {};
+  final Map<String, bool> _knownActive = {};
   final Map<String, Future<bool>> _stampChecks = {};
   final Map<String, bool> _loadingStates = {};
   final Map<String, String?> _errorStates = {};
@@ -444,6 +445,15 @@ class MasterDataProvider extends ChangeNotifier {
       profile['is_membership_active'] = isMembershipActive;
     }
 
+    // Membership just became active (admin confirmed payment): the cached
+    // bundle has no workout/diet/streak data, so load the full bundle once.
+    if (!cached.isMembershipActive &&
+        isMembershipActive &&
+        memberId == Supabase.instance.client.auth.currentUser?.id) {
+      _refreshMemberOnChange(memberId);
+      return;
+    }
+
     _applyPatch(
       memberId,
       cached.copyWith(
@@ -457,6 +467,8 @@ class MasterDataProvider extends ChangeNotifier {
   }
 
   void _handlePaymentChange(Map<String, dynamic> newRecord) {
+    final payMemberId = newRecord['member_id'] as String?;
+    if (payMemberId != null) clearScreenCache(payMemberId);
     // Dashboard bundle holds no payment rows. A payment only reaches the
     // dashboard through the profiles row (trigger + membership dates), and
     // that already fires _handleProfileChange. Refetching here = duplicate.
@@ -465,6 +477,8 @@ class MasterDataProvider extends ChangeNotifier {
   void _handleMemberTableChange(Map<String, dynamic> newRecord) {
     final memberId = newRecord['member_id'] as String?;
     if (memberId == null) return;
+
+    if (newRecord.containsKey('recorded_at')) clearScreenCache(memberId);
 
     // Not cached = nothing to patch (same as before).
     final cached = _cache[memberId];
@@ -599,6 +613,11 @@ class MasterDataProvider extends ChangeNotifier {
 
   // The only extra call a measurement change needs.
   Future<void> _refreshStreak(String memberId) async {
+    // Expired / unpaid member (own account): no streak call.
+    if (_cache[memberId]?.isMembershipActive == false &&
+        memberId == Supabase.instance.client.auth.currentUser?.id) {
+      return;
+    }
     try {
       final r = await Supabase.instance.client.rpc(
         'get_current_streak',
@@ -724,10 +743,16 @@ class MasterDataProvider extends ChangeNotifier {
           )
           .eq('id', memberId)
           .maybeSingle();
-      final streakRpcFuture = Supabase.instance.client.rpc(
-        'get_current_streak',
-        params: {'p_member_id': memberId},
-      );
+      // Own account + membership not known active: skip streak call when
+      // expired. Known active = same parallel speed as before.
+      final isSelf = memberId == Supabase.instance.client.auth.currentUser?.id;
+      final streakNow = !isSelf || _knownActive[memberId] == true;
+      final Future<dynamic> streakRpcFuture = streakNow
+          ? Supabase.instance.client.rpc(
+              'get_current_streak',
+              params: {'p_member_id': memberId},
+            )
+          : Future<dynamic>.value(null);
 
       final profileAndStreak = await Future.wait<dynamic>([
         profileFuture,
@@ -788,6 +813,20 @@ class MasterDataProvider extends ChangeNotifier {
         } catch (_) {}
       }
 
+      // Expired / unpaid member (own account): no streak, no dashboard-extra
+      // call. Only profile + change stamp stay, so Payments can still work.
+      final skipMemberData = isSelf && !isMembershipActive;
+      if (isSelf) _knownActive[memberId] = isMembershipActive;
+      if (isSelf && isMembershipActive && !streakNow) {
+        final lateStreak = await Supabase.instance.client.rpc(
+          'get_current_streak',
+          params: {'p_member_id': memberId},
+        );
+        if (lateStreak != null) {
+          currentStreak = (lateStreak['current_streak'] as num?)?.toInt() ?? 0;
+        }
+      }
+
       // ✅ Everything below is wrapped so that if ANY of these queries fail,
       // it can NEVER wipe out the currentStreak we already fetched above.
       int todaySteps = 0;
@@ -802,80 +841,82 @@ class MasterDataProvider extends ChangeNotifier {
       String? photoBackUpdatedAt;
       bool measurementUpdatedToday = false;
 
-      try {
-        // Fetch workout status for today using IST boundaries
-        // Convert IST midnight to UTC for querying timestamptz columns
-        final startOfDay = DateTime.utc(
-          today.year,
-          today.month,
-          today.day,
-        ).subtract(const Duration(hours: 5, minutes: 30));
-        final endOfDay = startOfDay.add(const Duration(days: 1));
+      if (!skipMemberData)
+        try {
+          // Fetch workout status for today using IST boundaries
+          // Convert IST midnight to UTC for querying timestamptz columns
+          final startOfDay = DateTime.utc(
+            today.year,
+            today.month,
+            today.day,
+          ).subtract(const Duration(hours: 5, minutes: 30));
+          final endOfDay = startOfDay.add(const Duration(days: 1));
 
-        // 🚀 Single RPC round trip instead of 7 separate REST calls —
-        // same data, ~85% fewer requests per dashboard load.
-        final extra = await Supabase.instance.client.rpc(
-          'get_member_dashboard_extra',
-          params: {'p_member_id': memberId},
-        ) as Map<String, dynamic>;
+          // 🚀 Single RPC round trip instead of 7 separate REST calls —
+          // same data, ~85% fewer requests per dashboard load.
+          final extra = await Supabase.instance.client.rpc(
+            'get_member_dashboard_extra',
+            params: {'p_member_id': memberId},
+          ) as Map<String, dynamic>;
 
-        todaySteps = (extra['today_steps'] as num?)?.toInt() ?? 0;
+          todaySteps = (extra['today_steps'] as num?)?.toInt() ?? 0;
 
-        measurements = extra['latest_measurement'] as Map<String, dynamic>?;
+          measurements = extra['latest_measurement'] as Map<String, dynamic>?;
 
-        measurementHistory = List<Map<String, dynamic>>.from(
-          (extra['measurement_history'] as List?) ?? const [],
-        );
+          measurementHistory = List<Map<String, dynamic>>.from(
+            (extra['measurement_history'] as List?) ?? const [],
+          );
 
-        workoutCompletedToday = extra['workout_completed_today'] == true;
+          workoutCompletedToday = extra['workout_completed_today'] == true;
 
-        // Fetch latest diet so coach's "diet needs update" check has real data.
-        latestDiet = extra['latest_diet'] as Map<String, dynamic>?;
+          // Fetch latest diet so coach's "diet needs update" check has real data.
+          latestDiet = extra['latest_diet'] as Map<String, dynamic>?;
 
-        // Fetch latest workout the same way, so the member-side popup can
-        // detect a new/updated workout plan too.
-        latestWorkout = extra['latest_workout'] as Map<String, dynamic>?;
+          // Fetch latest workout the same way, so the member-side popup can
+          // detect a new/updated workout plan too.
+          latestWorkout = extra['latest_workout'] as Map<String, dynamic>?;
 
-        // ✅ Today's actual assigned workout (matched by day_of_week server-side)
-        // — this is the one the streak-share card should use.
-        todayWorkout = extra['today_workout'] as Map<String, dynamic>?;
+          // ✅ Today's actual assigned workout (matched by day_of_week server-side)
+          // — this is the one the streak-share card should use.
+          todayWorkout = extra['today_workout'] as Map<String, dynamic>?;
 
-        // Fetch today's photo-upload timestamps (IST-bounded) for Sunday task card.
-        final photoFrontRaw = extra['photo_front_updated_at'] as String?;
-        final photoBackRaw = extra['photo_back_updated_at'] as String?;
+          // Fetch today's photo-upload timestamps (IST-bounded) for Sunday task card.
+          final photoFrontRaw = extra['photo_front_updated_at'] as String?;
+          final photoBackRaw = extra['photo_back_updated_at'] as String?;
 
-        if (photoFrontRaw != null) {
-          final frontDate = DateTime.tryParse(photoFrontRaw);
-          if (frontDate != null &&
-              !frontDate.isBefore(startOfDay) &&
-              frontDate.isBefore(endOfDay)) {
-            photoFrontUpdatedAt = photoFrontRaw;
+          if (photoFrontRaw != null) {
+            final frontDate = DateTime.tryParse(photoFrontRaw);
+            if (frontDate != null &&
+                !frontDate.isBefore(startOfDay) &&
+                frontDate.isBefore(endOfDay)) {
+              photoFrontUpdatedAt = photoFrontRaw;
+            }
           }
-        }
-        if (photoBackRaw != null) {
-          final backDate = DateTime.tryParse(photoBackRaw);
-          if (backDate != null &&
-              !backDate.isBefore(startOfDay) &&
-              backDate.isBefore(endOfDay)) {
-            photoBackUpdatedAt = photoBackRaw;
+          if (photoBackRaw != null) {
+            final backDate = DateTime.tryParse(photoBackRaw);
+            if (backDate != null &&
+                !backDate.isBefore(startOfDay) &&
+                backDate.isBefore(endOfDay)) {
+              photoBackUpdatedAt = photoBackRaw;
+            }
           }
-        }
 
-        // Sunday task card: was the latest measurement recorded today (IST)?
-        final measurementRecordedRaw = measurements?['recorded_at'] as String?;
-        if (measurementRecordedRaw != null) {
-          final measurementDate = DateTime.tryParse(measurementRecordedRaw);
-          if (measurementDate != null &&
-              !measurementDate.isBefore(startOfDay) &&
-              measurementDate.isBefore(endOfDay)) {
-            measurementUpdatedToday = true;
+          // Sunday task card: was the latest measurement recorded today (IST)?
+          final measurementRecordedRaw =
+              measurements?['recorded_at'] as String?;
+          if (measurementRecordedRaw != null) {
+            final measurementDate = DateTime.tryParse(measurementRecordedRaw);
+            if (measurementDate != null &&
+                !measurementDate.isBefore(startOfDay) &&
+                measurementDate.isBefore(endOfDay)) {
+              measurementUpdatedToday = true;
+            }
           }
+        } catch (e) {
+          debugPrint(
+            '⚠️ Non-streak data fetch failed for $memberId (streak kept intact): $e',
+          );
         }
-      } catch (e) {
-        debugPrint(
-          '⚠️ Non-streak data fetch failed for $memberId (streak kept intact): $e',
-        );
-      }
 
       final dashboardData = MemberDashboardData(
         memberId: memberId,
@@ -915,6 +956,7 @@ class MasterDataProvider extends ChangeNotifier {
       }
       _cache[memberId] = dashboardData;
       _cacheTimestamps[memberId] = DateTime.now();
+      if (skipMemberData) disposeStepTracking(); // expired: stop step engine
       pruneCache();
 
       return dashboardData;
@@ -955,6 +997,7 @@ class MasterDataProvider extends ChangeNotifier {
     _cache.remove(memberId);
     _cacheTimestamps.remove(memberId);
     _errorStates.remove(memberId);
+    clearScreenCache(memberId);
     notifyListeners();
   }
 
@@ -962,7 +1005,35 @@ class MasterDataProvider extends ChangeNotifier {
     _cache.clear();
     _cacheTimestamps.clear();
     _errorStates.clear();
+    _screenCache.clear();
+    _screenCacheStamp.clear();
     notifyListeners();
+  }
+
+  // Screen data (payments / measurements / streaks) saved per member and
+  // tied to the server change stamp. Same stamp = nothing changed = reuse.
+  final Map<String, dynamic> _screenCache = {};
+  final Map<String, String> _screenCacheStamp = {};
+
+  dynamic readScreenCache(String memberId, String key) {
+    final k = '$memberId|$key';
+    final stamp = _changeStamps[memberId];
+    if (stamp == null || _screenCacheStamp[k] != stamp) return null;
+    return _screenCache[k];
+  }
+
+  void writeScreenCache(String memberId, String key, dynamic value) {
+    final stamp = _changeStamps[memberId];
+    if (stamp == null) return;
+    final k = '$memberId|$key';
+    _screenCache[k] = value;
+    _screenCacheStamp[k] = stamp;
+  }
+
+  void clearScreenCache(String memberId) {
+    final prefix = '$memberId|';
+    _screenCache.removeWhere((k, _) => k.startsWith(prefix));
+    _screenCacheStamp.removeWhere((k, _) => k.startsWith(prefix));
   }
 
   Future<String?> _fetchChangeStamp(String memberId) async {
@@ -1328,6 +1399,8 @@ class MasterDataProvider extends ChangeNotifier {
     if (_localSteps.isEmpty) return;
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
+    // Expired / unpaid member: server blocks step logs anyway — don't call.
+    if (_cache[userId]?.isMembershipActive == false) return;
 
     _pruneExpiredLocal();
     if (_localSteps.isEmpty) {

@@ -49,7 +49,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     super.dispose();
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool force = false}) async {
     if (_isLoadingPayments) return;
     _isLoadingPayments = true;
 
@@ -65,6 +65,23 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       memberName = profile?['full_name'] ?? 'Member';
       membershipEndDate = profile?['membership_end_date'];
       daysLeft = dashboardData.daysLeft;
+
+      // Same server stamp = nothing changed -> reuse, 0 Supabase calls
+      final savedPay = force
+          ? null
+          : MasterDataProvider.instance.readScreenCache(userId, 'payments');
+      if (savedPay != null) {
+        payments = List<Map<String, dynamic>>.from(savedPay['payments']);
+        standardPricing = savedPay['standardPricing'];
+        offerPricing = savedPay['offerPricing'];
+        offerName = savedPay['offerName'];
+        hasOffer = savedPay['hasOffer'];
+        selectedPricingType = savedPay['selectedPricingType'];
+        if (mounted) {
+          setState(() => isLoading = false);
+        }
+        return;
+      }
 
       // Get payment history (explicit columns + limit 20)
       final paymentData = await Supabase.instance.client
@@ -112,6 +129,15 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         hasOffer = false;
         selectedPricingType = 'standard';
       }
+
+      MasterDataProvider.instance.writeScreenCache(userId, 'payments', {
+        'payments': List<Map<String, dynamic>>.from(payments),
+        'standardPricing': standardPricing,
+        'offerPricing': offerPricing,
+        'offerName': offerName,
+        'hasOffer': hasOffer,
+        'selectedPricingType': selectedPricingType,
+      });
 
       if (mounted) {
         setState(() => isLoading = false);
@@ -337,7 +363,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: () {
               if (!isLoading) {
-                _loadData();
+                _loadData(force: true);
               }
             },
           ),

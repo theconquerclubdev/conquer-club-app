@@ -252,7 +252,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
       // ✅ Coach info
       final coachId = profile?['assigned_coach_id'];
-      if (coachId != null && coach == null) {
+      if (coachId != null && coach == null && isMembershipActive) {
         final coachData = await Supabase.instance.client
             .from('profiles')
             .select('full_name, email')
@@ -556,6 +556,18 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
     );
   }
 
+  // Expired / unpaid member: only Payments may use Supabase.
+  bool _blockIfExpired() {
+    if (isLoadingProfile || isMembershipActive) return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Renew your membership to use this.'),
+        backgroundColor: Colors.orange,
+      ),
+    );
+    return true;
+  }
+
   void _openPaymentsScreen() {
     Navigator.push(
       context,
@@ -573,6 +585,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   void _openStreaksPage() {
+    if (_blockIfExpired()) return;
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const StreaksTab()),
@@ -596,6 +609,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   void _openStepCounter() {
+    if (_blockIfExpired()) return;
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -618,6 +632,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   void _openMeasurements() {
+    if (_blockIfExpired()) return;
     debugPrint('📏 Opening Measurements from Sunday task');
     Navigator.push(
       context,
@@ -635,6 +650,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   }
 
   void _openProgressPhotos() {
+    if (_blockIfExpired()) return;
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const MemberProgressScreen()),
@@ -704,6 +720,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       onTap: hasIssue
           ? (stepIssueCanOpenSettings ? _retryStepPermission : null)
           : () async {
+              if (_blockIfExpired()) return;
               await Navigator.push(
                 context,
                 MaterialPageRoute(
@@ -1504,18 +1521,25 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
             _buildQuickActionIcon(
               Icons.straighten,
               const Color(0xFF4FC3F7),
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const MeasurementsScreen()),
-              ).then((_) => loadProfile()),
+              () {
+                if (_blockIfExpired()) return;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MeasurementsScreen()),
+                ).then((_) => loadProfile());
+              },
             ),
             _buildQuickActionIcon(
               Icons.camera_alt_outlined,
               const Color(0xFFBA68C8),
-              () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const MemberProgressScreen()),
-              ).then((_) => loadProfile()),
+              () {
+                if (_blockIfExpired()) return;
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                      builder: (_) => const MemberProgressScreen()),
+                ).then((_) => loadProfile());
+              },
             ),
             _buildQuickActionIcon(
               Icons.payment,
@@ -1914,6 +1938,14 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
   }
 
   Future<void> load() async {
+    // Expired / unpaid member: no Supabase call. Wait for dashboard data; the
+    // provider listener calls load() again when it arrives / membership turns active.
+    final seen = MasterDataProvider.instance.getData(widget.memberId);
+    if (seen == null) return;
+    if (!seen.isMembershipActive) {
+      if (mounted) setState(() => isLoading = false);
+      return;
+    }
     if (_isLoading) return;
     final now = DateTime.now();
     if (now.difference(_lastLoadAt) < const Duration(milliseconds: 800)) {
@@ -2282,6 +2314,13 @@ class _MyDietsListState extends State<_MyDietsList>
   }
 
   Future<void> load() async {
+    // Expired / unpaid member: no Supabase call (same rule as workouts list).
+    final seen = MasterDataProvider.instance.getData(widget.memberId);
+    if (seen == null) return;
+    if (!seen.isMembershipActive) {
+      if (mounted) setState(() => isLoading = false);
+      return;
+    }
     setState(() => isLoading = true);
     final data = await Supabase.instance.client
         .from('diets')

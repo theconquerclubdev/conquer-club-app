@@ -44,7 +44,7 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
   void initState() {
     super.initState();
     selectedMetric = fieldsMeta[0]['key']!;
-    loadHistory().then((_) {
+    loadHistory(force: widget.isOnboarding).then((_) {
       if (widget.isOnboarding && mounted) openNewEntryForm();
     });
   }
@@ -91,18 +91,37 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
     return null;
   }
 
-  Future<void> loadHistory() async {
+  Future<void> loadHistory({bool force = false}) async {
     // ✅ Guard against overlapping calls
     if (_isLoadingHistory) return;
     _isLoadingHistory = true;
 
     setState(() => isLoading = true);
     final userId = Supabase.instance.client.auth.currentUser!.id;
-    final data = await Supabase.instance.client
-        .from('measurement_logs')
-        .select()
-        .eq('member_id', userId)
-        .order('recorded_at', ascending: true);
+    List<Map<String, dynamic>>? savedHistory;
+    if (!force) {
+      try {
+        await MasterDataProvider.instance.fetchMemberData(userId);
+        final saved =
+            MasterDataProvider.instance.readScreenCache(userId, 'measurements');
+        if (saved != null) {
+          savedHistory = List<Map<String, dynamic>>.from(saved);
+        }
+      } catch (_) {}
+    }
+    final data = savedHistory ??
+        await Supabase.instance.client
+            .from('measurement_logs')
+            .select()
+            .eq('member_id', userId)
+            .order('recorded_at', ascending: true);
+    if (savedHistory == null) {
+      MasterDataProvider.instance.writeScreenCache(
+        userId,
+        'measurements',
+        List<Map<String, dynamic>>.from(data),
+      );
+    }
     if (mounted) {
       setState(() {
         allHistory = List<Map<String, dynamic>>.from(data);
@@ -172,6 +191,11 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
       context: context,
       backgroundColor: AppColors.cardDark,
       isScrollControlled: true,
+      useSafeArea: true, // keep clear of notch / status bar
+      constraints: const BoxConstraints(maxWidth: 600), // web + tablet
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
       builder: (context) => Padding(
         padding: EdgeInsets.only(
           bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -185,7 +209,13 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
+                // Wrap = never overflows. Badge drops under title on narrow
+                // screens / large fonts, sits on the right when there is room.
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 8,
                   children: [
                     const Text(
                       'LOG NEW MEASUREMENT',
@@ -195,7 +225,6 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
                         fontWeight: FontWeight.w900,
                       ),
                     ),
-                    const Spacer(),
                     Container(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 8,
@@ -236,6 +265,8 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
                 Expanded(
                   child: ListView(
                     controller: scrollController,
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
                     children: fieldsMeta
                         .map(
                           (f) => Padding(
@@ -248,6 +279,7 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
                                   const TextInputType.numberWithOptions(
                                 decimal: true,
                               ),
+                              textInputAction: TextInputAction.next,
                               style: const TextStyle(
                                 color: Colors.white,
                               ),
@@ -272,57 +304,61 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () async {
-                      // ✅ VALIDATION: Check all fields are filled
-                      bool allFilled = true;
-                      String? firstEmptyField;
+                SafeArea(
+                  top: false,
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () async {
+                        // ✅ VALIDATION: Check all fields are filled
+                        bool allFilled = true;
+                        String? firstEmptyField;
 
-                      for (final f in fieldsMeta) {
-                        final value = controllers[f['key']]!.text.trim();
-                        if (value.isEmpty) {
-                          allFilled = false;
-                          firstEmptyField = f['label'];
-                          break;
+                        for (final f in fieldsMeta) {
+                          final value = controllers[f['key']]!.text.trim();
+                          if (value.isEmpty) {
+                            allFilled = false;
+                            firstEmptyField = f['label'];
+                            break;
+                          }
+                          if (double.tryParse(value) == null) {
+                            allFilled = false;
+                            firstEmptyField = f['label'];
+                            break;
+                          }
                         }
-                        if (double.tryParse(value) == null) {
-                          allFilled = false;
-                          firstEmptyField = f['label'];
-                          break;
-                        }
-                      }
 
-                      if (!allFilled) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              'Please fill all fields (${firstEmptyField ?? ''} is empty or invalid)',
+                        if (!allFilled) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Please fill all fields (${firstEmptyField ?? ''} is empty or invalid)',
+                              ),
+                              backgroundColor: Colors.red,
                             ),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                        return;
-                      }
+                          );
+                          return;
+                        }
 
-                      final userId =
-                          Supabase.instance.client.auth.currentUser!.id;
-                      final values = <String, dynamic>{
-                        'member_id': userId,
-                        'recorded_at': DateTime.now().toUtc().toIso8601String(),
-                      };
-                      for (var f in fieldsMeta) {
-                        values[f['key']!] = double.tryParse(
-                          controllers[f['key']]!.text.trim(),
-                        );
-                      }
-                      await Supabase.instance.client
-                          .from('measurement_logs')
-                          .insert(values);
-                      if (context.mounted) Navigator.pop(context, true);
-                    },
-                    child: const Text('SAVE ENTRY'),
+                        final userId =
+                            Supabase.instance.client.auth.currentUser!.id;
+                        final values = <String, dynamic>{
+                          'member_id': userId,
+                          'recorded_at':
+                              DateTime.now().toUtc().toIso8601String(),
+                        };
+                        for (var f in fieldsMeta) {
+                          values[f['key']!] = double.tryParse(
+                            controllers[f['key']]!.text.trim(),
+                          );
+                        }
+                        await Supabase.instance.client
+                            .from('measurement_logs')
+                            .insert(values);
+                        if (context.mounted) Navigator.pop(context, true);
+                      },
+                      child: const Text('SAVE ENTRY'),
+                    ),
                   ),
                 ),
               ],
@@ -337,7 +373,7 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
     }
 
     if (saved == true) {
-      await loadHistory();
+      await loadHistory(force: true);
       // Invalidate cache for the current user
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
@@ -455,10 +491,14 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.end,
+                    runSpacing: 6,
                     children: [
-                      Flexible(
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxWidth: MediaQuery.of(context).size.width - 120,
+                        ),
                         child: Text(
                           latestValue != null ? '$latestValue' : '--',
                           maxLines: 1,
@@ -602,8 +642,9 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
                   const SizedBox(height: 16),
 
                   // Range selector chips
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  Wrap(
+                    alignment: WrapAlignment.spaceEvenly,
+                    runSpacing: 6,
                     children: ranges.map((r) {
                       final selected = r == selectedRange;
                       return GestureDetector(
@@ -692,7 +733,7 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: () {
               if (!isLoading) {
-                loadHistory();
+                loadHistory(force: true);
               }
             },
           ),
