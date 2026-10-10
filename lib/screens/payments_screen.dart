@@ -7,6 +7,13 @@ import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import '../providers/master_data_provider.dart';
 
+// Pricing and offer are kept in memory so the Payments screen does not
+// ask Supabase for them every time it is opened.
+String? _cachedPricingUserId;
+bool _hasCachedPricing = false;
+Map<String, dynamic>? _cachedStandardPricing;
+Map<String, dynamic>? _cachedOfferData;
+
 class PaymentsScreen extends StatefulWidget {
   const PaymentsScreen({super.key});
 
@@ -83,23 +90,44 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
         return;
       }
 
-      // Get payment history (explicit columns + limit 20)
-      final paymentData = await Supabase.instance.client
-          .from('payments')
-          .select(
-              'id, amount, plan_key, months, status, payment_date, notes, is_cash, offer_used, pricing_type')
-          .eq('member_id', userId)
-          .order('payment_date', ascending: false)
-          .limit(20);
+      // Pricing and offer rarely change: ask Supabase only the first time
+      // (or when the refresh button is tapped), otherwise use memory copy.
+      final needPricing =
+          force || !_hasCachedPricing || _cachedPricingUserId != userId;
+      final results = await Future.wait<dynamic>([
+        Supabase.instance.client
+            .from('payments')
+            .select(
+                'id, amount, plan_key, months, status, payment_date, notes, is_cash, offer_used, pricing_type')
+            .eq('member_id', userId)
+            .order('payment_date', ascending: false)
+            .limit(20),
+        if (needPricing)
+          Supabase.instance.client
+              .from('pricing')
+              .select('1_month, 3_month, 6_month, 1_year')
+              .limit(1)
+              .maybeSingle(),
+        if (needPricing)
+          Supabase.instance.client
+              .from('offer_members')
+              .select(
+                  'offer_id, offers(1_month, 3_month, 6_month, 1_year, name)')
+              .eq('member_id', userId)
+              .maybeSingle(),
+      ]);
+      final paymentData = results[0] as List;
+      if (needPricing) {
+        _cachedStandardPricing = results[1] as Map<String, dynamic>?;
+        _cachedOfferData = results[2] as Map<String, dynamic>?;
+        _cachedPricingUserId = userId;
+        _hasCachedPricing = true;
+      }
 
       payments = List<Map<String, dynamic>>.from(paymentData);
 
-      // Get standard pricing
-      final standardData = await Supabase.instance.client
-          .from('pricing')
-          .select('1_month, 3_month, 6_month, 1_year')
-          .limit(1)
-          .maybeSingle();
+      // Get standard pricing (from memory copy)
+      final standardData = _cachedStandardPricing;
 
       if (standardData != null) {
         standardPricing = standardData;
@@ -113,11 +141,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       }
 
       // Check if member has an offer
-      final offerData = await Supabase.instance.client
-          .from('offer_members')
-          .select('offer_id, offers(1_month, 3_month, 6_month, 1_year, name)')
-          .eq('member_id', userId)
-          .maybeSingle();
+      final offerData = _cachedOfferData;
 
       if (offerData != null && offerData['offers'] != null) {
         final offer = offerData['offers'] as Map<String, dynamic>;
@@ -329,7 +353,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             debugPrint('❌ Failed to refresh after payment: $e');
           }
         }
-        _loadData();
+        _loadData(force: true);
         setState(() {
           selectedPlan = null;
           _notesController.clear();

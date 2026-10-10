@@ -3,9 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
 import 'member_profile_edit_screen.dart';
-import 'pairing_qr_screen.dart';
-import 'signup_screen.dart'
-    show kTermsAndConditionsUrl, kPrivacyPolicyUrl;
+import 'signup_screen.dart' show kTermsAndConditionsUrl, kPrivacyPolicyUrl;
 
 class MemberSettingsScreen extends StatefulWidget {
   const MemberSettingsScreen({super.key});
@@ -159,17 +157,8 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
             title: 'Edit Profile',
             onTap: () => Navigator.push(
               context,
-              MaterialPageRoute(builder: (_) => const MemberProfileEditScreen()),
-            ),
-          ),
-          _tile(
-            icon: Icons.qr_code_2,
-            color: const Color(0xFF5CD1B8),
-            title: 'Pairing QR code',
-            subtitle: 'Generate a scanable link to pair with your coach',
-            onTap: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const PairingQrScreen()),
+              MaterialPageRoute(
+                  builder: (_) => const MemberProfileEditScreen()),
             ),
           ),
           _tile(
@@ -233,9 +222,8 @@ class _MemberSettingsScreenState extends State<MemberSettingsScreen> {
       subtitle: subtitle != null
           ? Text(subtitle, style: const TextStyle(color: Colors.grey))
           : null,
-      trailing: enabled
-          ? const Icon(Icons.chevron_right, color: Colors.grey)
-          : null,
+      trailing:
+          enabled ? const Icon(Icons.chevron_right, color: Colors.grey) : null,
       onTap: enabled ? onTap : null,
     );
   }

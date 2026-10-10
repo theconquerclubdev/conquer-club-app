@@ -3,6 +3,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import '../utils/text_normalize.dart';
 
+// Remembers the profile in memory so the screen does not call Supabase
+// every time it is opened.
+String? _cachedProfileUserId;
+Map<String, dynamic>? _cachedProfile;
+
 /// Lets a member update their own basic profile info — name, weight,
 /// height, and goal. Email/role/coach assignment are intentionally left
 /// out here: the DB blocks members from changing those fields anyway
@@ -58,14 +63,21 @@ class _MemberProfileEditScreenState extends State<MemberProfileEditScreen> {
     super.dispose();
   }
 
-  Future<void> _loadProfile() async {
+  Future<void> _loadProfile({bool force = false}) async {
     final userId = Supabase.instance.client.auth.currentUser!.id;
-    final profile = await Supabase.instance.client
-        .from('profiles')
-        .select(
-            'full_name, email, weight_kg, height_cm, goal, date_of_birth, gender')
-        .eq('id', userId)
-        .single();
+    final Map<String, dynamic> profile;
+    if (!force && _cachedProfile != null && _cachedProfileUserId == userId) {
+      profile = _cachedProfile!;
+    } else {
+      profile = await Supabase.instance.client
+          .from('profiles')
+          .select(
+              'full_name, email, weight_kg, height_cm, goal, date_of_birth, gender')
+          .eq('id', userId)
+          .single();
+      _cachedProfileUserId = userId;
+      _cachedProfile = Map<String, dynamic>.from(profile);
+    }
 
     _nameController.text = profile['full_name'] ?? '';
     _weightController.text = profile['weight_kg']?.toString() ?? '';
@@ -103,6 +115,24 @@ class _MemberProfileEditScreenState extends State<MemberProfileEditScreen> {
             : null,
         'gender': gender,
       }).eq('id', userId);
+
+      // Keep the in-memory copy in sync so reopening needs no Supabase call.
+      _cachedProfileUserId = userId;
+      _cachedProfile = {
+        'full_name': toTitleCase(_nameController.text),
+        'email': email,
+        'weight_kg': double.tryParse(_weightController.text.trim()) == null
+            ? null
+            : _weightController.text.trim(),
+        'height_cm': double.tryParse(_heightController.text.trim()) == null
+            ? null
+            : _heightController.text.trim(),
+        'goal': _goalController.text.trim().isEmpty
+            ? null
+            : _goalController.text.trim(),
+        'date_of_birth': dob?.toIso8601String().substring(0, 10),
+        'gender': gender,
+      };
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -149,7 +179,7 @@ class _MemberProfileEditScreenState extends State<MemberProfileEditScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: () {
               if (!isLoading) {
-                _loadProfile();
+                _loadProfile(force: true);
               }
             },
           ),

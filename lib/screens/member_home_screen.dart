@@ -1918,7 +1918,18 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
   void _onProviderChanged() {
     final latest = MasterDataProvider.instance.getData(widget.memberId);
     if (latest == null || identical(latest, _lastSeenData)) return;
+    final prev = _lastSeenData;
     _lastSeenData = latest;
+    if (prev != null &&
+        prev.isMembershipActive == latest.isMembershipActive &&
+        prev.latestWorkout?['id'] == latest.latestWorkout?['id'] &&
+        prev.latestWorkout?['updated_at'] ==
+            latest.latestWorkout?['updated_at'] &&
+        prev.todayWorkout?['id'] == latest.todayWorkout?['id'] &&
+        prev.todayWorkout?['updated_at'] ==
+            latest.todayWorkout?['updated_at']) {
+      return;
+    }
     debugPrint('DEBUG workout list reload, fetchedAt=${latest.fetchedAt}');
     load();
   }
@@ -2295,7 +2306,14 @@ class _MyDietsListState extends State<_MyDietsList>
   void _onProviderChanged() {
     final latest = MasterDataProvider.instance.getData(widget.memberId);
     if (latest == null || identical(latest, _lastSeenData)) return;
+    final prev = _lastSeenData;
     _lastSeenData = latest;
+    if (prev != null &&
+        prev.isMembershipActive == latest.isMembershipActive &&
+        prev.latestDiet?['id'] == latest.latestDiet?['id'] &&
+        prev.latestDiet?['updated_at'] == latest.latestDiet?['updated_at']) {
+      return;
+    }
     load();
   }
 
