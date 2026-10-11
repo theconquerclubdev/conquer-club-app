@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../providers/master_data_provider.dart';
 import '../theme/app_theme.dart';
 import 'diet_preview_page.dart';
 import 'payments_screen.dart';
@@ -41,12 +42,33 @@ class _MemberDietPreviewLoaderState extends State<MemberDietPreviewLoader> {
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
 
+      // Same server stamp = nothing changed -> reuse the saved copy, 0
+      // Supabase calls. A saved copy older than 30 minutes is ignored.
+      Map<String, dynamic>? saved;
+      try {
+        await MasterDataProvider.instance.fetchMemberData(userId);
+        final raw = MasterDataProvider.instance
+            .readScreenCache(userId, 'diet_view_${widget.dietId}');
+        if (raw is Map<String, dynamic> &&
+            DateTime.now()
+                    .difference(DateTime.parse(raw['savedAt'] as String))
+                    .inMinutes <
+                30) {
+          saved = raw;
+        }
+      } catch (_) {}
+
       // Check membership status
-      final profile = await Supabase.instance.client
-          .from('profiles')
-          .select('membership_end_date')
-          .eq('id', userId)
-          .maybeSingle();
+      Map<String, dynamic>? profile;
+      if (saved != null) {
+        profile = saved['profile'] as Map<String, dynamic>?;
+      } else {
+        profile = await Supabase.instance.client
+            .from('profiles')
+            .select('membership_end_date')
+            .eq('id', userId)
+            .maybeSingle();
+      }
 
       if (profile != null) {
         final endDate = profile['membership_end_date'] as String?;
@@ -57,6 +79,38 @@ class _MemberDietPreviewLoaderState extends State<MemberDietPreviewLoader> {
         } else {
           isMembershipActive = false;
         }
+      }
+
+      if (saved != null) {
+        final savedDiet = saved['diet'] as Map<String, dynamic>;
+        final savedMember = saved['member'] as Map<String, dynamic>;
+        final savedCoachName = saved['coachName'] as String;
+        final savedSections =
+            saved['sections'] as Map<String, List<DietFoodItem>>;
+        setState(() {
+          diet = savedDiet;
+          member = savedMember;
+          coachName = savedCoachName;
+          sections = savedSections;
+          isLoading = false;
+        });
+        return;
+      }
+
+      if (saved != null) {
+        final savedDiet = saved['diet'] as Map<String, dynamic>;
+        final savedMember = saved['member'] as Map<String, dynamic>;
+        final savedCoachName = saved['coachName'] as String;
+        final savedSections =
+            saved['sections'] as Map<String, List<DietFoodItem>>;
+        setState(() {
+          diet = savedDiet;
+          member = savedMember;
+          coachName = savedCoachName;
+          sections = savedSections;
+          isLoading = false;
+        });
+        return;
       }
 
       final dietData = await Supabase.instance.client
@@ -115,6 +169,19 @@ class _MemberDietPreviewLoaderState extends State<MemberDietPreviewLoader> {
         sections = grouped;
         isLoading = false;
       });
+
+      MasterDataProvider.instance.writeScreenCache(
+        userId,
+        'diet_view_${widget.dietId}',
+        <String, dynamic>{
+          'savedAt': DateTime.now().toIso8601String(),
+          'profile': profile,
+          'diet': dietData,
+          'member': memberData,
+          'coachName': resolvedCoachName,
+          'sections': grouped,
+        },
+      );
     } on PostgrestException catch (e) {
       setState(() {
         error = 'Unable to load diet. Please check your connection.';

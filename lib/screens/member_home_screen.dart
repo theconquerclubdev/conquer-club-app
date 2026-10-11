@@ -136,6 +136,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   MemberDashboardData? _lastAppliedData;
   String? _dietStatusText;
   String? _workoutStatusText;
+  bool _coachLoading = false;
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -252,12 +253,21 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
 
       // ✅ Coach info
       final coachId = profile?['assigned_coach_id'];
-      if (coachId != null && coach == null && isMembershipActive) {
-        final coachData = await Supabase.instance.client
-            .from('profiles')
-            .select('full_name, email')
-            .eq('id', coachId)
-            .maybeSingle();
+      if (coachId != null &&
+          coach == null &&
+          isMembershipActive &&
+          !_coachLoading) {
+        _coachLoading = true;
+        Map<String, dynamic>? coachData;
+        try {
+          coachData = await Supabase.instance.client
+              .from('profiles')
+              .select('full_name, email')
+              .eq('id', coachId)
+              .maybeSingle();
+        } finally {
+          _coachLoading = false;
+        }
         if (mounted) {
           setState(() {
             coach = coachData;

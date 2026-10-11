@@ -278,10 +278,6 @@ class _AuthWrapperState extends State<AuthWrapper> {
 
       if (session != null) {
         try {
-          await Supabase.instance.client.auth.refreshSession();
-        } catch (_) {}
-
-        try {
           final profile = await Supabase.instance.client
               .from('profiles')
               .select(

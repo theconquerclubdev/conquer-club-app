@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../providers/master_data_provider.dart';
 import '../theme/app_theme.dart';
 
 enum _StepView { day, week, month }
@@ -63,11 +64,30 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
         widget.memberId ?? Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
     try {
-      final rows = await Supabase.instance.client
-          .from('step_logs')
-          .select('log_date, steps, goal')
-          .eq('member_id', userId)
-          .gte('log_date', _fmt(start));
+      // Own account only: same server stamp = nothing changed -> reuse the
+      // saved rows, 0 Supabase calls (same pattern as Measurements screen).
+      final isOwn = userId == Supabase.instance.client.auth.currentUser?.id;
+      dynamic savedRows;
+      if (isOwn) {
+        try {
+          await MasterDataProvider.instance.fetchMemberData(userId);
+          savedRows = MasterDataProvider.instance
+              .readScreenCache(userId, 'steps_${_fmt(start)}');
+        } catch (_) {}
+      }
+      final rows = savedRows ??
+          await Supabase.instance.client
+              .from('step_logs')
+              .select('log_date, steps, goal')
+              .eq('member_id', userId)
+              .gte('log_date', _fmt(start));
+      if (isOwn && savedRows == null) {
+        MasterDataProvider.instance.writeScreenCache(
+          userId,
+          'steps_${_fmt(start)}',
+          List<Map<String, dynamic>>.from(rows),
+        );
+      }
       final map = Map<String, int>.from(dailySteps);
       final goalMap = Map<String, int>.from(dailyGoals);
       for (final r in List<Map<String, dynamic>>.from(rows)) {

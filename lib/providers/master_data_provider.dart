@@ -478,7 +478,9 @@ class MasterDataProvider extends ChangeNotifier {
     final memberId = newRecord['member_id'] as String?;
     if (memberId == null) return;
 
-    if (newRecord.containsKey('recorded_at')) clearScreenCache(memberId);
+    if (newRecord.containsKey('recorded_at') || newRecord.containsKey('slot')) {
+      clearScreenCache(memberId);
+    }
 
     // Not cached = nothing to patch (same as before).
     final cached = _cache[memberId];
