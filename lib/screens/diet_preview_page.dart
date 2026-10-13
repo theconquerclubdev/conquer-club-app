@@ -7,6 +7,11 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'pdf_download_stub.dart' if (dart.library.html) 'pdf_download_web.dart'
     as pdf_download;
+import 'dart:math' as math;
+import '../theme/app_theme.dart';
+
+// new member-only ui lives in its own file (shares this file's private names)
+part 'diet_preview_member_view.dart';
 
 // Define DietFoodItem class here since it's used in this file
 class DietFoodItem {
@@ -62,6 +67,7 @@ class DietPreviewPage extends StatefulWidget {
   final VoidCallback? onSave;
   final VoidCallback? onQuit;
   final String? coachNameOverride;
+  final bool memberStyle; // true = new member UI. Coach screens leave it false.
 
   const DietPreviewPage({
     super.key,
@@ -77,6 +83,7 @@ class DietPreviewPage extends StatefulWidget {
     this.onSave,
     this.onQuit,
     this.coachNameOverride,
+    this.memberStyle = false,
   });
 
   @override
@@ -506,6 +513,22 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.memberStyle) {
+      return MemberDietView(
+        memberName: memberName,
+        dietType: widget.dietType,
+        coachName: coachName,
+        lastSaveDate: lastSaveDate,
+        calorieTarget: widget.calorieTarget,
+        proteinTarget: widget.proteinTarget,
+        carbsTarget: widget.carbsTarget,
+        fatsTarget: widget.fatsTarget,
+        sections: widget.sections,
+        totals: totals,
+        isGeneratingPdf: isGeneratingPdf,
+        onDownload: downloadPdf,
+      );
+    }
     final t = totals;
 
     // Count total items for dynamic font sizing

@@ -261,6 +261,18 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
     super.dispose();
   }
 
+  // Same server stamp = nothing changed -> reuse the saved copy (0 calls).
+  Future<dynamic> _savedOrFetch(
+      String key, Future<dynamic> Function() fetch) async {
+    final saved =
+        MasterDataProvider.instance.readScreenCache(widget.memberId, key);
+    if (saved is Map && saved.containsKey('v')) return saved['v'];
+    final fresh = await fetch();
+    MasterDataProvider.instance
+        .writeScreenCache(widget.memberId, key, {'v': fresh});
+    return fresh;
+  }
+
   Future<void> loadDiet() async {
     setState(() => isLoading = true);
     try {
@@ -280,14 +292,17 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
         _cachedCoachOwnName = coachOwnName;
       }
 
-      final diet = await Supabase.instance.client
-          .from('diets')
-          .select(
-              'id, name, calorie_target, protein_target, carbs_target, fats_target, diet_type_preset, updated_at, diet_items(id, section, quantity, order_index, foods(id, name, base_quantity, base_unit, calories, protein, carbs, fats))')
-          .eq('member_id', widget.memberId)
-          .eq('slot', widget.slot)
-          .order('order_index', referencedTable: 'diet_items')
-          .maybeSingle();
+      final diet = await _savedOrFetch(
+        'diet_edit_${widget.slot}',
+        () => Supabase.instance.client
+            .from('diets')
+            .select(
+                'id, name, calorie_target, protein_target, carbs_target, fats_target, diet_type_preset, updated_at, diet_items(id, section, quantity, order_index, foods(id, name, base_quantity, base_unit, calories, protein, carbs, fats))')
+            .eq('member_id', widget.memberId)
+            .eq('slot', widget.slot)
+            .order('order_index', referencedTable: 'diet_items')
+            .maybeSingle(),
+      );
 
       if (diet == null) {
         setState(() => isLoading = false);
@@ -519,6 +534,13 @@ class _DietSlotEditorState extends State<_DietSlotEditor> {
       if (rowsToInsert.isNotEmpty) {
         await Supabase.instance.client.from('diet_items').insert(rowsToInsert);
       }
+
+      // Re-stamp the diet now that its items are written, so no device can
+      // save a "no change" stamp while still holding the old items.
+      await Supabase.instance.client
+          .from('diets')
+          .update({'updated_at': DateTime.now().toUtc().toIso8601String()}).eq(
+              'id', newDietId);
 
       if (mounted) {
         // Invalidate cache for the member

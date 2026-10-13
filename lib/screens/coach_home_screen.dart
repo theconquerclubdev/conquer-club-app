@@ -35,6 +35,11 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   final ScrollController _scrollController = ScrollController();
   Timer? _searchDebounce;
 
+  // Saved member-list pages per filter/sort. Reused while nothing changed.
+  final Map<String, Map<String, dynamic>> _listCache = {};
+  Timer? _listChangeDebounce;
+  int _listRequestId = 0; // newest list request wins; older answers are dropped
+
   // Role — fetched once, not on every page load
   bool isHeadCoach = false;
 
@@ -67,6 +72,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _dataProvider.listChangeNotifier.addListener(_onListChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _loadPermissionsAndMembers();
@@ -76,10 +82,22 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
 
   @override
   void dispose() {
+    _dataProvider.listChangeNotifier.removeListener(_onListChanged);
+    _listChangeDebounce?.cancel();
     _tabController.dispose();
     searchController.dispose();
     _searchDebounce?.cancel();
     super.dispose();
+  }
+
+  // Something the list shows changed (realtime / long sleep): reload once,
+  // after a short pause so a burst of changes = 1 call.
+  void _onListChanged() {
+    _listChangeDebounce?.cancel();
+    _listChangeDebounce = Timer(const Duration(milliseconds: 1500), () {
+      if (!mounted || isLoading) return;
+      loadMembers(reset: true, refreshStats: true);
+    });
   }
 
   Future<void> _loadPermissionsAndMembers() async {
@@ -243,6 +261,26 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
       {bool reset = true, bool refreshStats = false}) async {
     if (!mounted) return;
 
+    final cacheKey = '$filterType|$sortType|$sortAscending';
+    final startVersion = _dataProvider.listChangeNotifier.value;
+    final requestSearch = search;
+    if (reset) _listRequestId++;
+    final requestId = _listRequestId;
+    if (reset && !refreshStats && search.isEmpty) {
+      final hit = _listCache[cacheKey];
+      if (hit != null && hit['v'] == startVersion) {
+        setState(() {
+          allMembers = List<Map<String, dynamic>>.from(hit['members'] as List);
+          filteredMembers = allMembers;
+          totalCount = hit['total'] as int;
+          hasMoreData = hit['hasMore'] as bool;
+          isLoading = false;
+          isLoadingMore = false;
+        });
+        return;
+      }
+    }
+
     if (reset) {
       setState(() {
         isLoading = allMembers.isEmpty;
@@ -274,6 +312,8 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
         },
       );
 
+      if (requestId != _listRequestId) return;
+
       final results = List<Map<String, dynamic>>.from(data);
       final total = results.isNotEmpty
           ? (results.first['total_count'] as num).toInt()
@@ -301,6 +341,19 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           isLoading = false;
           isLoadingMore = false;
         });
+        if (requestSearch.isEmpty) {
+          final old = _listCache[cacheKey];
+          if (reset || (old != null && old['v'] == startVersion)) {
+            _listCache[cacheKey] = {
+              'members': List<Map<String, dynamic>>.from(allMembers),
+              'total': totalCount,
+              'hasMore': hasMoreData,
+              'v': startVersion,
+            };
+          } else {
+            _listCache.remove(cacheKey);
+          }
+        }
       }
 
       // Dashboard stat tiles are computed server-side too, so they stay
@@ -379,6 +432,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   // Debounced search — waits for the user to pause typing before hitting
   // the server, instead of filtering an incomplete in-memory list.
   void onSearchChanged(String value) {
+    _listRequestId++;
     setState(() => search = value.trim());
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 350), () {

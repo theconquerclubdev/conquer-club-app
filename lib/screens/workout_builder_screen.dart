@@ -127,7 +127,10 @@ class _DayWorkoutEditor extends StatefulWidget {
   State<_DayWorkoutEditor> createState() => _DayWorkoutEditorState();
 }
 
-class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
+class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
+    with AutomaticKeepAliveClientMixin<_DayWorkoutEditor> {
+  @override
+  bool get wantKeepAlive => true;
   final nameController = TextEditingController();
   List<ExerciseEntry> exercises = [];
   bool isLoading = true;
@@ -146,15 +149,30 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
     super.dispose();
   }
 
+  // Same server stamp = nothing changed -> reuse the saved copy (0 calls).
+  Future<dynamic> _savedOrFetch(
+      String key, Future<dynamic> Function() fetch) async {
+    final saved =
+        MasterDataProvider.instance.readScreenCache(widget.memberId, key);
+    if (saved is Map && saved.containsKey('v')) return saved['v'];
+    final fresh = await fetch();
+    MasterDataProvider.instance
+        .writeScreenCache(widget.memberId, key, {'v': fresh});
+    return fresh;
+  }
+
   Future<void> loadWorkout() async {
     setState(() => isLoading = true);
     try {
-      final workout = await Supabase.instance.client
-          .from('workouts')
-          .select()
-          .eq('member_id', widget.memberId)
-          .eq('day_of_week', widget.dayOfWeek)
-          .maybeSingle();
+      final workout = await _savedOrFetch(
+        'wk_edit_${widget.dayOfWeek}',
+        () => Supabase.instance.client
+            .from('workouts')
+            .select()
+            .eq('member_id', widget.memberId)
+            .eq('day_of_week', widget.dayOfWeek)
+            .maybeSingle(),
+      );
 
       if (workout == null) {
         setState(() {
@@ -170,13 +188,16 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
       nameController.text = workout['workout_name'] ?? '';
 
       // ✅ Load exercises with order_index to preserve sequence
-      final weData = await Supabase.instance.client
-          .from('workout_exercises')
-          .select(
-            'id, order_index, exercises(id, name, body_part, input_type), workout_sets(id, set_number, kg, reps)',
-          )
-          .eq('workout_id', workoutId!)
-          .order('order_index', ascending: true);
+      final weData = await _savedOrFetch(
+        'wk_edit_we_${widget.dayOfWeek}',
+        () => Supabase.instance.client
+            .from('workout_exercises')
+            .select(
+              'id, order_index, exercises(id, name, body_part, input_type), workout_sets(id, set_number, kg, reps)',
+            )
+            .eq('workout_id', workoutId!)
+            .order('order_index', ascending: true),
+      );
 
       final loaded = <ExerciseEntry>[];
       for (final we in weData) {
@@ -362,6 +383,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (isLoading) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.gold),

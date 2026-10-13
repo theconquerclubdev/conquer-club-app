@@ -412,6 +412,7 @@ class MasterDataProvider extends ChangeNotifier {
   void _handleProfileChange(Map<String, dynamic> newRecord) {
     final memberId = newRecord['id'] as String?;
     if (memberId == null) return;
+    listChangeNotifier.value++;
 
     // Patch the cached profile straight from the realtime row (0 calls).
     final cached = _cache[memberId];
@@ -479,6 +480,11 @@ class MasterDataProvider extends ChangeNotifier {
     if (memberId == null) return;
 
     if (newRecord.containsKey('recorded_at') || newRecord.containsKey('slot')) {
+      listChangeNotifier.value++;
+    }
+    if (newRecord.containsKey('recorded_at') ||
+        newRecord.containsKey('slot') ||
+        newRecord.containsKey('day_of_week')) {
       clearScreenCache(memberId);
     }
 
@@ -1084,13 +1090,21 @@ class MasterDataProvider extends ChangeNotifier {
   /// returning from a profile only when this is true.
   bool memberListDirty = false;
 
+  /// Goes up by 1 whenever realtime tells us something the coach member
+  /// list shows has changed (or the app wakes after a long sleep). The coach
+  /// list reuses its saved pages only while this number is unchanged.
+  final ValueNotifier<int> listChangeNotifier = ValueNotifier<int>(0);
+
   /// Call when the app returns from background (realtime may have slept).
   /// One tiny call; cache is cleared only if something really changed.
-  Future<void> invalidateIfChanged(String memberId) async {
+  Future<void> invalidateIfChanged(
+    String memberId, {
+    Duration maxAge = const Duration(seconds: 10),
+  }) async {
     if (!_cache.containsKey(memberId)) return;
     final valid = await _isCacheStillValid(
       memberId,
-      maxAge: const Duration(seconds: 10),
+      maxAge: maxAge,
     );
     if (!valid) invalidateCache(memberId);
   }

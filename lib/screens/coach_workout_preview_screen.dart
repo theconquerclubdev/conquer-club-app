@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import '../providers/master_data_provider.dart';
 
 /// Read-only workout preview for a coach who does NOT have edit-workout
 /// permission. Shows whichever plan the head coach/admin has assigned,
@@ -15,8 +16,7 @@ class CoachWorkoutPreviewScreen extends StatefulWidget {
       _CoachWorkoutPreviewScreenState();
 }
 
-class _CoachWorkoutPreviewScreenState
-    extends State<CoachWorkoutPreviewScreen> {
+class _CoachWorkoutPreviewScreenState extends State<CoachWorkoutPreviewScreen> {
   final days = [
     'Monday',
     'Tuesday',
@@ -70,7 +70,10 @@ class _DayWorkoutPreview extends StatefulWidget {
   State<_DayWorkoutPreview> createState() => _DayWorkoutPreviewState();
 }
 
-class _DayWorkoutPreviewState extends State<_DayWorkoutPreview> {
+class _DayWorkoutPreviewState extends State<_DayWorkoutPreview>
+    with AutomaticKeepAliveClientMixin<_DayWorkoutPreview> {
+  @override
+  bool get wantKeepAlive => true;
   bool isLoading = true;
   Map<String, dynamic>? workout;
   List<Map<String, dynamic>> exercises = [];
@@ -81,15 +84,30 @@ class _DayWorkoutPreviewState extends State<_DayWorkoutPreview> {
     _load();
   }
 
+  // Same server stamp = nothing changed -> reuse the saved copy (0 calls).
+  Future<dynamic> _savedOrFetch(
+      String key, Future<dynamic> Function() fetch) async {
+    final saved =
+        MasterDataProvider.instance.readScreenCache(widget.memberId, key);
+    if (saved is Map && saved.containsKey('v')) return saved['v'];
+    final fresh = await fetch();
+    MasterDataProvider.instance
+        .writeScreenCache(widget.memberId, key, {'v': fresh});
+    return fresh;
+  }
+
   Future<void> _load() async {
     setState(() => isLoading = true);
     try {
-      final workoutData = await Supabase.instance.client
-          .from('workouts')
-          .select()
-          .eq('member_id', widget.memberId)
-          .eq('day_of_week', widget.dayOfWeek)
-          .maybeSingle();
+      final workoutData = await _savedOrFetch(
+        'wk_prev_${widget.dayOfWeek}',
+        () => Supabase.instance.client
+            .from('workouts')
+            .select()
+            .eq('member_id', widget.memberId)
+            .eq('day_of_week', widget.dayOfWeek)
+            .maybeSingle(),
+      );
 
       if (workoutData == null) {
         if (mounted) {
@@ -101,18 +119,20 @@ class _DayWorkoutPreviewState extends State<_DayWorkoutPreview> {
         return;
       }
 
-      final weData = await Supabase.instance.client
-          .from('workout_exercises')
-          .select(
-            'id, order_index, exercises(id, name, body_part, input_type), workout_sets(id, set_number, kg, reps, minutes, seconds)',
-          )
-          .eq('workout_id', workoutData['id'])
-          .order('order_index', ascending: true);
+      final weData = await _savedOrFetch(
+        'wk_prev_we_${widget.dayOfWeek}',
+        () => Supabase.instance.client
+            .from('workout_exercises')
+            .select(
+              'id, order_index, exercises(id, name, body_part, input_type), workout_sets(id, set_number, kg, reps, minutes, seconds)',
+            )
+            .eq('workout_id', workoutData['id'])
+            .order('order_index', ascending: true),
+      );
 
       final loaded = List<Map<String, dynamic>>.from(weData);
       for (final we in loaded) {
-        final sets =
-            List<Map<String, dynamic>>.from(we['workout_sets'] ?? []);
+        final sets = List<Map<String, dynamic>>.from(we['workout_sets'] ?? []);
         sets.sort((a, b) =>
             (a['set_number'] as int).compareTo(b['set_number'] as int));
         we['workout_sets'] = sets;
@@ -132,6 +152,7 @@ class _DayWorkoutPreviewState extends State<_DayWorkoutPreview> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (isLoading) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.gold),

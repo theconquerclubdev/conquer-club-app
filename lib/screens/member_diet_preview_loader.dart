@@ -97,22 +97,6 @@ class _MemberDietPreviewLoaderState extends State<MemberDietPreviewLoader> {
         return;
       }
 
-      if (saved != null) {
-        final savedDiet = saved['diet'] as Map<String, dynamic>;
-        final savedMember = saved['member'] as Map<String, dynamic>;
-        final savedCoachName = saved['coachName'] as String;
-        final savedSections =
-            saved['sections'] as Map<String, List<DietFoodItem>>;
-        setState(() {
-          diet = savedDiet;
-          member = savedMember;
-          coachName = savedCoachName;
-          sections = savedSections;
-          isLoading = false;
-        });
-        return;
-      }
-
       final dietData = await Supabase.instance.client
           .from('diets')
           .select()
@@ -345,6 +329,7 @@ class _MemberDietPreviewLoaderState extends State<MemberDietPreviewLoader> {
           ? DateTime.tryParse(diet!['updated_at'])
           : null,
       coachNameOverride: coachName,
+      memberStyle: true,
     );
   }
 }

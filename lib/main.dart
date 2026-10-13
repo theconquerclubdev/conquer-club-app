@@ -74,9 +74,22 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 // 🔄 APP LIFECYCLE OBSERVER
 // ============================================================
 class AppLifecycleObserver extends WidgetsBindingObserver {
+  DateTime? _pausedAt;
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      _pausedAt = DateTime.now();
+    }
     if (state == AppLifecycleState.resumed) {
+      // Realtime can sleep in the background. After 60s+ away, tell the
+      // coach list it may be stale (it reloads once). Short lock = no call.
+      final p = _pausedAt;
+      _pausedAt = null;
+      if (p != null &&
+          DateTime.now().difference(p) >= const Duration(seconds: 60)) {
+        MasterDataProvider.instance.listChangeNotifier.value++;
+      }
       // App opened from background - refresh cached data
       _refreshAllCachedData();
     }

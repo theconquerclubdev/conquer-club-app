@@ -586,7 +586,10 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
         MasterDataProvider.instance
-            .invalidateIfChanged(userId)
+            .invalidateIfChanged(
+          userId,
+          maxAge: const Duration(minutes: 2),
+        )
             .whenComplete(() {
           if (mounted) loadProfile();
         });
@@ -603,7 +606,10 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
         MasterDataProvider.instance
-            .invalidateIfChanged(userId)
+            .invalidateIfChanged(
+          userId,
+          maxAge: const Duration(minutes: 2),
+        )
             .whenComplete(() {
           if (mounted) loadProfile();
         });
@@ -633,7 +639,10 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
         MasterDataProvider.instance
-            .invalidateIfChanged(userId)
+            .invalidateIfChanged(
+          userId,
+          maxAge: const Duration(minutes: 2),
+        )
             .whenComplete(() {
           if (mounted) loadProfile();
         });
@@ -651,7 +660,10 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
         MasterDataProvider.instance
-            .invalidateIfChanged(userId)
+            .invalidateIfChanged(
+          userId,
+          maxAge: const Duration(minutes: 2),
+        )
             .whenComplete(() {
           if (mounted) loadProfile();
         });
@@ -668,7 +680,10 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final userId = Supabase.instance.client.auth.currentUser?.id;
       if (userId != null) {
         MasterDataProvider.instance
-            .invalidateIfChanged(userId)
+            .invalidateIfChanged(
+          userId,
+          maxAge: const Duration(minutes: 2),
+        )
             .whenComplete(() {
           if (mounted) loadProfile();
         });
@@ -2232,7 +2247,9 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
                                   ),
                                 ),
                               ).then((_) {
-                                load();
+                                // View-only screen cannot change a session,
+                                // so the list needs no reload.
+                                if (!isViewOnly) load();
                                 widget.onWorkoutSessionClosed?.call();
                               });
                             }

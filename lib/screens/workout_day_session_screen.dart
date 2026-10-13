@@ -65,8 +65,7 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       setState(() {});
-    } else if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.inactive) {
+    } else if (state == AppLifecycleState.paused) {
       if (sessionStatus == 'in_progress' &&
           stopwatch.isRunning &&
           sessionId != null) {
