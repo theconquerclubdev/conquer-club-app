@@ -5,6 +5,7 @@ import '../theme/app_theme.dart';
 import 'login_screen.dart';
 import 'member_profile_coach_view_screen.dart';
 import '../providers/master_data_provider.dart';
+import 'head_coach_workout_templates_screen.dart';
 
 class CoachHomeScreen extends StatefulWidget {
   const CoachHomeScreen({super.key});
@@ -261,12 +262,12 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
       {bool reset = true, bool refreshStats = false}) async {
     if (!mounted) return;
 
-    final cacheKey = '$filterType|$sortType|$sortAscending';
+    final cacheKey = '$filterType|$sortType|$sortAscending|$search';
     final startVersion = _dataProvider.listChangeNotifier.value;
     final requestSearch = search;
     if (reset) _listRequestId++;
     final requestId = _listRequestId;
-    if (reset && !refreshStats && search.isEmpty) {
+    if (reset && !refreshStats) {
       final hit = _listCache[cacheKey];
       if (hit != null && hit['v'] == startVersion) {
         setState(() {
@@ -341,7 +342,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
           isLoading = false;
           isLoadingMore = false;
         });
-        if (requestSearch.isEmpty) {
+        {
           final old = _listCache[cacheKey];
           if (reset || (old != null && old['v'] == startVersion)) {
             _listCache[cacheKey] = {
@@ -435,7 +436,7 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
     _listRequestId++;
     setState(() => search = value.trim());
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+    _searchDebounce = Timer(const Duration(milliseconds: 700), () {
       loadMembers(reset: true);
     });
   }
@@ -468,175 +469,225 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: SafeArea(
-        child: Column(
-          children: [
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.gold.withOpacity(0.12),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: AppColors.gold.withOpacity(0.2),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.people_alt_rounded,
-                              color: AppColors.gold,
-                              size: 16,
+    final mq = MediaQuery.of(context);
+    // Huge system fonts must not break the layout.
+    return MediaQuery(
+        data: mq.copyWith(textScaler: mq.textScaler.clamp(maxScaleFactor: 1.2)),
+        child: Scaffold(
+          backgroundColor: AppColors.background,
+          body: SafeArea(
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 900),
+                child: Column(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Flexible(
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 4,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.gold.withOpacity(0.12),
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(
+                                      color: AppColors.gold.withOpacity(0.2),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        Icons.people_alt_rounded,
+                                        color: AppColors.gold,
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '$totalCount',
+                                        style: TextStyle(
+                                          color: AppColors.gold,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Flexible(
+                                  child: Text(
+                                    'Athletes',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              '$totalCount',
-                              style: TextStyle(
-                                color: AppColors.gold,
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
+                          ),
+                          if (isHeadCoach)
+                            Container(
+                              margin: const EdgeInsets.only(right: 8),
+                              decoration: BoxDecoration(
+                                color: AppColors.cardDark,
+                                shape: BoxShape.circle,
+                              ),
+                              child: IconButton(
+                                tooltip: 'Workout Plans',
+                                icon: Icon(
+                                  Icons.fitness_center,
+                                  color: AppColors.gold,
+                                  size: 20,
+                                ),
+                                onPressed: () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) =>
+                                        const HeadCoachWorkoutTemplatesScreen(),
+                                  ),
+                                ),
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Text(
-                        'Athletes',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Container(
-                    margin: const EdgeInsets.only(right: 8),
-                    decoration: BoxDecoration(
-                      color: AppColors.cardDark,
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: Icon(
-                        Icons.delete_outline,
-                        color: _hasPendingDeletionRequest
-                            ? Colors.white24
-                            : Colors.redAccent,
-                        size: 20,
-                      ),
-                      onPressed:
-                          _checkingDeletionRequest || _hasPendingDeletionRequest
-                              ? null
-                              : _confirmAndRequestCoachDeletion,
-                    ),
-                  ),
-                  Container(
-                    decoration: BoxDecoration(
-                      color: AppColors.cardDark,
-                      shape: BoxShape.circle,
-                    ),
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.logout_rounded,
-                        color: Colors.white60,
-                        size: 20,
-                      ),
-                      onPressed: () async {
-                        await Supabase.instance.client.auth.signOut();
-                        if (context.mounted) {
-                          Navigator.pushReplacement(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const LoginScreen(),
+                          Container(
+                            margin: const EdgeInsets.only(right: 8),
+                            decoration: BoxDecoration(
+                              color: AppColors.cardDark,
+                              shape: BoxShape.circle,
                             ),
-                          );
-                        }
-                      },
+                            child: IconButton(
+                              icon: Icon(
+                                Icons.delete_outline,
+                                color: _hasPendingDeletionRequest
+                                    ? Colors.white24
+                                    : Colors.redAccent,
+                                size: 20,
+                              ),
+                              onPressed: _checkingDeletionRequest ||
+                                      _hasPendingDeletionRequest
+                                  ? null
+                                  : _confirmAndRequestCoachDeletion,
+                            ),
+                          ),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppColors.cardDark,
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              icon: const Icon(
+                                Icons.logout_rounded,
+                                color: Colors.white60,
+                                size: 20,
+                              ),
+                              onPressed: () async {
+                                await Supabase.instance.client.auth.signOut();
+                                if (context.mounted) {
+                                  Navigator.pushReplacement(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => const LoginScreen(),
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                    Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 16),
+                      decoration: BoxDecoration(
+                        color: AppColors.cardDark,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: TabBar(
+                        controller: _tabController,
+                        indicator: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              AppColors.gold,
+                              AppColors.gold.withOpacity(0.75)
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        indicatorSize: TabBarIndicatorSize.tab,
+                        labelColor: Colors.black,
+                        unselectedLabelColor: Colors.grey,
+                        labelStyle: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                        unselectedLabelStyle: const TextStyle(
+                          fontWeight: FontWeight.w500,
+                          fontSize: 11,
+                        ),
+                        tabs: const [
+                          Tab(
+                            height: 40,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.dashboard, size: 14),
+                                  SizedBox(width: 4),
+                                  Text('DASHBOARD'),
+                                ],
+                              ),
+                            ),
+                          ),
+                          Tab(
+                            height: 40,
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.people, size: 14),
+                                  SizedBox(width: 4),
+                                  Text('MEMBERS'),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: TabBarView(
+                        controller: _tabController,
+                        children: [
+                          _buildDashboardTab(),
+                          _buildMembersTab(),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              decoration: BoxDecoration(
-                color: AppColors.cardDark,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: TabBar(
-                controller: _tabController,
-                indicator: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [AppColors.gold, AppColors.gold.withOpacity(0.75)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                indicatorSize: TabBarIndicatorSize.tab,
-                labelColor: Colors.black,
-                unselectedLabelColor: Colors.grey,
-                labelStyle: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
-                unselectedLabelStyle: const TextStyle(
-                  fontWeight: FontWeight.w500,
-                  fontSize: 11,
-                ),
-                tabs: const [
-                  Tab(
-                    height: 40,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.dashboard, size: 14),
-                        SizedBox(width: 4),
-                        Text('DASHBOARD'),
-                      ],
-                    ),
-                  ),
-                  Tab(
-                    height: 40,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.people, size: 14),
-                        SizedBox(width: 4),
-                        Text('MEMBERS'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildDashboardTab(),
-                  _buildMembersTab(),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+          ),
+        ));
   }
 
   // ============================================================
@@ -659,66 +710,64 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                _DashboardStatCard(
-                  label: 'Active',
-                  count: activeCount,
-                  color: Colors.green,
-                  icon: Icons.check_circle,
-                  onTap: () => _navigateToMembersWithFilter('active'),
-                ),
-                const SizedBox(width: 8),
-                _DashboardStatCard(
-                  label: 'Inactive',
-                  count: inactiveCount,
-                  color: Colors.red,
-                  icon: Icons.cancel,
-                  onTap: () => _navigateToMembersWithFilter('inactive'),
-                ),
-              ],
+            LayoutBuilder(
+              builder: (context, c) {
+                final w = c.maxWidth;
+                final cols = w >= 760 ? 6 : (w >= 520 ? 3 : 2);
+                const gap = 8.0;
+                final cardW = (w - gap * (cols - 1)) / cols;
+                Widget card(Widget child) =>
+                    SizedBox(width: cardW, child: child);
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    card(_DashboardStatCard(
+                      label: 'Active',
+                      count: activeCount,
+                      color: Colors.green,
+                      icon: Icons.check_circle,
+                      onTap: () => _navigateToMembersWithFilter('active'),
+                    )),
+                    card(_DashboardStatCard(
+                      label: 'Inactive',
+                      count: inactiveCount,
+                      color: Colors.red,
+                      icon: Icons.cancel,
+                      onTap: () => _navigateToMembersWithFilter('inactive'),
+                    )),
+                    card(_DashboardStatCard(
+                      label: 'New Members',
+                      count: newMembersCount,
+                      color: AppColors.gold,
+                      icon: Icons.person_add,
+                      onTap: () => _navigateToMembersWithFilter('new'),
+                    )),
+                    card(_DashboardStatCard(
+                      label: 'No Diet',
+                      count: noDietCount,
+                      color: Colors.orange,
+                      icon: Icons.restaurant,
+                      onTap: () => _navigateToMembersWithFilter('no_diet'),
+                    )),
+                    card(_DashboardStatCard(
+                      label: 'No Workout',
+                      count: noWorkoutCount,
+                      color: Colors.blue,
+                      icon: Icons.fitness_center,
+                      onTap: () => _navigateToMembersWithFilter('no_workout'),
+                    )),
+                    card(_DashboardStatCard(
+                      label: 'Total',
+                      count: totalCount,
+                      color: Colors.grey,
+                      icon: Icons.people,
+                      onTap: () => _navigateToMembersWithFilter('all'),
+                    )),
+                  ],
+                );
+              },
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _DashboardStatCard(
-                  label: 'New Members',
-                  count: newMembersCount,
-                  color: AppColors.gold,
-                  icon: Icons.person_add,
-                  onTap: () => _navigateToMembersWithFilter('new'),
-                ),
-                const SizedBox(width: 8),
-                _DashboardStatCard(
-                  label: 'No Diet',
-                  count: noDietCount,
-                  color: Colors.orange,
-                  icon: Icons.restaurant,
-                  onTap: () => _navigateToMembersWithFilter('no_diet'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                _DashboardStatCard(
-                  label: 'No Workout',
-                  count: noWorkoutCount,
-                  color: Colors.blue,
-                  icon: Icons.fitness_center,
-                  onTap: () => _navigateToMembersWithFilter('no_workout'),
-                ),
-                const SizedBox(width: 8),
-                _DashboardStatCard(
-                  label: 'Total',
-                  count: totalCount,
-                  color: Colors.grey,
-                  icon: Icons.people,
-                  onTap: () => _navigateToMembersWithFilter('all'),
-                ),
-              ],
-            ),
-
             const SizedBox(height: 16),
 
             // ✅ Membership Expiry Alerts
@@ -1122,23 +1171,31 @@ class _DashboardStatCard extends StatelessWidget {
               children: [
                 Icon(icon, color: color, size: isSmall ? 12 : 14),
                 const SizedBox(width: 4),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: Colors.grey.shade400,
-                    fontSize: isSmall ? 8 : 9,
-                    fontWeight: FontWeight.bold,
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: isSmall ? 9 : 10,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 1),
-            Text(
-              '$count',
-              style: TextStyle(
-                color: color,
-                fontSize: isSmall ? 16 : 18,
-                fontWeight: FontWeight.bold,
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '$count',
+                style: TextStyle(
+                  color: color,
+                  fontSize: isSmall ? 16 : 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ],
@@ -1171,6 +1228,7 @@ class _AlertChip extends StatelessWidget {
     return GestureDetector(
       onTap: count > 0 ? onTap : null,
       child: Container(
+        width: double.infinity,
         margin: const EdgeInsets.only(bottom: 4),
         padding: EdgeInsets.symmetric(
           horizontal: isSmall ? 10 : 14,
@@ -1184,13 +1242,18 @@ class _AlertChip extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: isSmall ? 10 : 12,
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: isSmall ? 10 : 12,
+                ),
               ),
             ),
+            const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 1),
               decoration: BoxDecoration(
@@ -1419,17 +1482,19 @@ class _MemberCardState extends State<_MemberCard> {
                     children: [
                       Row(
                         children: [
-                          Text(
-                            name,
-                            style: TextStyle(
-                              color: isActive
-                                  ? Colors.white
-                                  : Colors.grey.shade400,
-                              fontSize: isSmall ? 11 : 13,
-                              fontWeight: FontWeight.w600,
+                          Flexible(
+                            child: Text(
+                              name,
+                              style: TextStyle(
+                                color: isActive
+                                    ? Colors.white
+                                    : Colors.grey.shade400,
+                                fontSize: isSmall ? 11 : 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
                             ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
                           ),
                           if (isActive &&
                               daysLeft != null &&
@@ -1477,6 +1542,8 @@ class _MemberCardState extends State<_MemberCard> {
                             ),
                             child: Text(
                               membershipStatus,
+                              maxLines: 1,
+                              softWrap: false,
                               style: TextStyle(
                                 color: membershipColor,
                                 fontSize: isSmall ? 7 : 9,
@@ -1507,6 +1574,8 @@ class _MemberCardState extends State<_MemberCard> {
                         ),
                       Text(
                         dietStatus,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           color: dietColor,
                           fontSize: isSmall ? 7 : 9,
@@ -1518,12 +1587,23 @@ class _MemberCardState extends State<_MemberCard> {
                 ),
 
                 // Stats
-                Row(
-                  children: [
-                    _buildStat('Workout', lastWorkoutText, isActive, isSmall),
-                    const SizedBox(width: 4),
-                    _buildStat('Diet', hasDiet ? '✅' : '❌', isActive, isSmall),
-                  ],
+                const SizedBox(width: 6),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: isSmall ? 90 : 130,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(
+                        child: _buildStat(
+                            'Workout', lastWorkoutText, isActive, isSmall),
+                      ),
+                      const SizedBox(width: 6),
+                      _buildStat(
+                          'Diet', hasDiet ? '✅' : '❌', isActive, isSmall),
+                    ],
+                  ),
                 ),
               ],
             ),

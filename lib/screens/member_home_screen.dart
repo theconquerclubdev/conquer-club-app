@@ -1973,7 +1973,7 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
     super.dispose();
   }
 
-  Future<void> load() async {
+  Future<void> load({bool sessionOnly = false}) async {
     // Expired / unpaid member: no Supabase call. Wait for dashboard data; the
     // provider listener calls load() again when it arrives / membership turns active.
     final seen = MasterDataProvider.instance.getData(widget.memberId);
@@ -1992,10 +1992,12 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
         'DEBUG WeekWorkoutList.load() called from:\n${StackTrace.current}');
     if (mounted) setState(() => isLoading = true);
     try {
-      final data = await Supabase.instance.client
-          .from('workouts')
-          .select()
-          .eq('member_id', widget.memberId);
+      final data = (sessionOnly && workouts.isNotEmpty)
+          ? workouts.values.toList()
+          : await Supabase.instance.client
+              .from('workouts')
+              .select()
+              .eq('member_id', widget.memberId);
 
       final List<dynamic> workoutsList = data as List<dynamic>;
       final Map<String, Map<String, dynamic>> map = {};
@@ -2249,7 +2251,7 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
                               ).then((_) {
                                 // View-only screen cannot change a session,
                                 // so the list needs no reload.
-                                if (!isViewOnly) load();
+                                if (!isViewOnly) load(sessionOnly: true);
                                 widget.onWorkoutSessionClosed?.call();
                               });
                             }

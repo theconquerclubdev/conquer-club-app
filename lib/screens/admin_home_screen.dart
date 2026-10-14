@@ -1114,7 +1114,7 @@ class _AdminMembersTabState extends State<AdminMembersTab>
 
     // Wait until the user stops typing, then ONE Supabase request
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+    _searchDebounce = Timer(const Duration(milliseconds: 700), () {
       if (!mounted) return;
       if (searchQuery == _lastFetchedSearch) return;
       _fetchMembers(reset: true);

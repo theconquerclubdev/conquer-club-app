@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
 import '../providers/master_data_provider.dart';
 import '../utils/cache_manager.dart';
+import 'head_coach_workout_templates_screen.dart';
 
 class WorkoutBuilderScreen extends StatefulWidget {
   final Map<String, dynamic> member;
@@ -24,11 +25,25 @@ class _WorkoutBuilderScreenState extends State<WorkoutBuilderScreen> {
   ];
   List<Map<String, dynamic>> allExercises = [];
   bool isLoadingExercises = true;
+  bool isHeadCoach = false;
 
   @override
   void initState() {
     super.initState();
     loadExercises();
+    _checkHeadCoach();
+  }
+
+  Future<void> _checkHeadCoach() async {
+    try {
+      final uid = Supabase.instance.client.auth.currentUser!.id;
+      final p = await Supabase.instance.client
+          .from('profiles')
+          .select('role')
+          .eq('id', uid)
+          .maybeSingle();
+      if (mounted) setState(() => isHeadCoach = p?['role'] == 'head_coach');
+    } catch (_) {}
   }
 
   Future<void> loadExercises() async {
@@ -59,6 +74,32 @@ class _WorkoutBuilderScreenState extends State<WorkoutBuilderScreen> {
         backgroundColor: AppColors.background,
         appBar: AppBar(
           title: Text('${widget.member['full_name'] ?? 'Member'}'),
+          actions: [
+            if (isHeadCoach)
+              IconButton(
+                tooltip: 'Assign workout plan',
+                icon: Icon(Icons.assignment_outlined, color: AppColors.gold),
+                onPressed: () async {
+                  final assigned = await Navigator.push<bool>(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => HeadCoachWorkoutTemplatesScreen(
+                        assignTo: widget.member,
+                      ),
+                    ),
+                  );
+                  if (assigned == true && mounted) {
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            WorkoutBuilderScreen(member: widget.member),
+                      ),
+                    );
+                  }
+                },
+              ),
+          ],
           bottom: TabBar(
             isScrollable: true,
             indicatorColor: AppColors.gold,
@@ -247,7 +288,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
       backgroundColor: AppColors.cardDark,
       isScrollControlled: true,
       builder: (context) =>
-          _ExercisePickerSheet(allExercises: widget.allExercises),
+          ExercisePickerSheet(allExercises: widget.allExercises),
     );
 
     if (picked != null && picked.isNotEmpty) {
@@ -408,7 +449,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
               ...exercises.asMap().entries.map((entry) {
                 final idx = entry.key;
                 final ex = entry.value;
-                return _ExerciseCard(
+                return ExerciseCard(
                   exercise: ex,
                   onAddSet: () => addSet(idx),
                   onRemoveSet: (setIdx) => removeSet(idx, setIdx),
@@ -463,13 +504,13 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
 // ============================================================
 // EXERCISE CARD
 // ============================================================
-class _ExerciseCard extends StatelessWidget {
+class ExerciseCard extends StatelessWidget {
   final ExerciseEntry exercise;
   final VoidCallback onAddSet;
   final Function(int) onRemoveSet;
   final VoidCallback onRemoveExercise;
 
-  const _ExerciseCard({
+  const ExerciseCard({
     required this.exercise,
     required this.onAddSet,
     required this.onRemoveSet,
@@ -695,15 +736,15 @@ class _ExerciseCard extends StatelessWidget {
 // ============================================================
 // EXERCISE PICKER SHEET
 // ============================================================
-class _ExercisePickerSheet extends StatefulWidget {
+class ExercisePickerSheet extends StatefulWidget {
   final List<Map<String, dynamic>> allExercises;
-  const _ExercisePickerSheet({required this.allExercises});
+  const ExercisePickerSheet({required this.allExercises});
 
   @override
-  State<_ExercisePickerSheet> createState() => _ExercisePickerSheetState();
+  State<ExercisePickerSheet> createState() => _ExercisePickerSheetState();
 }
 
-class _ExercisePickerSheetState extends State<_ExercisePickerSheet> {
+class _ExercisePickerSheetState extends State<ExercisePickerSheet> {
   String query = '';
   final List<String> _selectedIds = [];
 

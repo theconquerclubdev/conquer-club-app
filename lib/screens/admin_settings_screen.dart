@@ -1,7 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import '../utils/cache_manager.dart';
 import 'login_screen.dart';
+
+/// Centers content and caps width so web / tablet / desktop do not stretch
+/// forms across a huge screen. On phones it does nothing.
+class _MaxWidth extends StatelessWidget {
+  final Widget child;
+  final double maxWidth;
+  const _MaxWidth({required this.child, this.maxWidth = 900});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxWidth),
+        child: child,
+      ),
+    );
+  }
+}
+
+/// Shared bottom-sheet height: 75% of screen but never taller than the
+/// space left above the keyboard / system bars.
+double _sheetHeight(BuildContext context) {
+  final mq = MediaQuery.of(context);
+  final usable = mq.size.height - mq.viewInsets.bottom - mq.padding.top;
+  return (usable * 0.85).clamp(300.0, 700.0);
+}
 
 class AdminSettingsScreen extends StatefulWidget {
   const AdminSettingsScreen({super.key});
@@ -79,7 +107,10 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen>
         ],
         bottom: TabBar(
           controller: _tabController,
-          isScrollable: MediaQuery.sizeOf(context).width < 600,
+          isScrollable: MediaQuery.sizeOf(context).width < 900,
+          tabAlignment: MediaQuery.sizeOf(context).width < 900
+              ? TabAlignment.start
+              : TabAlignment.fill,
           indicatorColor: AppColors.gold,
           labelColor: AppColors.gold,
           unselectedLabelColor: Colors.grey,
@@ -243,11 +274,20 @@ class _StandardPricingTabState extends State<_StandardPricingTab> {
       );
     }
 
-    return Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return _MaxWidth(
+      maxWidth: 600,
+      child: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.all(16),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              minHeight: constraints.maxHeight - 32,
+            ),
+            child: IntrinsicHeight(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
           const Text(
             'STANDARD PRICING',
             style: TextStyle(
@@ -267,7 +307,7 @@ class _StandardPricingTabState extends State<_StandardPricingTab> {
                 child: Row(
                   children: [
                     SizedBox(
-                      width: 120,
+                      width: 100,
                       child: Text(
                         plan['label'] as String,
                         style: const TextStyle(
@@ -301,6 +341,7 @@ class _StandardPricingTabState extends State<_StandardPricingTab> {
                   ],
                 ),
               )),
+          const SizedBox(height: 16),
           const Spacer(),
           SizedBox(
             width: double.infinity,
@@ -319,7 +360,11 @@ class _StandardPricingTabState extends State<_StandardPricingTab> {
             ),
           ),
           const SizedBox(height: 20),
-        ],
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -335,7 +380,10 @@ class _OffersTab extends StatefulWidget {
   State<_OffersTab> createState() => _OffersTabState();
 }
 
-class _OffersTabState extends State<_OffersTab> {
+class _OffersTabState extends State<_OffersTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   List<Map<String, dynamic>> offers = [];
   List<Map<String, dynamic>> filteredOffers = [];
   List<Map<String, dynamic>> allMembers = [];
@@ -590,30 +638,51 @@ class _OffersTabState extends State<_OffersTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     if (isLoading) {
       return const Center(
         child: CircularProgressIndicator(color: AppColors.gold),
       );
     }
 
-    return Column(
+    return _MaxWidth(
+      child: Column(
       children: [
         Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Create custom offers with discounted pricing for selected members.',
-                  style: TextStyle(color: Colors.grey, fontSize: 13),
-                ),
-              ),
-              ElevatedButton.icon(
+          child: LayoutBuilder(
+            builder: (context, c) {
+              final button = ElevatedButton.icon(
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('New Offer'),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(0, 40),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                ),
                 onPressed: _createOffer,
-              ),
-            ],
+              );
+              const text = Text(
+                'Create custom offers with discounted pricing for selected members.',
+                style: TextStyle(color: Colors.grey, fontSize: 13),
+              );
+              if (c.maxWidth < 420) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    text,
+                    const SizedBox(height: 8),
+                    Align(alignment: Alignment.centerRight, child: button),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  const Expanded(child: text),
+                  const SizedBox(width: 12),
+                  button,
+                ],
+              );
+            },
           ),
         ),
         // Offer Search Bar
@@ -678,7 +747,7 @@ class _OffersTabState extends State<_OffersTab> {
                 ),
         ),
       ],
-    );
+    ));
   }
 }
 
@@ -875,6 +944,8 @@ class _OfferCardState extends State<_OfferCard> {
       context: context,
       backgroundColor: AppColors.cardDark,
       isScrollControlled: true,
+      useSafeArea: true,
+      constraints: const BoxConstraints(maxWidth: 700),
       builder: (context) => StatefulBuilder(
         builder: (context, setSheetState) {
           void applyMemberSearch(String query) {
@@ -939,8 +1010,13 @@ class _OfferCardState extends State<_OfferCard> {
           }
 
           return Container(
-            height: MediaQuery.of(context).size.height * 0.75,
-            padding: const EdgeInsets.all(16),
+            height: _sheetHeight(context),
+            padding: EdgeInsets.fromLTRB(
+              16,
+              16,
+              16,
+              16 + MediaQuery.of(context).padding.bottom,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1055,6 +1131,8 @@ class _OfferCardState extends State<_OfferCard> {
                               ),
                               title: Text(
                                 m['full_name'] ?? 'Unknown',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   color: isAssignedElsewhere
                                       ? Colors.grey.shade600
@@ -1066,6 +1144,8 @@ class _OfferCardState extends State<_OfferCard> {
                               subtitle: isAssignedElsewhere
                                   ? Text(
                                       'Assigned to: $assignedOfferName',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                       style: const TextStyle(
                                         color: Colors.grey,
                                         fontStyle: FontStyle.italic,
@@ -1074,6 +1154,8 @@ class _OfferCardState extends State<_OfferCard> {
                                     )
                                   : Text(
                                       m['email'] ?? '',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
                                       style:
                                           const TextStyle(color: Colors.grey),
                                     ),
@@ -1217,7 +1299,7 @@ class _OfferCardState extends State<_OfferCard> {
       child: Column(
         children: [
           ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            contentPadding: const EdgeInsets.only(left: 12, right: 4),
             leading: Container(
               width: 36,
               height: 36,
@@ -1233,12 +1315,16 @@ class _OfferCardState extends State<_OfferCard> {
             ),
             title: Row(
               children: [
-                Text(
-                  widget.offer['name'] ?? 'Unnamed Offer',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
+                Flexible(
+                  child: Text(
+                    widget.offer['name'] ?? 'Unnamed Offer',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1266,11 +1352,17 @@ class _OfferCardState extends State<_OfferCard> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  padding: EdgeInsets.zero,
                   icon: const Icon(Icons.edit_outlined, size: 20),
                   color: Colors.grey,
                   onPressed: _editOfferName,
                 ),
                 IconButton(
+                  visualDensity: VisualDensity.compact,
+                  constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+                  padding: EdgeInsets.zero,
                   icon: Icon(
                     isExpanded ? Icons.expand_less : Icons.expand_more,
                   ),
@@ -1361,21 +1453,29 @@ class _OfferCardState extends State<_OfferCard> {
                     );
                   }),
                   const SizedBox(height: 12),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       if (!isEditing)
                         ElevatedButton.icon(
                           icon: const Icon(Icons.edit, size: 16),
                           label: const Text('Edit Prices'),
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(0, 40),
+                          ),
                           onPressed: () => setState(() => isEditing = true),
                         )
                       else ...[
                         ElevatedButton.icon(
                           icon: const Icon(Icons.save, size: 16),
                           label: const Text('Save'),
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: const Size(0, 40),
+                          ),
                           onPressed: _saveOfferPrices,
                         ),
-                        const SizedBox(width: 8),
                         TextButton(
                           onPressed: () {
                             setState(() => isEditing = false);
@@ -1387,10 +1487,13 @@ class _OfferCardState extends State<_OfferCard> {
                     ],
                   ),
                   const Divider(color: Colors.white12, height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    runSpacing: 4,
                     children: [
                       Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           const Text(
                             'Assigned Members',
@@ -1422,7 +1525,8 @@ class _OfferCardState extends State<_OfferCard> {
                             ),
                         ],
                       ),
-                      Row(
+                      Wrap(
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           if (_selectedMemberIds.isNotEmpty)
                             TextButton.icon(
@@ -1489,6 +1593,9 @@ class _OfferCardState extends State<_OfferCard> {
                               ? () => _toggleMemberSelection(memberId)
                               : null,
                           child: Container(
+                            constraints: BoxConstraints(
+                              maxWidth: MediaQuery.sizeOf(context).width - 96,
+                            ),
                             padding: const EdgeInsets.symmetric(
                               horizontal: 10,
                               vertical: 4,
@@ -1533,13 +1640,17 @@ class _OfferCardState extends State<_OfferCard> {
                                           )
                                         : null,
                                   ),
-                                Text(
-                                  m['full_name'] ?? 'Unknown',
-                                  style: TextStyle(
-                                    color: isSelected
-                                        ? AppColors.gold
-                                        : Colors.white,
-                                    fontSize: 12,
+                                Flexible(
+                                  child: Text(
+                                    m['full_name'] ?? 'Unknown',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: isSelected
+                                          ? AppColors.gold
+                                          : Colors.white,
+                                      fontSize: 12,
+                                    ),
                                   ),
                                 ),
                                 if (!isMultiSelectMode) ...[
@@ -1591,7 +1702,10 @@ class _ExercisesTab extends StatefulWidget {
   State<_ExercisesTab> createState() => _ExercisesTabState();
 }
 
-class _ExercisesTabState extends State<_ExercisesTab> {
+class _ExercisesTabState extends State<_ExercisesTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
   bool isLoading = true;
   bool isLoadingMore = false;
   bool hasMoreData = false;
@@ -1687,6 +1801,7 @@ class _ExercisesTabState extends State<_ExercisesTab> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   value: selectedCategory,
                   dropdownColor: AppColors.cardDark,
                   style: const TextStyle(color: Colors.white),
@@ -1711,6 +1826,7 @@ class _ExercisesTabState extends State<_ExercisesTab> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   value: selectedMuscleGroup,
                   dropdownColor: AppColors.cardDark,
                   style: const TextStyle(color: Colors.white),
@@ -1742,6 +1858,7 @@ class _ExercisesTabState extends State<_ExercisesTab> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   value: selectedType,
                   dropdownColor: AppColors.cardDark,
                   style: const TextStyle(color: Colors.white),
@@ -1763,6 +1880,7 @@ class _ExercisesTabState extends State<_ExercisesTab> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   value: selectedInput,
                   dropdownColor: AppColors.cardDark,
                   style: const TextStyle(color: Colors.white),
@@ -1875,6 +1993,7 @@ class _ExercisesTabState extends State<_ExercisesTab> {
 
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final Map<String, List<Map<String, dynamic>>> grouped = {};
     for (final e in exercises) {
       grouped.putIfAbsent(e['body_part'] ?? 'Other', () => []).add(e);
@@ -1887,7 +2006,7 @@ class _ExercisesTabState extends State<_ExercisesTab> {
         onPressed: addExercise,
         child: const Icon(Icons.add, color: Colors.black),
       ),
-      body: isLoading
+      body: _MaxWidth(child: isLoading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.gold))
           : RefreshIndicator(
@@ -1921,7 +2040,7 @@ class _ExercisesTabState extends State<_ExercisesTab> {
                                 style: TextStyle(color: Colors.grey)),
                           )
                         : ListView(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 88),
                             children: [
                               ...grouped.entries
                                   .map((entry) => Column(
@@ -1933,6 +2052,8 @@ class _ExercisesTabState extends State<_ExercisesTab> {
                                                 vertical: 8),
                                             child: Text(
                                               entry.key.toUpperCase(),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                               style: const TextStyle(
                                                   color: AppColors.gold,
                                                   fontWeight: FontWeight.bold,
@@ -1946,6 +2067,9 @@ class _ExercisesTabState extends State<_ExercisesTab> {
                                                     bottom: 8),
                                                 child: ListTile(
                                                   title: Text(ex['name'] ?? '',
+                                                      maxLines: 2,
+                                                      overflow:
+                                                          TextOverflow.ellipsis,
                                                       style: const TextStyle(
                                                           color: Colors.white)),
                                                   trailing: IconButton(
@@ -1991,7 +2115,7 @@ class _ExercisesTabState extends State<_ExercisesTab> {
                   ),
                 ],
               ),
-            ),
+            )),
     );
   }
 }
@@ -2047,8 +2171,17 @@ class _FoodTabState extends State<_FoodTab> {
   Future<void> load() async {
     setState(() => isLoading = true);
     try {
-      final data =
-          await Supabase.instance.client.from('foods').select().order('name');
+      List<Map<String, dynamic>> data;
+      final cached = await CacheManager.getGeneric('cached_foods');
+      if (cached != null) {
+        data = cached;
+      } else {
+        final fresh =
+            await Supabase.instance.client.from('foods').select().order('name');
+        data = List<Map<String, dynamic>>.from(fresh);
+        await CacheManager.saveGeneric('cached_foods', data,
+            duration: const Duration(days: 3650));
+      }
 
       if (!mounted) return;
       setState(() {
@@ -2111,6 +2244,7 @@ class _FoodTabState extends State<_FoodTab> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   value: _selectedUnit,
                   dropdownColor: AppColors.cardDark,
                   style: const TextStyle(color: Colors.white),
@@ -2134,6 +2268,7 @@ class _FoodTabState extends State<_FoodTab> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   value: _selectedCategory,
                   dropdownColor: AppColors.cardDark,
                   style: const TextStyle(color: Colors.white),
@@ -2267,6 +2402,7 @@ class _FoodTabState extends State<_FoodTab> {
 
       await Supabase.instance.client.from('foods').insert(newFood);
       _resetForm();
+      await CacheManager.removeGeneric('cached_foods');
       await load();
 
       if (mounted) {
@@ -2313,6 +2449,7 @@ class _FoodTabState extends State<_FoodTab> {
 
     try {
       await Supabase.instance.client.from('foods').delete().eq('id', id);
+      await CacheManager.removeGeneric('cached_foods');
       await load();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2336,6 +2473,7 @@ class _FoodTabState extends State<_FoodTab> {
           .from('foods')
           .update({'category': newCategory}).eq('id', food['id']);
 
+      await CacheManager.removeGeneric('cached_foods');
       await load();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2370,7 +2508,7 @@ class _FoodTabState extends State<_FoodTab> {
         onPressed: addFood,
         child: const Icon(Icons.add, color: Colors.black),
       ),
-      body: isLoading
+      body: _MaxWidth(child: isLoading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.gold))
           : RefreshIndicator(
@@ -2401,17 +2539,21 @@ class _FoodTabState extends State<_FoodTab> {
                                 style: TextStyle(color: Colors.grey)),
                           )
                         : ListView(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 88),
                             children: filtered
                                 .map((f) => Card(
                                       color: AppColors.cardDark,
                                       margin: const EdgeInsets.only(bottom: 8),
                                       child: ListTile(
                                         title: Text(f['name'] ?? '',
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(
                                                 color: Colors.white)),
                                         subtitle: Text(
                                           '${f['base_quantity']}${f['base_unit']} · ${f['calories']} kcal · P${f['protein']}g C${f['carbs']}g F${f['fats']}g',
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
                                           style: const TextStyle(
                                               color: Colors.grey, fontSize: 11),
                                         ),
@@ -2448,6 +2590,8 @@ class _FoodTabState extends State<_FoodTab> {
                                               ),
                                             ),
                                             IconButton(
+                                              visualDensity:
+                                                  VisualDensity.compact,
                                               icon: const Icon(
                                                   Icons.delete_outline,
                                                   color: Colors.redAccent),
@@ -2463,7 +2607,7 @@ class _FoodTabState extends State<_FoodTab> {
                   ),
                 ],
               ),
-            ),
+            )),
     );
   }
 }
@@ -2600,7 +2744,7 @@ class _CategoriesTabState extends State<_CategoriesTab> {
         onPressed: _addCategory,
         child: const Icon(Icons.add, color: Colors.black),
       ),
-      body: isLoading
+      body: _MaxWidth(child: isLoading
           ? const Center(
               child: CircularProgressIndicator(color: AppColors.gold),
             )
@@ -2632,6 +2776,7 @@ class _CategoriesTabState extends State<_CategoriesTab> {
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.gold,
                           foregroundColor: Colors.black,
+                          minimumSize: const Size(0, 52),
                           padding: const EdgeInsets.symmetric(
                             horizontal: 20,
                             vertical: 14,
@@ -2651,7 +2796,7 @@ class _CategoriesTabState extends State<_CategoriesTab> {
                           ),
                         )
                       : ListView.builder(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 88),
                           itemCount: categories.length,
                           itemBuilder: (context, index) {
                             final c = categories[index];
@@ -2674,6 +2819,8 @@ class _CategoriesTabState extends State<_CategoriesTab> {
                                 ),
                                 title: Text(
                                   c['name'] ?? 'Unnamed',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontWeight: FontWeight.bold,
@@ -2699,10 +2846,11 @@ class _CategoriesTabState extends State<_CategoriesTab> {
                         ),
                 ),
               ],
-            ),
+            )),
     );
   }
 }
+
 // ============================================================
 // DELETION REQUESTS TAB
 // ============================================================
@@ -2827,7 +2975,9 @@ class _DeletionRequestsTabState extends State<_DeletionRequestsTab> {
             style: TextStyle(color: Colors.grey[600])),
       );
     }
-    return RefreshIndicator(
+    return _MaxWidth(
+      maxWidth: 700,
+      child: RefreshIndicator(
       onRefresh: _loadRequests,
       child: ListView.builder(
         padding: const EdgeInsets.all(16),
@@ -2846,12 +2996,16 @@ class _DeletionRequestsTabState extends State<_DeletionRequestsTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(r['full_name'] ?? 'Unknown',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
                           fontSize: 16)),
                   const SizedBox(height: 4),
                   Text(r['email'] ?? '',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(color: Colors.grey)),
                   if (requestedAt != null) ...[
                     const SizedBox(height: 4),
@@ -2865,8 +3019,7 @@ class _DeletionRequestsTabState extends State<_DeletionRequestsTab> {
                     children: [
                       Expanded(
                         child: OutlinedButton(
-                          onPressed:
-                              isProcessing ? null : () => _reject(id),
+                          onPressed: isProcessing ? null : () => _reject(id),
                           style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.grey),
                           child: const Text('Reject'),
@@ -2889,7 +3042,10 @@ class _DeletionRequestsTabState extends State<_DeletionRequestsTab> {
                                   child: CircularProgressIndicator(
                                       strokeWidth: 2, color: Colors.white),
                                 )
-                              : const Text('Approve & Delete'),
+                              : const FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text('Approve & Delete'),
+                                ),
                         ),
                       ),
                     ],
@@ -2900,6 +3056,6 @@ class _DeletionRequestsTabState extends State<_DeletionRequestsTab> {
           );
         },
       ),
-    );
+    ));
   }
 }

@@ -38,6 +38,22 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
 
   bool _isLoadingWorkout = false;
 
+  static DateTime? _lastTimerSaveAt;
+  static String? _lastTimerSaveSessionId;
+
+  // true = last timer save was 3+ minutes ago (or never), so save now.
+  bool _timerSaveDue() {
+    final last = _lastTimerSaveAt;
+    if (_lastTimerSaveSessionId == sessionId &&
+        last != null &&
+        DateTime.now().difference(last) < const Duration(minutes: 3)) {
+      return false;
+    }
+    _lastTimerSaveAt = DateTime.now();
+    _lastTimerSaveSessionId = sessionId;
+    return true;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -50,7 +66,8 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     WidgetsBinding.instance.removeObserver(this);
     if (sessionStatus == 'in_progress' &&
         stopwatch.isRunning &&
-        sessionId != null) {
+        sessionId != null &&
+        _timerSaveDue()) {
       Supabase.instance.client
           .from('workout_sessions')
           .update({'elapsed_seconds': currentTotalSeconds})
@@ -68,7 +85,8 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     } else if (state == AppLifecycleState.paused) {
       if (sessionStatus == 'in_progress' &&
           stopwatch.isRunning &&
-          sessionId != null) {
+          sessionId != null &&
+          _timerSaveDue()) {
         Supabase.instance.client
             .from('workout_sessions')
             .update({'elapsed_seconds': currentTotalSeconds})
@@ -128,13 +146,23 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     final memberId = Supabase.instance.client.auth.currentUser!.id;
 
     try {
-      final weData = await Supabase.instance.client
-          .from('workout_exercises')
-          .select(
-            'id, order_index, exercises(id, name, body_part, input_type), workout_sets(set_number, kg, reps, minutes, seconds)',
-          )
-          .eq('workout_id', widget.workout['id'])
-          .order('order_index', ascending: true);
+      final List<dynamic> weData = await () async {
+        final saved = MasterDataProvider.instance
+            .readScreenCache(memberId, 'we_${widget.workout['id']}');
+        if (saved is Map && saved.containsKey('v')) {
+          return saved['v'] as List<dynamic>;
+        }
+        final fresh = await Supabase.instance.client
+            .from('workout_exercises')
+            .select(
+              'id, order_index, exercises(id, name, body_part, input_type), workout_sets(set_number, kg, reps, minutes, seconds)',
+            )
+            .eq('workout_id', widget.workout['id'])
+            .order('order_index', ascending: true);
+        MasterDataProvider.instance.writeScreenCache(
+            memberId, 'we_${widget.workout['id']}', {'v': fresh});
+        return fresh as List<dynamic>;
+      }();
 
       final loadedExercises = <Map<String, dynamic>>[];
       for (final we in weData) {

@@ -156,13 +156,22 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
 
     // ✅ Single RPC call — server aggregates and filters by this member
     // only, instead of pulling every member's logged sets to the client.
-    final result = await Supabase.instance.client.rpc(
-      'get_member_strength_records',
-      params: {
-        'p_member_id': userId,
-        'p_exercise_names': allDbNames,
-      },
-    );
+    final savedSr =
+        MasterDataProvider.instance.readScreenCache(userId, 'wp_strength');
+    final dynamic result;
+    if (savedSr is Map && savedSr.containsKey('v')) {
+      result = savedSr['v'];
+    } else {
+      result = await Supabase.instance.client.rpc(
+        'get_member_strength_records',
+        params: {
+          'p_member_id': userId,
+          'p_exercise_names': allDbNames,
+        },
+      );
+      MasterDataProvider.instance
+          .writeScreenCache(userId, 'wp_strength', {'v': result});
+    }
 
     final rows = List<Map<String, dynamic>>.from(result as List);
 
@@ -260,10 +269,20 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
           DateTime.now().toUtc().add(const Duration(hours: 5, minutes: 30));
       _todayName = _weekDays[istNow.weekday - 1];
 
-      final data = await Supabase.instance.client
-          .from('workouts')
-          .select()
-          .eq('member_id', userId);
+      final savedWk =
+          MasterDataProvider.instance.readScreenCache(userId, 'wp_workouts');
+      final List<dynamic> data;
+      if (savedWk is Map && savedWk.containsKey('v')) {
+        data = savedWk['v'] as List<dynamic>;
+      } else {
+        final fresh = await Supabase.instance.client
+            .from('workouts')
+            .select()
+            .eq('member_id', userId);
+        MasterDataProvider.instance
+            .writeScreenCache(userId, 'wp_workouts', {'v': fresh});
+        data = fresh;
+      }
 
       final map = <String, Map<String, dynamic>>{};
       for (final w in List<Map<String, dynamic>>.from(data)) {
@@ -322,13 +341,29 @@ class _WorkoutProgressScreenState extends State<WorkoutProgressScreen> {
 
     setState(() => _dayExLoading = true);
     try {
-      final weData = await Supabase.instance.client
-          .from('workout_exercises')
-          .select(
-            'id, order_index, exercises(id, name, body_part, input_type), workout_sets(id, set_number, kg, reps, minutes, seconds)',
-          )
-          .eq('workout_id', workoutId)
-          .order('order_index', ascending: true);
+      final cacheUid =
+          widget.memberId ?? Supabase.instance.client.auth.currentUser?.id;
+      final savedEx = cacheUid == null
+          ? null
+          : MasterDataProvider.instance
+              .readScreenCache(cacheUid, 'wp_ex_$workoutId');
+      final List<dynamic> weData;
+      if (savedEx is Map && savedEx.containsKey('v')) {
+        weData = savedEx['v'] as List<dynamic>;
+      } else {
+        final fresh = await Supabase.instance.client
+            .from('workout_exercises')
+            .select(
+              'id, order_index, exercises(id, name, body_part, input_type), workout_sets(id, set_number, kg, reps, minutes, seconds)',
+            )
+            .eq('workout_id', workoutId)
+            .order('order_index', ascending: true);
+        if (cacheUid != null) {
+          MasterDataProvider.instance
+              .writeScreenCache(cacheUid, 'wp_ex_$workoutId', {'v': fresh});
+        }
+        weData = fresh;
+      }
 
       final loaded = List<Map<String, dynamic>>.from(weData);
       for (final we in loaded) {
