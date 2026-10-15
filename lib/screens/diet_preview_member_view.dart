@@ -86,9 +86,8 @@ class MemberDietView extends StatelessWidget {
     final macroKcal = proKcal + carbKcal + fatKcal;
     double share(double k) => macroKcal > 0 ? k / macroKcal * 100 : 0;
 
-    final meals = kDietSections
-        .where((s) => (sections[s] ?? []).isNotEmpty)
-        .toList();
+    final meals =
+        kDietSections.where((s) => (sections[s] ?? []).isNotEmpty).toList();
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -115,8 +114,8 @@ class MemberDietView extends StatelessWidget {
                   ),
                 )
               : IconButton(
-                  icon: const Icon(Icons.download_rounded,
-                      color: AppColors.gold),
+                  icon:
+                      const Icon(Icons.download_rounded, color: AppColors.gold),
                   onPressed: onDownload,
                 ),
         ],
@@ -198,21 +197,6 @@ class MemberDietView extends StatelessWidget {
               ],
             ],
           ),
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 0,
-            child: SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _DownloadButton(
-                  busy: isGeneratingPdf,
-                  onTap: onDownload,
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -220,9 +204,8 @@ class MemberDietView extends StatelessWidget {
 
   Widget _header() {
     final isVeg = dietType.toLowerCase() == 'veg';
-    final initial = memberName.trim().isEmpty
-        ? '?'
-        : memberName.trim()[0].toUpperCase();
+    final initial =
+        memberName.trim().isEmpty ? '?' : memberName.trim()[0].toUpperCase();
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: _card3d(),
@@ -281,8 +264,7 @@ class MemberDietView extends StatelessWidget {
                 if (lastSaveDate.isNotEmpty)
                   Text(
                     'Updated: $lastSaveDate',
-                    style:
-                        const TextStyle(color: AppColors.grey, fontSize: 12),
+                    style: const TextStyle(color: AppColors.grey, fontSize: 12),
                   ),
               ],
             ),
@@ -353,8 +335,7 @@ class MemberDietView extends StatelessWidget {
                           Expanded(
                               flex: fp, child: Container(color: _kProtein)),
                         if (fc > 0)
-                          Expanded(
-                              flex: fc, child: Container(color: _kCarbs)),
+                          Expanded(flex: fc, child: Container(color: _kCarbs)),
                         if (ff > 0)
                           Expanded(flex: ff, child: Container(color: _kFats)),
                       ],
@@ -482,8 +463,7 @@ class _HeroCalorieCardState extends State<_HeroCalorieCard> {
       }),
       child: TweenAnimationBuilder<double>(
         tween: Tween<double>(begin: _tilt, end: _tilt),
-        duration:
-            _dragging ? Duration.zero : const Duration(milliseconds: 450),
+        duration: _dragging ? Duration.zero : const Duration(milliseconds: 450),
         curve: Curves.easeOutBack,
         builder: (context, t, child) => Transform(
           alignment: Alignment.center,
@@ -526,8 +506,8 @@ class _HeroCalorieCardState extends State<_HeroCalorieCard> {
                   duration: const Duration(milliseconds: 900),
                   curve: Curves.easeOutCubic,
                   builder: (context, v, _) => CustomPaint(
-                    painter: _RingPainter(
-                        progress: v, color: ringColor, stroke: 14),
+                    painter:
+                        _RingPainter(progress: v, color: ringColor, stroke: 14),
                     child: Center(
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -542,8 +522,8 @@ class _HeroCalorieCardState extends State<_HeroCalorieCard> {
                           ),
                           const Text(
                             'kcal / day',
-                            style: TextStyle(
-                                color: AppColors.grey, fontSize: 12),
+                            style:
+                                TextStyle(color: AppColors.grey, fontSize: 12),
                           ),
                         ],
                       ),
@@ -588,9 +568,7 @@ class _HeroCalorieCardState extends State<_HeroCalorieCard> {
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          over
-                              ? '$pct% - above target'
-                              : '$pct% of target',
+                          over ? '$pct% - above target' : '$pct% of target',
                           style: TextStyle(
                             color: ringColor,
                             fontSize: 12,
@@ -729,8 +707,7 @@ class _MealCard extends StatelessWidget {
           initiallyExpanded: true,
           iconColor: AppColors.gold,
           collapsedIconColor: AppColors.grey,
-          tilePadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
           leading: Container(
             width: 42,

@@ -197,7 +197,6 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
                 : 260,
             child: GridView.builder(
               shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
               itemCount: 12,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
@@ -287,61 +286,63 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
       ),
       builder: (_) => Container(
         padding: const EdgeInsets.all(20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: Colors.grey.shade600,
-                borderRadius: BorderRadius.circular(2),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade600,
+                  borderRadius: BorderRadius.circular(2),
+                ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Text(
-              DateFormat('EEEE, MMM d, yyyy').format(date),
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
+              const SizedBox(height: 16),
+              Text(
+                DateFormat('EEEE, MMM d, yyyy').format(date),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              achieved
-                  ? '✅ Goal achieved ($steps / $dayGoal)'
-                  : '$steps / $dayGoal steps',
-              style: TextStyle(
-                color: achieved ? Colors.green : Colors.grey,
-                fontSize: 12.5,
-                fontWeight: achieved ? FontWeight.bold : FontWeight.normal,
+              const SizedBox(height: 6),
+              Text(
+                achieved
+                    ? '✅ Goal achieved ($steps / $dayGoal)'
+                    : '$steps / $dayGoal steps',
+                style: TextStyle(
+                  color: achieved ? Colors.green : Colors.grey,
+                  fontSize: 12.5,
+                  fontWeight: achieved ? FontWeight.bold : FontWeight.normal,
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                _buildStatCard('👟', '$steps', 'Steps', AppColors.gold),
-                _buildStatCard('🔥', '$kcal', 'Calories', Colors.orange),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                _buildStatCard(
-                    '📏', '${km.toStringAsFixed(1)}', 'km', Colors.blue),
-                _buildStatCard('⏱️', '$mins', 'mins', Colors.green),
-              ],
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('CLOSE'),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  _buildStatCard('👟', '$steps', 'Steps', AppColors.gold),
+                  _buildStatCard('🔥', '$kcal', 'Calories', Colors.orange),
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  _buildStatCard(
+                      '📏', '${km.toStringAsFixed(1)}', 'km', Colors.blue),
+                  _buildStatCard('⏱️', '$mins', 'mins', Colors.green),
+                ],
+              ),
+              const SizedBox(height: 20),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('CLOSE'),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -434,7 +435,16 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
                   _buildViewToggle(),
                   Expanded(
                     child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+                      padding: EdgeInsets.fromLTRB(
+                        MediaQuery.of(context).size.width > 632
+                            ? (MediaQuery.of(context).size.width - 600) / 2
+                            : 16,
+                        12,
+                        MediaQuery.of(context).size.width > 632
+                            ? (MediaQuery.of(context).size.width - 600) / 2
+                            : 16,
+                        28,
+                      ),
                       child: Column(
                         children: [
                           if (view == _StepView.day) _buildDayView(),
@@ -482,7 +492,16 @@ class _StepCounterScreenState extends State<StepCounterScreen> {
     }
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      margin: EdgeInsets.fromLTRB(
+        MediaQuery.of(context).size.width > 632
+            ? (MediaQuery.of(context).size.width - 600) / 2
+            : 16,
+        4,
+        MediaQuery.of(context).size.width > 632
+            ? (MediaQuery.of(context).size.width - 600) / 2
+            : 16,
+        4,
+      ),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
         color: AppColors.cardDark,

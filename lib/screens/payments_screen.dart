@@ -519,7 +519,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Icon(Icons.payment, color: AppColors.gold),
               const SizedBox(width: 10),
@@ -928,7 +929,8 @@ class _PaymentCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(
                           '₹${amount.toStringAsFixed(0)}',

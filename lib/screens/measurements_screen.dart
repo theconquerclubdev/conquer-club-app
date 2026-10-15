@@ -209,90 +209,91 @@ class _MeasurementsScreenState extends State<MeasurementsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Wrap = never overflows. Badge drops under title on narrow
-                // screens / large fonts, sits on the right when there is room.
-                Wrap(
-                  alignment: WrapAlignment.spaceBetween,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 12,
-                  runSpacing: 8,
-                  children: [
-                    const Text(
-                      'LOG NEW MEASUREMENT',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _isSunday
-                            ? Colors.green.withOpacity(0.2)
-                            : Colors.orange.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: _isSunday
-                              ? Colors.green.withOpacity(0.3)
-                              : Colors.orange.withOpacity(0.3),
-                        ),
-                      ),
-                      child: Text(
-                        _isSunday ? '✅ Sunday Update' : '⏳ Sunday Only',
-                        style: TextStyle(
-                          color: _isSunday ? Colors.green : Colors.orange,
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (allHistory.isNotEmpty)
-                  Text(
-                    '📝 You can update measurements on Sundays only.',
-                    style: TextStyle(
-                      color: Colors.grey.shade500,
-                      fontSize: 12,
-                    ),
-                  ),
-                const SizedBox(height: 16),
                 Expanded(
                   child: ListView(
                     controller: scrollController,
                     keyboardDismissBehavior:
                         ScrollViewKeyboardDismissBehavior.onDrag,
-                    children: fieldsMeta
-                        .map(
-                          (f) => Padding(
-                            padding: const EdgeInsets.only(
-                              bottom: 12,
+                    children: [
+                      // Wrap = never overflows. Badge drops under title on narrow                // screens / large fonts, sits on the right when there is room.
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 12,
+                        runSpacing: 8,
+                        children: [
+                          const Text(
+                            'LOG NEW MEASUREMENT',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
                             ),
-                            child: TextField(
-                              controller: controllers[f['key']],
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                decimal: true,
+                          ),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: _isSunday
+                                  ? Colors.green.withOpacity(0.2)
+                                  : Colors.orange.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: _isSunday
+                                    ? Colors.green.withOpacity(0.3)
+                                    : Colors.orange.withOpacity(0.3),
                               ),
-                              textInputAction: TextInputAction.next,
-                              style: const TextStyle(
-                                color: Colors.white,
-                              ),
-                              decoration: InputDecoration(
-                                labelText: '${f['label']} (${f['unit']}) *',
-                                labelStyle: const TextStyle(
-                                  color: Colors.grey,
-                                ),
+                            ),
+                            child: Text(
+                              _isSunday ? '✅ Sunday Update' : '⏳ Sunday Only',
+                              style: TextStyle(
+                                color: _isSunday ? Colors.green : Colors.orange,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
                           ),
-                        )
-                        .toList(),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      if (allHistory.isNotEmpty)
+                        Text(
+                          '📝 You can update measurements on Sundays only.',
+                          style: TextStyle(
+                            color: Colors.grey.shade500,
+                            fontSize: 12,
+                          ),
+                        ),
+                      const SizedBox(height: 16),
+                      ...fieldsMeta
+                          .map(
+                            (f) => Padding(
+                              padding: const EdgeInsets.only(
+                                bottom: 12,
+                              ),
+                              child: TextField(
+                                controller: controllers[f['key']],
+                                keyboardType:
+                                    const TextInputType.numberWithOptions(
+                                  decimal: true,
+                                ),
+                                textInputAction: TextInputAction.next,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                ),
+                                decoration: InputDecoration(
+                                  labelText: '${f['label']} (${f['unit']}) *',
+                                  labelStyle: const TextStyle(
+                                    color: Colors.grey,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                          .toList(),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 8),

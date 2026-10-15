@@ -481,6 +481,8 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
       appBar: AppBar(
         title: Text(
           '${widget.workout['day_of_week']} · ${widget.workout['workout_name']}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontSize: 16),
         ),
         actions: [
@@ -549,124 +551,136 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 600),
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            child: SizedBox(
+              height: constraints.maxHeight < 460 ? 460 : constraints.maxHeight,
               child: Column(
                 children: [
-                  Icon(Icons.fitness_center,
-                      size: 40 * scale, color: AppColors.gold),
-                  SizedBox(height: 8 * scale),
-                  Text(
-                    widget.workout['workout_name'] ?? 'Workout',
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 20 * scale,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  SizedBox(height: 4 * scale),
-                  Text(
-                    '${exercises.length} exercises · $totalSetsCount total sets',
-                    style: TextStyle(color: Colors.grey, fontSize: 13 * scale),
-                  ),
-                ],
-              ),
-            ),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: exercises.length,
-                itemBuilder: (context, index) {
-                  final ex = exercises[index];
-                  final sets = ex['sets'] as List;
-                  final inputType = ex['input_type'] ?? 'Reps';
-                  return Container(
-                    margin: const EdgeInsets.only(bottom: 10),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.cardDark,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: Colors.white.withOpacity(0.05)),
-                    ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 8),
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Icon(Icons.fitness_center,
+                            size: 40 * scale, color: AppColors.gold),
+                        SizedBox(height: 8 * scale),
                         Text(
-                          ex['name'] ?? 'Exercise',
+                          widget.workout['workout_name'] ?? 'Workout',
+                          textAlign: TextAlign.center,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 14 * scale,
+                            fontSize: 20 * scale,
+                            fontWeight: FontWeight.w900,
                           ),
                         ),
+                        SizedBox(height: 4 * scale),
                         Text(
-                          ex['body_part'] ?? '',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          '${exercises.length} exercises · $totalSetsCount total sets',
                           style: TextStyle(
-                            color: AppColors.gold.withOpacity(0.8),
-                            fontSize: 11 * scale,
-                          ),
-                        ),
-                        SizedBox(height: 6 * scale),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 4,
-                          children: sets.map((s) {
-                            final label = inputType == 'kg × reps'
-                                ? '${s['coach_kg'] ?? '-'}kg × ${s['coach_reps'] ?? '-'}'
-                                : inputType == 'Min'
-                                    ? '${s['actual_minutes'] ?? 0}m ${s['actual_seconds'] ?? 0}s'
-                                    : '${s['coach_reps'] ?? '-'} reps';
-                            return Chip(
-                              label: Text(
-                                'Set ${s['set_number']}: $label',
-                                style: TextStyle(fontSize: 11 * scale),
-                              ),
-                              backgroundColor: Colors.grey.withOpacity(0.15),
-                              padding: EdgeInsets.zero,
-                              visualDensity: VisualDensity.compact,
-                              materialTapTargetSize:
-                                  MaterialTapTargetSize.shrinkWrap,
-                            );
-                          }).toList(),
+                              color: Colors.grey, fontSize: 13 * scale),
                         ),
                       ],
                     ),
-                  );
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                children: [
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.play_arrow, color: Colors.black),
-                      label: const Text('START WORKOUT'),
-                      onPressed: startWorkout,
+                  ),
+                  Expanded(
+                    child: ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: exercises.length,
+                      itemBuilder: (context, index) {
+                        final ex = exercises[index];
+                        final sets = ex['sets'] as List;
+                        final inputType = ex['input_type'] ?? 'Reps';
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.cardDark,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.05)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                ex['name'] ?? 'Exercise',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14 * scale,
+                                ),
+                              ),
+                              Text(
+                                ex['body_part'] ?? '',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  color: AppColors.gold.withOpacity(0.8),
+                                  fontSize: 11 * scale,
+                                ),
+                              ),
+                              SizedBox(height: 6 * scale),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 4,
+                                children: sets.map((s) {
+                                  final label = inputType == 'kg × reps'
+                                      ? '${s['coach_kg'] ?? '-'}kg × ${s['coach_reps'] ?? '-'}'
+                                      : inputType == 'Min'
+                                          ? '${s['actual_minutes'] ?? 0}m ${s['actual_seconds'] ?? 0}s'
+                                          : '${s['coach_reps'] ?? '-'} reps';
+                                  return Chip(
+                                    label: Text(
+                                      'Set ${s['set_number']}: $label',
+                                      style: TextStyle(fontSize: 11 * scale),
+                                    ),
+                                    backgroundColor:
+                                        Colors.grey.withOpacity(0.15),
+                                    padding: EdgeInsets.zero,
+                                    visualDensity: VisualDensity.compact,
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  );
+                                }).toList(),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
                     ),
                   ),
-                  SizedBox(height: 16 * scale),
-                  Text(
-                    'Once you start, you can track your progress in real-time',
-                    style: TextStyle(
-                        color: Colors.grey.shade600, fontSize: 12 * scale),
-                    textAlign: TextAlign.center,
+                  Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.play_arrow,
+                                color: Colors.black),
+                            label: const Text('START WORKOUT'),
+                            onPressed: startWorkout,
+                          ),
+                        ),
+                        SizedBox(height: 16 * scale),
+                        Text(
+                          'Once you start, you can track your progress in real-time',
+                          style: TextStyle(
+                              color: Colors.grey.shade600,
+                              fontSize: 12 * scale),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1256,52 +1270,56 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
 
     return Padding(
       padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.emoji_events, size: 90, color: AppColors.gold),
-          const SizedBox(height: 20),
-          Text(
-            '${widget.workout['day_of_week']} Workout Completed! 🎉',
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'Total time: ${formatDuration(savedElapsedSeconds)}',
-            style: TextStyle(color: AppColors.gold, fontSize: 15),
-          ),
-          Text(
-            '$totalSetsCount sets · ${exercises.length} exercises',
-            style: const TextStyle(color: Colors.grey, fontSize: 13),
-          ),
-          const SizedBox(height: 32),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('BACK TO WEEK VIEW'),
-            ),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton(
-              onPressed: () => setState(() => isViewingDetails = true),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: AppColors.gold),
+      child: Center(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.emoji_events, size: 90, color: AppColors.gold),
+              const SizedBox(height: 20),
+              Text(
+                '${widget.workout['day_of_week']} Workout Completed! 🎉',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
-              child: Text(
-                'VIEW MY PLAN (READ-ONLY)',
-                style: TextStyle(color: AppColors.gold),
+              const SizedBox(height: 12),
+              Text(
+                'Total time: ${formatDuration(savedElapsedSeconds)}',
+                style: TextStyle(color: AppColors.gold, fontSize: 15),
               ),
-            ),
+              Text(
+                '$totalSetsCount sets · ${exercises.length} exercises',
+                style: const TextStyle(color: Colors.grey, fontSize: 13),
+              ),
+              const SizedBox(height: 32),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('BACK TO WEEK VIEW'),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => setState(() => isViewingDetails = true),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: AppColors.gold),
+                  ),
+                  child: Text(
+                    'VIEW MY PLAN (READ-ONLY)',
+                    style: TextStyle(color: AppColors.gold),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

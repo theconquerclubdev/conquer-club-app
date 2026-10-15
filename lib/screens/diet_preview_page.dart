@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -176,6 +177,13 @@ class _DietPreviewPageState extends State<DietPreviewPage> {
 
       if (kIsWeb) {
         pdf_download.downloadPdfBytes(bytes, fileName);
+      } else if (Platform.isAndroid) {
+        final file = File('/storage/emulated/0/Download/$fileName');
+        await file.writeAsBytes(bytes, flush: true);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('PDF saved in Downloads: $fileName')));
+        }
       } else {
         await Printing.sharePdf(bytes: bytes, filename: fileName);
       }

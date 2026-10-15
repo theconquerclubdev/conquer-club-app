@@ -700,31 +700,46 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       bottomNavigationBar:
           !isLoadingProfile ? _buildQuickActions(context) : null,
       body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(context),
-            _buildStepTrackerCard(),
-            // Today's Tasks Card
-            _buildTodayTasksCard(),
-            _buildCoachBanner(),
-            _buildTabBar(),
-            Expanded(
-              child: TabBarView(
-                controller: tabController,
+        child: CustomScrollView(
+          slivers: [
+            SliverToBoxAdapter(
+              child: Column(
                 children: [
-                  _WeekWorkoutList(
-                    memberId: userId,
-                    todayName: todayName,
-                    days: days,
-                    isMembershipActive: isMembershipActive,
-                    onWorkoutSessionClosed: loadProfile,
-                  ),
-                  _MyDietsList(
-                    memberId: userId,
-                    isMembershipActive: isMembershipActive,
-                  ),
+                  _buildHeader(context),
+                  _buildStepTrackerCard(),
+                  // Today's Tasks Card
+                  _buildTodayTasksCard(),
+                  _buildCoachBanner(),
+                  _buildTabBar(),
                 ],
               ),
+            ),
+            SliverLayoutBuilder(
+              builder: (context, constraints) {
+                final remaining = constraints.viewportMainAxisExtent -
+                    constraints.precedingScrollExtent;
+                return SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: remaining > 300 ? remaining : 300,
+                    child: TabBarView(
+                      controller: tabController,
+                      children: [
+                        _WeekWorkoutList(
+                          memberId: userId,
+                          todayName: todayName,
+                          days: days,
+                          isMembershipActive: isMembershipActive,
+                          onWorkoutSessionClosed: loadProfile,
+                        ),
+                        _MyDietsList(
+                          memberId: userId,
+                          isMembershipActive: isMembershipActive,
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
           ],
         ),

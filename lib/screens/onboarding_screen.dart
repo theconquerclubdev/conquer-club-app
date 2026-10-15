@@ -359,17 +359,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                                     Icon(Icons.cake_outlined,
                                         color: Colors.grey),
                                     const SizedBox(width: 12),
-                                    Text(
-                                      _dob == null
-                                          ? 'Date of Birth *'
-                                          : '${_dob!.day.toString().padLeft(2, '0')}-${_dob!.month.toString().padLeft(2, '0')}-${_dob!.year}',
-                                      style: TextStyle(
-                                        color: _dob == null
-                                            ? Colors.grey
-                                            : Colors.white,
+                                    Expanded(
+                                      child: Text(
+                                        _dob == null
+                                            ? 'Date of Birth *'
+                                            : '${_dob!.day.toString().padLeft(2, '0')}-${_dob!.month.toString().padLeft(2, '0')}-${_dob!.year}',
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: _dob == null
+                                              ? Colors.grey
+                                              : Colors.white,
+                                        ),
                                       ),
                                     ),
-                                    const Spacer(),
                                     Icon(Icons.calendar_today,
                                         color: Colors.grey, size: 18),
                                   ],

@@ -1161,28 +1161,30 @@ THE CONQUER CLUB
                 style: const TextStyle(fontSize: 32),
               ),
               const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    currentStreak > 0
-                        ? '$currentStreak Day Streak'
-                        : '0 Day Streak',
-                    style: TextStyle(
-                      color: currentStreak > 0 ? AppColors.gold : Colors.grey,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                  if (currentStreakStart != null)
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      'Since ${DateFormat('MMM d, yyyy').format(currentStreakStart)}',
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 12,
+                      currentStreak > 0
+                          ? '$currentStreak Day Streak'
+                          : '0 Day Streak',
+                      style: TextStyle(
+                        color: currentStreak > 0 ? AppColors.gold : Colors.grey,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
                       ),
                     ),
-                ],
+                    if (currentStreakStart != null)
+                      Text(
+                        'Since ${DateFormat('MMM d, yyyy').format(currentStreakStart)}',
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ],
           ),

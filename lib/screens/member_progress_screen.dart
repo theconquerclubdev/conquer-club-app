@@ -476,6 +476,8 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
           widget.readOnly
               ? 'Body Transformation (View Only)'
               : 'Body Transformation',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(color: Colors.white),
         ),
         iconTheme: const IconThemeData(color: Colors.white),
@@ -495,7 +497,12 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
               color: AppColors.gold,
               backgroundColor: AppColors.cardDark,
               child: ListView(
-                padding: const EdgeInsets.all(16),
+                padding: EdgeInsets.symmetric(
+                  horizontal: MediaQuery.of(context).size.width > 632
+                      ? (MediaQuery.of(context).size.width - 600) / 2
+                      : 16,
+                  vertical: 16,
+                ),
                 children: [
                   _sectionHeader('Before', locked: true),
                   const SizedBox(height: 10),
