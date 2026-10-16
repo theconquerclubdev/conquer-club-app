@@ -1,4 +1,5 @@
 import 'dart:async'; //  ADD THIS IMPORT HERE
+import 'dart:ui' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
@@ -142,6 +143,9 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
   bool get wantKeepAlive => true;
   bool isLoading = true;
   int activeMembers = 0;
+  int totalMembers = 0;
+  int membersInMembership = 0;
+  int membersNoEndDate = 0;
   int activeCoaches = 0;
   double totalRevenue = 0.0;
   Map<String, double> categoryRevenue = {};
@@ -168,6 +172,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
     if (!mounted) return;
     _membersWithEndDateCache = null;
     _latestDietsCache = null;
+    _RevenueBreakdownSection.clearCache();
     setState(() => isLoading = true);
     try {
       //  SINGLE RPC CALL — replaces 4 separate queries!
@@ -189,6 +194,9 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
       if (mounted) {
         setState(() {
           activeMembers = result['active_members'] ?? 0;
+          totalMembers = result['total_members'] ?? 0;
+          membersInMembership = result['members_in_membership'] ?? 0;
+          membersNoEndDate = result['no_end_date'] ?? 0;
           activeCoaches = result['active_coaches'] ?? 0;
           totalRevenue = (result['total_revenue'] as num?)?.toDouble() ?? 0;
           categoryRevenue =
@@ -277,18 +285,32 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
               ),
             Row(
               children: [
-                _StatCard(
-                  label: 'Active Members',
-                  value: activeMembers.toString(),
+                _CompactStatCard(
+                  label: 'Total Members',
+                  value: totalMembers.toString(),
+                  icon: Icons.groups,
+                  color: Colors.purple,
+                ),
+                const SizedBox(width: 6),
+                _CompactStatCard(
+                  label: 'In Membership',
+                  value: membersInMembership.toString(),
                   icon: Icons.people,
                   color: Colors.blue,
                 ),
-                const SizedBox(width: 12),
-                _StatCard(
-                  label: 'Active Coaches',
-                  value: activeCoaches.toString(),
-                  icon: Icons.person,
-                  color: Colors.green,
+                const SizedBox(width: 6),
+                _CompactStatCard(
+                  label: 'Members Ended',
+                  value: membersEnded.toString(),
+                  icon: Icons.person_off,
+                  color: Colors.red,
+                ),
+                const SizedBox(width: 6),
+                _CompactStatCard(
+                  label: 'No End Date',
+                  value: membersNoEndDate.toString(),
+                  icon: Icons.event_busy,
+                  color: Colors.orange,
                 ),
               ],
             ),
@@ -303,66 +325,15 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
                 ),
                 const SizedBox(width: 12),
                 _StatCard(
-                  label: 'Members Ended',
-                  value: membersEnded.toString(),
-                  icon: Icons.person_off,
-                  color: Colors.red,
+                  label: 'Active Coaches',
+                  value: activeCoaches.toString(),
+                  icon: Icons.person,
+                  color: Colors.green,
                 ),
               ],
             ),
             const SizedBox(height: 20),
-            const Text(
-              'REVENUE BY CATEGORY',
-              style: TextStyle(
-                color: AppColors.gold,
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1,
-              ),
-            ),
-            const SizedBox(height: 8),
-            if (categoryRevenue.isEmpty)
-              const Text(
-                'No revenue data yet',
-                style: TextStyle(color: Colors.grey),
-              )
-            else
-              ...categoryRevenue.entries.map((entry) => Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 120,
-                          child: Text(
-                            entry.key,
-                            style: const TextStyle(color: Colors.white),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Expanded(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: LinearProgressIndicator(
-                              value:
-                                  (entry.value / totalRevenue).clamp(0.0, 1.0),
-                              backgroundColor: Colors.grey.shade800,
-                              color: AppColors.gold,
-                              minHeight: 12,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          '₹${entry.value.toStringAsFixed(0)}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  )),
+            const _RevenueBreakdownSection(),
             const SizedBox(height: 20),
             const Text(
               'MEMBERSHIP ALERTS',
@@ -378,29 +349,25 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
               label: 'Ending in 2 days',
               count: membersEndingIn2Days,
               color: Colors.orange,
-              onTap: () =>
-                  widget.onOpenMembersWithFilter?.call('Ending in 2 days'),
+              onTap: () => _showMemberAlertList(context, 'Ending in 2 days'),
             ),
             _AlertChip(
               label: 'Ending this month',
               count: membersEndingThisMonth,
               color: Colors.blue,
-              onTap: () =>
-                  widget.onOpenMembersWithFilter?.call('Ending this month'),
+              onTap: () => _showMemberAlertList(context, 'Ending this month'),
             ),
             _AlertChip(
               label: 'Ending next month',
               count: membersEndingNextMonth,
               color: Colors.green,
-              onTap: () =>
-                  widget.onOpenMembersWithFilter?.call('Ending next month'),
+              onTap: () => _showMemberAlertList(context, 'Ending next month'),
             ),
             _AlertChip(
               label: 'Membership Ended',
               count: membersEnded,
               color: Colors.red,
-              onTap: () =>
-                  widget.onOpenMembersWithFilter?.call('Membership Ended'),
+              onTap: () => _showMemberAlertList(context, 'Membership Ended'),
             ),
             const SizedBox(height: 20),
             const Text(
@@ -433,6 +400,44 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showMemberAlertList(BuildContext context, String status) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppColors.cardDark,
+      isScrollControlled: true,
+      builder: (_) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  status,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Expanded(
+                  child: _MemberAlertList(
+                    status: status,
+                    scrollController: scrollController,
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -655,6 +660,154 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
   }
 }
 
+class _MemberAlertList extends StatefulWidget {
+  final String status;
+  final ScrollController scrollController;
+
+  const _MemberAlertList({
+    required this.status,
+    required this.scrollController,
+  });
+
+  @override
+  State<_MemberAlertList> createState() => _MemberAlertListState();
+}
+
+class _MemberAlertListState extends State<_MemberAlertList> {
+  static const int _pageSize = 20;
+  final List<Map<String, dynamic>> _items = [];
+  bool _loading = true;
+  bool _loadingMore = false;
+  bool _hasMore = false;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  // Same date rules as get_dashboard_stats, 20 members per request
+  Future<void> _load({bool more = false}) async {
+    if (more) {
+      if (_loadingMore || !_hasMore) return;
+      setState(() => _loadingMore = true);
+    }
+    try {
+      final now = DateTime.now();
+      String ymd(DateTime d) => d.toIso8601String().substring(0, 10);
+      final today = DateTime(now.year, now.month, now.day);
+
+      var query = Supabase.instance.client
+          .from('profiles')
+          .select('id, full_name, email, membership_end_date')
+          .eq('role', 'member');
+
+      if (widget.status == 'Ending in 2 days') {
+        query = query
+            .gte('membership_end_date',
+                ymd(DateTime(today.year, today.month, today.day + 1)))
+            .lt('membership_end_date',
+                ymd(DateTime(today.year, today.month, today.day + 3)));
+      } else if (widget.status == 'Ending this month') {
+        query = query
+            .gte('membership_end_date',
+                ymd(DateTime(today.year, today.month, today.day + 1)))
+            .lt('membership_end_date',
+                ymd(DateTime(now.year, now.month + 1, 1)));
+      } else if (widget.status == 'Ending next month') {
+        query = query
+            .gte('membership_end_date',
+                ymd(DateTime(now.year, now.month + 1, 1)))
+            .lt('membership_end_date',
+                ymd(DateTime(now.year, now.month + 2, 1)));
+      } else if (widget.status == 'Membership Ended') {
+        query = query.lt('membership_end_date',
+            ymd(DateTime(today.year, today.month, today.day + 1)));
+      }
+
+      final data = await query
+          .order('membership_end_date')
+          .order('full_name')
+          .range(_items.length, _items.length + _pageSize - 1);
+      final rows = List<Map<String, dynamic>>.from(data);
+      if (!mounted) return;
+      setState(() {
+        _items.addAll(rows);
+        _hasMore = rows.length == _pageSize;
+        _loading = false;
+        _loadingMore = false;
+        _failed = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading member alert list: $e');
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+        _loadingMore = false;
+        _failed = true;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.gold),
+      );
+    }
+    if (_items.isEmpty) {
+      return Center(
+        child: Text(
+          _failed ? 'Unable to load. Please try again.' : 'No members found',
+          style: const TextStyle(color: Colors.grey),
+        ),
+      );
+    }
+    return ListView.builder(
+      controller: widget.scrollController,
+      itemCount: _items.length + (_hasMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == _items.length) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: _loadingMore
+                  ? const SizedBox(
+                      height: 24,
+                      width: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: AppColors.gold,
+                      ),
+                    )
+                  : TextButton(
+                      onPressed: () => _load(more: true),
+                      child: const Text(
+                        'Load More...',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
+            ),
+          );
+        }
+        final m = _items[index];
+        return ListTile(
+          title: Text(
+            m['full_name'] ?? 'Unknown',
+            style: const TextStyle(color: Colors.white),
+          ),
+          subtitle: Text(
+            'Ends: ${m['membership_end_date'] != null ? m['membership_end_date'].toString().substring(0, 10) : 'N/A'}',
+            style: const TextStyle(color: Colors.grey),
+          ),
+        );
+      },
+    );
+  }
+}
+
 class _DietAlertList extends StatefulWidget {
   final String status;
   final ScrollController scrollController;
@@ -825,6 +978,470 @@ class _StatCard extends StatelessWidget {
                 color: color,
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RevenuePeriod {
+  final String key;
+  final String label;
+  final DateTime? from; // included
+  final DateTime? to; // excluded
+
+  const _RevenuePeriod({
+    required this.key,
+    required this.label,
+    this.from,
+    this.to,
+  });
+}
+
+class _RevenueBreakdownSection extends StatefulWidget {
+  const _RevenueBreakdownSection();
+
+  // Kept in memory so refreshes and tab switches do not call Supabase again
+  static final Map<String, List<Map<String, dynamic>>> _cache = {};
+  static String _lastGroup = 'category';
+  static String _lastPeriodKey = '';
+
+  static void clearCache() => _cache.clear();
+
+  @override
+  State<_RevenueBreakdownSection> createState() =>
+      _RevenueBreakdownSectionState();
+}
+
+class _RevenueBreakdownSectionState extends State<_RevenueBreakdownSection> {
+  static const int _firstYear = 2024;
+  static const List<String> _monthNames = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  final List<_RevenuePeriod> _periods = [];
+  late _RevenuePeriod _selected;
+  String _group = 'category';
+  List<Map<String, dynamic>> _rows = [];
+  bool _loading = true;
+  bool _failed = false;
+  int _requestId = 0;
+  Timer? _debounce;
+  RealtimeChannel? _channel;
+  final GlobalKey _selectedChipKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+
+    _periods.add(const _RevenuePeriod(key: 'all', label: 'All Time'));
+    for (int y = _firstYear; y <= now.year; y++) {
+      _periods.add(_RevenuePeriod(
+        key: 'y$y',
+        label: y == now.year ? '$y YTD' : '$y',
+        from: DateTime(y, 1, 1),
+        to: DateTime(y + 1, 1, 1),
+      ));
+    }
+    for (int i = 0; i < 12; i++) {
+      final d = DateTime(now.year, now.month - i, 1);
+      _periods.add(_RevenuePeriod(
+        key: 'm${d.year}-${d.month}',
+        label: '${_monthNames[d.month - 1]} ${d.year % 100}'
+            '${i == 0 ? ' MTD' : ''}',
+        from: d,
+        to: DateTime(d.year, d.month + 1, 1),
+      ));
+    }
+
+    _group = _RevenueBreakdownSection._lastGroup;
+    // Default = current month (first of the 12 month chips)
+    _selected = _periods.firstWhere(
+      (p) => p.key == _RevenueBreakdownSection._lastPeriodKey,
+      orElse: () => _periods[_periods.length - 12],
+    );
+
+    // Any payment added / verified / edited -> forget old results, reload
+    _channel = Supabase.instance.client
+        .channel('revenue_breakdown_${DateTime.now().microsecondsSinceEpoch}')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'payments',
+          callback: (payload) {
+            _debounce?.cancel();
+            _debounce = Timer(const Duration(seconds: 1), () {
+              _RevenueBreakdownSection._cache.clear();
+              if (mounted) _load();
+            });
+          },
+        )
+        .subscribe();
+
+    _load();
+    _scrollToSelected();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    if (_channel != null) {
+      Supabase.instance.client.removeChannel(_channel!);
+    }
+    super.dispose();
+  }
+
+  void _scrollToSelected() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _selectedChipKey.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 250),
+        );
+      }
+    });
+  }
+
+  Future<void> _load() async {
+    final cacheKey = '$_group|${_selected.key}';
+    final cached = _RevenueBreakdownSection._cache[cacheKey];
+    if (cached != null) {
+      setState(() {
+        _rows = cached;
+        _loading = false;
+        _failed = false;
+      });
+      return;
+    }
+
+    final int myId = ++_requestId;
+    setState(() {
+      _loading = true;
+      _failed = false;
+    });
+    try {
+      String ymd(DateTime d) => d.toIso8601String().substring(0, 10);
+      final params = <String, dynamic>{'p_group': _group};
+      if (_selected.from != null) params['p_from'] = ymd(_selected.from!);
+      if (_selected.to != null) params['p_to'] = ymd(_selected.to!);
+
+      final data = await Supabase.instance.client
+          .rpc('get_revenue_breakdown', params: params);
+      final rows = List<Map<String, dynamic>>.from(data);
+      _RevenueBreakdownSection._cache[cacheKey] = rows;
+
+      // A newer tap happened meanwhile -> ignore this old answer
+      if (!mounted || myId != _requestId) return;
+      setState(() {
+        _rows = rows;
+        _loading = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading revenue breakdown: $e');
+      if (!mounted || myId != _requestId) return;
+      setState(() {
+        _rows = [];
+        _loading = false;
+        _failed = true;
+      });
+    }
+  }
+
+  void _selectPeriod(_RevenuePeriod p) {
+    if (p.key == _selected.key) return;
+    setState(() => _selected = p);
+    _RevenueBreakdownSection._lastPeriodKey = p.key;
+    _load();
+    _scrollToSelected();
+  }
+
+  void _selectGroup(String g) {
+    if (g == _group) return;
+    setState(() => _group = g);
+    _RevenueBreakdownSection._lastGroup = g;
+    _load();
+  }
+
+  Widget _pill(String label, bool selected, VoidCallback onTap) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.gold : AppColors.cardDark,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? AppColors.gold : Colors.grey.shade800,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? Colors.black : Colors.white,
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _row(Map<String, dynamic> r, double total) {
+    final name = (r['name'] ?? 'Unknown').toString();
+    final amount = (r['total'] as num?)?.toDouble() ?? 0;
+    final members = (r['member_count'] as num?)?.toInt() ?? 0;
+    final share = total > 0 ? (amount / total) : 0.0;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  name,
+                  style: const TextStyle(color: Colors.white),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '₹${amount.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                width: 76,
+                child: Text(
+                  '$members member${members == 1 ? '' : 's'}',
+                  textAlign: TextAlign.right,
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: share.clamp(0.0, 1.0),
+              backgroundColor: Colors.grey.shade800,
+              color: AppColors.gold,
+              minHeight: 8,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final total = _rows.fold<double>(
+        0, (s, r) => s + ((r['total'] as num?)?.toDouble() ?? 0));
+    final memberCount = _rows.isEmpty
+        ? 0
+        : ((_rows.first['all_members'] as num?)?.toInt() ?? 0);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Text(
+                'REVENUE',
+                style: TextStyle(
+                  color: AppColors.gold,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 1,
+                ),
+              ),
+            ),
+            _pill('Category', _group == 'category',
+                () => _selectGroup('category')),
+            const SizedBox(width: 8),
+            _pill('Coach', _group == 'coach', () => _selectGroup('coach')),
+          ],
+        ),
+        const SizedBox(height: 10),
+        ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(
+            dragDevices: {PointerDeviceKind.touch, PointerDeviceKind.mouse},
+            scrollbars: false,
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: _periods.map((p) {
+                final selected = p.key == _selected.key;
+                return Padding(
+                  key: selected ? _selectedChipKey : null,
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _pill(p.label, selected, () => _selectPeriod(p)),
+                );
+              }).toList(),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (_loading)
+          const SizedBox(
+            height: 120,
+            child: Center(
+              child: CircularProgressIndicator(color: AppColors.gold),
+            ),
+          )
+        else if (_failed)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Unable to load revenue.',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                ),
+                TextButton(
+                  onPressed: _load,
+                  child: const Text(
+                    'Retry',
+                    style: TextStyle(color: AppColors.gold),
+                  ),
+                ),
+              ],
+            ),
+          )
+        else ...[
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.cardDark,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppColors.gold.withOpacity(0.2)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    '₹${total.toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      color: AppColors.gold,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${_selected.label} · $memberCount '
+                  'member${memberCount == 1 ? '' : 's'} paid',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (_rows.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                'No revenue in this period',
+                style: TextStyle(color: Colors.grey),
+              ),
+            )
+          else
+            ..._rows.map((r) => _row(r, total)),
+        ],
+      ],
+    );
+  }
+}
+
+class _CompactStatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color color;
+
+  const _CompactStatCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        decoration: BoxDecoration(
+          color: AppColors.cardDark,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: color.withOpacity(0.2)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // FittedBox shrinks the content when space is small (no overflow)
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(icon, color: color, size: 16),
+                  const SizedBox(width: 4),
+                  Text(
+                    value,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 2),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                maxLines: 1,
+                style: TextStyle(
+                  color: Colors.grey.shade400,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ],
