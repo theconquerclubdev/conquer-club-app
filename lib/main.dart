@@ -425,6 +425,7 @@ class _AuthWrapperState extends State<AuthWrapper> {
       case 'admin':
         return const AdminHomeScreen();
       case 'coach':
+      case 'head_coach':
         return const CoachHomeScreen();
       default:
         return const MemberHomeScreen();

@@ -6,6 +6,8 @@ import 'login_screen.dart';
 import 'member_profile_coach_view_screen.dart';
 import '../providers/master_data_provider.dart';
 import 'head_coach_workout_templates_screen.dart';
+import '../providers/staff_dashboard_provider.dart';
+import '../widgets/staff_member_names_sheet.dart';
 
 class CoachHomeScreen extends StatefulWidget {
   const CoachHomeScreen({super.key});
@@ -47,6 +49,9 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
   // Dashboard Stats
   int activeCount = 0;
   int inactiveCount = 0;
+  int totalMembers = 0;
+  int inMembership = 0;
+  int membersEnded = 0;
   int newMembersCount = 0;
   int noDietCount = 0;
   int noWorkoutCount = 0;
@@ -397,25 +402,19 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
 
   Future<void> _loadStats() async {
     try {
-      final currentUser = Supabase.instance.client.auth.currentUser!;
-      final data = await Supabase.instance.client.rpc(
-        'get_member_stats',
-        params: {
-          'p_coach_id': isHeadCoach ? null : currentUser.id,
-          'p_is_head_coach': isHeadCoach,
-        },
-      );
-      final stats = (data as List).isNotEmpty
-          ? Map<String, dynamic>.from(data.first)
-          : <String, dynamic>{};
+      // One call for every tile. Server decides: head coach = all members,
+      // coach = only his own. Result is cached in StaffDashboardProvider.
+      final stats =
+          await StaffDashboardProvider.instance.loadStats(force: true);
 
       if (!mounted) return;
       setState(() {
-        activeCount = (stats['active_count'] as num?)?.toInt() ?? 0;
-        inactiveCount = (stats['inactive_count'] as num?)?.toInt() ?? 0;
-        newMembersCount = (stats['new_members_count'] as num?)?.toInt() ?? 0;
-        noDietCount = (stats['no_diet_count'] as num?)?.toInt() ?? 0;
-        noWorkoutCount = (stats['no_workout_count'] as num?)?.toInt() ?? 0;
+        totalMembers = (stats['total_members'] as num?)?.toInt() ?? 0;
+        inMembership = (stats['in_membership'] as num?)?.toInt() ?? 0;
+        membersEnded = (stats['members_ended'] as num?)?.toInt() ?? 0;
+        newMembersCount = (stats['new_members'] as num?)?.toInt() ?? 0;
+        noDietCount = (stats['no_diet'] as num?)?.toInt() ?? 0;
+        noWorkoutCount = (stats['no_workout'] as num?)?.toInt() ?? 0;
         dietDueToday = (stats['diet_due_today'] as num?)?.toInt() ?? 0;
         dietDueTomorrow = (stats['diet_due_tomorrow'] as num?)?.toInt() ?? 0;
         dietOverdue = (stats['diet_overdue'] as num?)?.toInt() ?? 0;
@@ -723,46 +722,50 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                   runSpacing: gap,
                   children: [
                     card(_DashboardStatCard(
-                      label: 'Active',
-                      count: activeCount,
-                      color: Colors.green,
-                      icon: Icons.check_circle,
-                      onTap: () => _navigateToMembersWithFilter('active'),
+                      label: 'Total Members',
+                      count: totalMembers,
+                      color: Colors.purple,
+                      icon: Icons.groups,
+                      onTap: () {},
                     )),
                     card(_DashboardStatCard(
-                      label: 'Inactive',
-                      count: inactiveCount,
+                      label: 'In Membership',
+                      count: inMembership,
+                      color: Colors.green,
+                      icon: Icons.people,
+                      onTap: () {},
+                    )),
+                    card(_DashboardStatCard(
+                      label: 'Membership Ended',
+                      count: membersEnded,
                       color: Colors.red,
-                      icon: Icons.cancel,
-                      onTap: () => _navigateToMembersWithFilter('inactive'),
+                      icon: Icons.person_off,
+                      onTap: () => showStaffMemberNamesSheet(
+                          context, 'ended', 'Membership Ended'),
                     )),
                     card(_DashboardStatCard(
                       label: 'New Members',
                       count: newMembersCount,
                       color: AppColors.gold,
                       icon: Icons.person_add,
-                      onTap: () => _navigateToMembersWithFilter('new'),
+                      onTap: () => showStaffMemberNamesSheet(
+                          context, 'new', 'New Members'),
                     )),
                     card(_DashboardStatCard(
                       label: 'No Diet',
                       count: noDietCount,
                       color: Colors.orange,
                       icon: Icons.restaurant,
-                      onTap: () => _navigateToMembersWithFilter('no_diet'),
+                      onTap: () => showStaffMemberNamesSheet(
+                          context, 'no_diet', 'No Diet'),
                     )),
                     card(_DashboardStatCard(
                       label: 'No Workout',
                       count: noWorkoutCount,
                       color: Colors.blue,
                       icon: Icons.fitness_center,
-                      onTap: () => _navigateToMembersWithFilter('no_workout'),
-                    )),
-                    card(_DashboardStatCard(
-                      label: 'Total',
-                      count: totalCount,
-                      color: Colors.grey,
-                      icon: Icons.people,
-                      onTap: () => _navigateToMembersWithFilter('all'),
+                      onTap: () => showStaffMemberNamesSheet(
+                          context, 'no_workout', 'No Workout'),
                     )),
                   ],
                 );

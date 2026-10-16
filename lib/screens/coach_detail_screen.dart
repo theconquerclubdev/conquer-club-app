@@ -45,11 +45,13 @@ class _CoachDetailScreenState extends State<CoachDetailScreen> {
   Future<void> _loadAssignedMembers() async {
     setState(() => _isLoading = true);
     try {
-      final countData = await Supabase.instance.client
+      final countRes = await Supabase.instance.client
           .from('profiles')
           .select('id')
-          .eq('assigned_coach_id', widget.coach['id']);
-      _totalCount = (countData as List).length;
+          .eq('assigned_coach_id', widget.coach['id'])
+          .limit(1)
+          .count(CountOption.exact);
+      _totalCount = countRes.count;
 
       await _fetchAssignedMembers(reset: true);
     } catch (e) {

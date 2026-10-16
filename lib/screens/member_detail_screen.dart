@@ -29,7 +29,7 @@ class _MemberDetailScreenState extends State<MemberDetailScreen> {
     if (cached != null) return cached;
     final fresh = await Supabase.instance.client
         .from('profiles')
-        .select()
+        .select('id, full_name, email')
         .eq('role', 'coach');
     final data = List<Map<String, dynamic>>.from(fresh);
     await CacheManager.saveGeneric('cached_coaches', data,

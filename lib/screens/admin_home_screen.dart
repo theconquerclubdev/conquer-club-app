@@ -148,6 +148,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
   int membersNoEndDate = 0;
   int activeCoaches = 0;
   double totalRevenue = 0.0;
+  double monthRevenue = 0.0;
   Map<String, double> categoryRevenue = {};
   int membersEnded = 0;
   int membersEndingIn2Days = 0;
@@ -178,18 +179,13 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
       //  SINGLE RPC CALL — replaces 4 separate queries!
       final result = await Supabase.instance.client.rpc('get_dashboard_stats');
 
-      // Pending payment count (kept separate from the RPC so a failure
-      // here never blocks the rest of the dashboard from loading).
-      int pendingCount = 0;
-      try {
-        final pending = await Supabase.instance.client
-            .from('payments')
-            .select('id')
-            .eq('status', 'pending');
-        pendingCount = (pending as List).length;
-      } catch (e) {
-        debugPrint('Error loading pending payments count: $e');
-      }
+      // Pending payment count now comes inside get_dashboard_stats
+      final int pendingCount =
+          (result['pending_payments'] as num?)?.toInt() ?? 0;
+
+      // Current month revenue now comes inside get_dashboard_stats
+      final double monthTotal =
+          (result['month_revenue'] as num?)?.toDouble() ?? 0;
 
       if (mounted) {
         setState(() {
@@ -209,6 +205,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
           dietChangesTomorrow = result['diet_due_tomorrow'] ?? 0;
           dietChangesOverdue = result['diet_overdue'] ?? 0;
           pendingPaymentsCount = pendingCount;
+          monthRevenue = monthTotal;
           isLoading = false;
         });
       }
@@ -311,6 +308,7 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
                   value: membersNoEndDate.toString(),
                   icon: Icons.event_busy,
                   color: Colors.orange,
+                  onTap: () => _showMemberAlertList(context, 'No End Date'),
                 ),
               ],
             ),
@@ -321,6 +319,13 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
                   label: 'Total Revenue',
                   value: '₹${totalRevenue.toStringAsFixed(0)}',
                   icon: Icons.currency_rupee,
+                  color: AppColors.gold,
+                ),
+                const SizedBox(width: 12),
+                _StatCard(
+                  label: 'This Month (MTD)',
+                  value: '₹${monthRevenue.toStringAsFixed(0)}',
+                  icon: Icons.calendar_month,
                   color: AppColors.gold,
                 ),
                 const SizedBox(width: 12),
@@ -724,6 +729,8 @@ class _MemberAlertListState extends State<_MemberAlertList> {
       } else if (widget.status == 'Membership Ended') {
         query = query.lt('membership_end_date',
             ymd(DateTime(today.year, today.month, today.day + 1)));
+      } else if (widget.status == 'No End Date') {
+        query = query.isFilter('membership_end_date', null);
       }
 
       final data = await query
@@ -954,33 +961,37 @@ class _StatCard extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: color.withOpacity(0.2)),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon, color: color, size: 18),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: Colors.grey.shade400,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: color, size: 18),
+                  const SizedBox(width: 6),
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: Colors.grey.shade400,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: TextStyle(
-                color: color,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+                ],
               ),
-            ),
-          ],
+              const SizedBox(height: 4),
+              Text(
+                value,
+                style: TextStyle(
+                  color: color,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1017,7 +1028,7 @@ class _RevenueBreakdownSection extends StatefulWidget {
 }
 
 class _RevenueBreakdownSectionState extends State<_RevenueBreakdownSection> {
-  static const int _firstYear = 2024;
+  static const int _firstYear = 2026;
   static const List<String> _monthNames = [
     'Jan',
     'Feb',
@@ -1058,7 +1069,7 @@ class _RevenueBreakdownSectionState extends State<_RevenueBreakdownSection> {
         to: DateTime(y + 1, 1, 1),
       ));
     }
-    for (int i = 0; i < 12; i++) {
+    for (int i = 0; i < 3; i++) {
       final d = DateTime(now.year, now.month - i, 1);
       _periods.add(_RevenuePeriod(
         key: 'm${d.year}-${d.month}',
@@ -1073,7 +1084,7 @@ class _RevenueBreakdownSectionState extends State<_RevenueBreakdownSection> {
     // Default = current month (first of the 12 month chips)
     _selected = _periods.firstWhere(
       (p) => p.key == _RevenueBreakdownSection._lastPeriodKey,
-      orElse: () => _periods[_periods.length - 12],
+      orElse: () => _periods[_periods.length - 3],
     );
 
     // Any payment added / verified / edited -> forget old results, reload
@@ -1391,60 +1402,65 @@ class _CompactStatCard extends StatelessWidget {
   final String value;
   final IconData icon;
   final Color color;
+  final VoidCallback? onTap;
 
   const _CompactStatCard({
     required this.label,
     required this.value,
     required this.icon,
     required this.color,
+    this.onTap,
   });
 
   @override
   Widget build(BuildContext context) {
     return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        decoration: BoxDecoration(
-          color: AppColors.cardDark,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: color.withOpacity(0.2)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // FittedBox shrinks the content when space is small (no overflow)
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(icon, color: color, size: 16),
-                  const SizedBox(width: 4),
-                  Text(
-                    value,
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          decoration: BoxDecoration(
+            color: AppColors.cardDark,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: color.withOpacity(0.2)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // FittedBox shrinks the content when space is small (no overflow)
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, color: color, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      value,
+                      style: TextStyle(
+                        color: color,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 2),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                label,
-                maxLines: 1,
-                style: TextStyle(
-                  color: Colors.grey.shade400,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
+                  ],
                 ),
               ),
-            ),
-          ],
+              const SizedBox(height: 2),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  style: TextStyle(
+                    color: Colors.grey.shade400,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
