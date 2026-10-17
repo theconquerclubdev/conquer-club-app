@@ -6,6 +6,18 @@ import '../theme/app_theme.dart';
 import 'login_screen.dart';
 import 'admin_settings_screen.dart';
 import '../utils/cache_manager.dart';
+import '../providers/master_data_provider.dart';
+
+// Popup lists stay saved until a change happens (version bump) or the day
+// changes (membership dates move with the calendar). No timer.
+bool _alertCacheFresh(Map<String, dynamic> hit) {
+  final at = hit['at'] as DateTime;
+  final n = DateTime.now();
+  return hit['v'] == MasterDataProvider.instance.listChangeNotifier.value &&
+      at.year == n.year &&
+      at.month == n.month &&
+      at.day == n.day;
+}
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -174,6 +186,8 @@ class _AdminDashboardTabState extends State<AdminDashboardTab>
     _membersWithEndDateCache = null;
     _latestDietsCache = null;
     _RevenueBreakdownSection.clearCache();
+    _MemberAlertListState._cache.clear();
+    _DietAlertListState._cache.clear();
     setState(() => isLoading = true);
     try {
       //  SINGLE RPC CALL — replaces 4 separate queries!
@@ -680,6 +694,8 @@ class _MemberAlertList extends StatefulWidget {
 
 class _MemberAlertListState extends State<_MemberAlertList> {
   static const int _pageSize = 20;
+  // Saved pages per alert. Reopening the popup = 0 calls while fresh.
+  static final Map<String, Map<String, dynamic>> _cache = {};
   final List<Map<String, dynamic>> _items = [];
   bool _loading = true;
   bool _loadingMore = false;
@@ -689,6 +705,13 @@ class _MemberAlertListState extends State<_MemberAlertList> {
   @override
   void initState() {
     super.initState();
+    final hit = _cache[widget.status];
+    if (hit != null && _alertCacheFresh(hit)) {
+      _items.addAll(List<Map<String, dynamic>>.from(hit['items'] as List));
+      _hasMore = hit['hasMore'] as bool;
+      _loading = false;
+      return;
+    }
     _load();
   }
 
@@ -746,6 +769,12 @@ class _MemberAlertListState extends State<_MemberAlertList> {
         _loadingMore = false;
         _failed = false;
       });
+      _cache[widget.status] = {
+        'items': List<Map<String, dynamic>>.from(_items),
+        'hasMore': _hasMore,
+        'at': DateTime.now(),
+        'v': MasterDataProvider.instance.listChangeNotifier.value,
+      };
     } catch (e) {
       debugPrint('Error loading member alert list: $e');
       if (!mounted) return;
@@ -830,6 +859,8 @@ class _DietAlertList extends StatefulWidget {
 
 class _DietAlertListState extends State<_DietAlertList> {
   static const int _pageSize = 20;
+  // Saved pages per alert. Reopening the popup = 0 calls while fresh.
+  static final Map<String, Map<String, dynamic>> _cache = {};
   final List<Map<String, dynamic>> _items = [];
   bool _loading = true;
   bool _loadingMore = false;
@@ -839,6 +870,13 @@ class _DietAlertListState extends State<_DietAlertList> {
   @override
   void initState() {
     super.initState();
+    final hit = _cache[widget.status];
+    if (hit != null && _alertCacheFresh(hit)) {
+      _items.addAll(List<Map<String, dynamic>>.from(hit['items'] as List));
+      _hasMore = hit['hasMore'] as bool;
+      _loading = false;
+      return;
+    }
     _load();
   }
 
@@ -869,6 +907,12 @@ class _DietAlertListState extends State<_DietAlertList> {
         _loadingMore = false;
         _failed = false;
       });
+      _cache[widget.status] = {
+        'items': List<Map<String, dynamic>>.from(_items),
+        'hasMore': _hasMore,
+        'at': DateTime.now(),
+        'v': MasterDataProvider.instance.listChangeNotifier.value,
+      };
     } catch (e) {
       debugPrint('Error loading diet alert list: $e');
       if (!mounted) return;

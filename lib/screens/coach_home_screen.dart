@@ -797,35 +797,40 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                       label: '⏰ Expired 7+ days ago',
                       count: expiredLastWeek,
                       color: Colors.red.shade700,
-                      onTap: () => _navigateToMembersWithFilter('inactive'),
+                      onTap: () => showStaffMemberNamesSheet(
+                          context, 'alert_expired_7d', 'Expired 7+ days ago'),
                     ),
                   if (expiredYesterday > 0)
                     _AlertChip(
                       label: '⚠️ Expired Yesterday',
                       count: expiredYesterday,
                       color: Colors.deepOrange,
-                      onTap: () => _navigateToMembersWithFilter('inactive'),
+                      onTap: () => showStaffMemberNamesSheet(context,
+                          'alert_expired_yesterday', 'Expired Yesterday'),
                     ),
                   if (expiredToday > 0)
                     _AlertChip(
                       label: '🔥 Expires Today',
                       count: expiredToday,
                       color: Colors.orange,
-                      onTap: () => _navigateToMembersWithFilter('active'),
+                      onTap: () => showStaffMemberNamesSheet(
+                          context, 'alert_expired_today', 'Expires Today'),
                     ),
                   if (expiringTomorrow > 0)
                     _AlertChip(
                       label: '📋 Expires Tomorrow',
                       count: expiringTomorrow,
                       color: Colors.blue,
-                      onTap: () => _navigateToMembersWithFilter('active'),
+                      onTap: () => showStaffMemberNamesSheet(context,
+                          'alert_expiring_tomorrow', 'Expires Tomorrow'),
                     ),
                   if (expiringIn7Days > 0)
                     _AlertChip(
                       label: '📅 Expires in 7 days',
                       count: expiringIn7Days,
                       color: Colors.green,
-                      onTap: () => _navigateToMembersWithFilter('active'),
+                      onTap: () => showStaffMemberNamesSheet(
+                          context, 'alert_expiring_7d', 'Expires in 7 days'),
                     ),
                   const SizedBox(height: 8),
                 ],
@@ -851,21 +856,24 @@ class _CoachHomeScreenState extends State<CoachHomeScreen>
                       label: '📋 Diet Due Today',
                       count: dietDueToday,
                       color: Colors.orange,
-                      onTap: () => _navigateToMembersWithFilter('active'),
+                      onTap: () => showStaffMemberNamesSheet(
+                          context, 'alert_diet_today', 'Diet Due Today'),
                     ),
                   if (dietDueTomorrow > 0)
                     _AlertChip(
                       label: '📋 Diet Due Tomorrow',
                       count: dietDueTomorrow,
                       color: Colors.blue,
-                      onTap: () => _navigateToMembersWithFilter('active'),
+                      onTap: () => showStaffMemberNamesSheet(
+                          context, 'alert_diet_tomorrow', 'Diet Due Tomorrow'),
                     ),
                   if (dietOverdue > 0)
                     _AlertChip(
                       label: '⚠️ Diet Overdue (7+ days)',
                       count: dietOverdue,
                       color: Colors.red,
-                      onTap: () => _navigateToMembersWithFilter('active'),
+                      onTap: () => showStaffMemberNamesSheet(context,
+                          'alert_diet_overdue', 'Diet Overdue (7+ days)'),
                     ),
                   const SizedBox(height: 8),
                 ],

@@ -44,8 +44,13 @@ class StaffDashboardProvider {
     _names.clear();
   }
 
-  bool _fresh(DateTime? t) =>
-      t != null && DateTime.now().difference(t) < _maxAge;
+  // Fresh = fetched today. Changes are caught by the version check
+  // (listChangeNotifier); only a new day needs a refetch on its own.
+  bool _fresh(DateTime? t) {
+    if (t == null) return false;
+    final n = DateTime.now();
+    return t.year == n.year && t.month == n.month && t.day == n.day;
+  }
 
   /// All tile numbers in ONE call. Same call twice at once = one request.
   Future<Map<String, dynamic>> loadStats({bool force = false}) {
@@ -86,7 +91,9 @@ class StaffDashboardProvider {
     if (more ? !list.hasMore : list.loaded) return list;
 
     final data = await Supabase.instance.client.rpc(
-      'get_staff_member_names',
+      kind.startsWith('alert_')
+          ? 'get_staff_alert_members'
+          : 'get_staff_member_names',
       params: {
         'p_kind': kind,
         'p_limit': pageSize,

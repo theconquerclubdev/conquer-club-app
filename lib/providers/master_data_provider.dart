@@ -384,7 +384,10 @@ class MasterDataProvider extends ChangeNotifier {
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'diets',
-          callback: (payload) => _handleMemberTableChange(payload.newRecord),
+          callback: (payload) {
+            listChangeNotifier.value++;
+            _handleMemberTableChange(payload.newRecord);
+          },
         )
         .subscribe();
 
