@@ -34,14 +34,30 @@ class _WorkoutBuilderScreenState extends State<WorkoutBuilderScreen> {
     _checkHeadCoach();
   }
 
+  static String? _cachedRoleUid;
+  static String? _cachedRole;
+  static DateTime? _cachedRoleAt;
+
   Future<void> _checkHeadCoach() async {
     try {
       final uid = Supabase.instance.client.auth.currentUser!.id;
+      if (_cachedRoleUid == uid &&
+          _cachedRoleAt != null &&
+          DateTime.now().difference(_cachedRoleAt!) <
+              const Duration(minutes: 30)) {
+        if (mounted) setState(() => isHeadCoach = _cachedRole == 'head_coach');
+        return;
+      }
       final p = await Supabase.instance.client
           .from('profiles')
           .select('role')
           .eq('id', uid)
           .maybeSingle();
+      if (p != null) {
+        _cachedRoleUid = uid;
+        _cachedRole = p['role'] as String?;
+        _cachedRoleAt = DateTime.now();
+      }
       if (mounted) setState(() => isHeadCoach = p?['role'] == 'head_coach');
     } catch (_) {}
   }

@@ -3420,14 +3420,19 @@ class _AdminMemberPaymentSheetState extends State<AdminMemberPaymentSheet> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    'Payment for ${widget.member['full_name'] ?? 'Member'}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
+                  Expanded(
+                    child: Text(
+                      'Payment for ${widget.member['full_name'] ?? 'Member'}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -3768,7 +3773,8 @@ class _AdminMemberPaymentSheetState extends State<AdminMemberPaymentSheet> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                Expanded(
+                SizedBox(
+                  height: (payments.length > 5 ? 5 : payments.length) * 64.0,
                   child: ListView.builder(
                     shrinkWrap: true,
                     itemCount: payments.length > 5 ? 5 : payments.length,

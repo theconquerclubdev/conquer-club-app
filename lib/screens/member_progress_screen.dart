@@ -130,11 +130,20 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
 
     setState(() => _loading = true);
     try {
-      final row = await Supabase.instance.client
-          .from(_table)
-          .select()
-          .eq('member_id', _memberId)
-          .maybeSingle();
+      final Map<String, dynamic>? row;
+      final cachedRow = MasterDataProvider.instance
+          .readScreenCache(_memberId, 'progress_photos');
+      if (cachedRow is Map && cachedRow.containsKey('v')) {
+        row = cachedRow['v'] as Map<String, dynamic>?;
+      } else {
+        row = await Supabase.instance.client
+            .from(_table)
+            .select()
+            .eq('member_id', _memberId)
+            .maybeSingle();
+        MasterDataProvider.instance
+            .writeScreenCache(_memberId, 'progress_photos', {'v': row});
+      }
 
       if (row != null) {
         for (final slot in _Slot.values) {
@@ -172,6 +181,10 @@ class _MemberProgressScreenState extends State<MemberProgressScreen> {
         await Supabase.instance.client.from(_table).upsert({
           'member_id': _memberId,
           ...refreshed,
+        });
+        MasterDataProvider.instance
+            .writeScreenCache(_memberId, 'progress_photos', {
+          'v': {...?row, ...refreshed}
         });
       }
     } catch (e) {

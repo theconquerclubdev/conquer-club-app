@@ -75,6 +75,7 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
           .catchError((_) {});
     }
     tickTimer?.cancel();
+    _flushPendingSetLogs();
     super.dispose();
   }
 
@@ -83,6 +84,7 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     if (state == AppLifecycleState.resumed) {
       setState(() {});
     } else if (state == AppLifecycleState.paused) {
+      _flushPendingSetLogs();
       if (sessionStatus == 'in_progress' &&
           stopwatch.isRunning &&
           sessionId != null &&
@@ -380,6 +382,28 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     return exercise['input_type'] ?? 'Reps';
   }
 
+  final Map<String, Map<String, dynamic>> _pendingSetLogs = {};
+  Timer? _setLogFlushTimer;
+
+  Future<void> _flushPendingSetLogs() async {
+    _setLogFlushTimer?.cancel();
+    if (_pendingSetLogs.isEmpty) return;
+    final batch = Map<String, Map<String, dynamic>>.from(_pendingSetLogs);
+    _pendingSetLogs.clear();
+    try {
+      await Supabase.instance.client.from('session_set_logs').upsert(
+            batch.values.toList(),
+            onConflict: 'session_id,workout_exercise_id,set_number',
+          );
+    } catch (e) {
+      // Put rows back (newer taps win) and try again in 5 seconds.
+      batch.forEach((k, v) => _pendingSetLogs.putIfAbsent(k, () => v));
+      _setLogFlushTimer?.cancel();
+      _setLogFlushTimer =
+          Timer(const Duration(seconds: 5), _flushPendingSetLogs);
+    }
+  }
+
   Future<void> _upsertSetLogWithRetry(Map<String, dynamic> upsertData) async {
     const maxAttempts = 3;
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -426,7 +450,10 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     }
 
     try {
-      await _upsertSetLogWithRetry(upsertData);
+      _pendingSetLogs['$workoutExerciseId|${set['set_number']}'] = upsertData;
+      _setLogFlushTimer?.cancel();
+      _setLogFlushTimer =
+          Timer(const Duration(seconds: 3), _flushPendingSetLogs);
 
       if (mounted) setState(() => set['completed'] = nowCompleted);
 
@@ -458,6 +485,7 @@ class _WorkoutDaySessionScreenState extends State<WorkoutDaySessionScreen>
     _persistentRunStartTime = null;
     _persistentSessionId = null;
 
+    await _flushPendingSetLogs();
     await Supabase.instance.client.from('workout_sessions').update({
       'status': 'completed',
       'ended_at': DateTime.now().toUtc().toIso8601String(),
