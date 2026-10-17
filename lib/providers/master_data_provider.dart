@@ -333,10 +333,10 @@ class MasterDataProvider extends ChangeNotifier {
   void _initRealtimeSubscription() {
     final client = Supabase.instance.client;
 
-    // Exercise/food library cache: cleared on app start (covers changes made
-    // while app was closed), then cleared on any admin add/delete/edit.
-    CacheManager.removeGeneric('cached_exercises');
-    CacheManager.removeGeneric('cached_foods');
+    // Exercise/food library cache: kept while the server stamp is unchanged
+    // (covers changes made while logged out / app closed), then cleared on
+    // any admin add/delete/edit.
+    _validateReferenceCache();
 
     _exercisesChannel = client
         .channel('public:exercises')
@@ -410,6 +410,35 @@ class MasterDataProvider extends ChangeNotifier {
           callback: (payload) => _handleMemberTableChange(payload.newRecord),
         )
         .subscribe();
+  }
+
+  static const _referenceStampKey = 'reference_stamp_v1';
+
+  /// Keeps cached exercises/foods only while the server stamp is unchanged.
+  /// Any doubt (no saved stamp, changed, offline, error) = clear, as before.
+  Future<void> _validateReferenceCache() async {
+    try {
+      final latest = await Supabase.instance.client.rpc('get_reference_stamp');
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_referenceStampKey);
+      Map<String, dynamic> old = {};
+      if (saved != null) {
+        try {
+          old = Map<String, dynamic>.from(jsonDecode(saved) as Map);
+        } catch (_) {}
+      }
+      final now = Map<String, dynamic>.from(latest as Map);
+      if (old['exercises'] != now['exercises']) {
+        await CacheManager.removeGeneric('cached_exercises');
+      }
+      if (old['foods'] != now['foods']) {
+        await CacheManager.removeGeneric('cached_foods');
+      }
+      await prefs.setString(_referenceStampKey, jsonEncode(now));
+    } catch (_) {
+      await CacheManager.removeGeneric('cached_exercises');
+      await CacheManager.removeGeneric('cached_foods');
+    }
   }
 
   void _handleProfileChange(Map<String, dynamic> newRecord) {

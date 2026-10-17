@@ -41,6 +41,7 @@ class StaffDashboardProvider {
     _stats = null;
     _statsAt = null;
     _statsVersion = -1;
+    _statsInFlight = null;
     _names.clear();
   }
 
@@ -67,9 +68,14 @@ class StaffDashboardProvider {
 
   Future<Map<String, dynamic>> _fetchStats() async {
     final version = _liveVersion;
+    final uidAtStart = Supabase.instance.client.auth.currentUser?.id;
     final data =
         await Supabase.instance.client.rpc('get_staff_dashboard_stats');
     final stats = Map<String, dynamic>.from(data as Map);
+    // Account changed while the call was running: do not keep old user's numbers.
+    if (Supabase.instance.client.auth.currentUser?.id != uidAtStart) {
+      return stats;
+    }
     _stats = stats;
     _statsAt = DateTime.now();
     _statsVersion = version;
