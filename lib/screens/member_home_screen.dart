@@ -137,6 +137,9 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
   String? _dietStatusText;
   String? _workoutStatusText;
   bool _coachLoading = false;
+  // Coach details remembered for the app session (survives screen rebuilds
+  // and empty results) so the coach profile is not re-fetched on every reload.
+  static final Map<String, Map<String, dynamic>?> _coachCache = {};
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -255,6 +258,10 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
       final coachId = profile?['assigned_coach_id'];
       if (coachId != null &&
           coach == null &&
+          _coachCache.containsKey(coachId.toString())) {
+        coach = _coachCache[coachId.toString()];
+      } else if (coachId != null &&
+          coach == null &&
           isMembershipActive &&
           !_coachLoading) {
         _coachLoading = true;
@@ -268,6 +275,7 @@ class _MemberHomeScreenState extends State<MemberHomeScreen>
         } finally {
           _coachLoading = false;
         }
+        _coachCache[coachId.toString()] = coachData;
         if (mounted) {
           setState(() {
             coach = coachData;
@@ -2267,7 +2275,8 @@ class _WeekWorkoutListState extends State<_WeekWorkoutList>
                                 // View-only screen cannot change a session,
                                 // so the list needs no reload.
                                 if (!isViewOnly) load(sessionOnly: true);
-                                widget.onWorkoutSessionClosed?.call();
+                                if (!isViewOnly)
+                                  widget.onWorkoutSessionClosed?.call();
                               });
                             }
                           : null,
