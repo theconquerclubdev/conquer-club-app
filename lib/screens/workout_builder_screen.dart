@@ -45,20 +45,30 @@ class _WorkoutBuilderScreenState extends State<WorkoutBuilderScreen> {
           _cachedRoleAt != null &&
           DateTime.now().difference(_cachedRoleAt!) <
               const Duration(minutes: 30)) {
-        if (mounted) setState(() => isHeadCoach = _cachedRole == 'head_coach');
+        if (mounted)
+          setState(
+            () =>
+                isHeadCoach =
+                    _cachedRole == 'head_coach' || _cachedRole == 'coach',
+          );
         return;
       }
-      final p = await Supabase.instance.client
-          .from('profiles')
-          .select('role')
-          .eq('id', uid)
-          .maybeSingle();
+      final p =
+          await Supabase.instance.client
+              .from('profiles')
+              .select('role')
+              .eq('id', uid)
+              .maybeSingle();
       if (p != null) {
         _cachedRoleUid = uid;
         _cachedRole = p['role'] as String?;
         _cachedRoleAt = DateTime.now();
       }
-      if (mounted) setState(() => isHeadCoach = p?['role'] == 'head_coach');
+      if (mounted)
+        setState(
+          () =>
+              isHeadCoach = p?['role'] == 'head_coach' || p?['role'] == 'coach',
+        );
     } catch (_) {}
   }
 
@@ -73,8 +83,11 @@ class _WorkoutBuilderScreenState extends State<WorkoutBuilderScreen> {
           .select()
           .order('body_part');
       data = List<Map<String, dynamic>>.from(fresh);
-      await CacheManager.saveGeneric('cached_exercises', data,
-          duration: const Duration(hours: 1));
+      await CacheManager.saveGeneric(
+        'cached_exercises',
+        data,
+        duration: const Duration(hours: 1),
+      );
     }
     setState(() {
       allExercises = data;
@@ -99,17 +112,18 @@ class _WorkoutBuilderScreenState extends State<WorkoutBuilderScreen> {
                   final assigned = await Navigator.push<bool>(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => HeadCoachWorkoutTemplatesScreen(
-                        assignTo: widget.member,
-                      ),
+                      builder:
+                          (_) => HeadCoachWorkoutTemplatesScreen(
+                            assignTo: widget.member,
+                          ),
                     ),
                   );
                   if (assigned == true && mounted) {
                     Navigator.pushReplacement(
                       context,
                       MaterialPageRoute(
-                        builder: (_) =>
-                            WorkoutBuilderScreen(member: widget.member),
+                        builder:
+                            (_) => WorkoutBuilderScreen(member: widget.member),
                       ),
                     );
                   }
@@ -121,26 +135,29 @@ class _WorkoutBuilderScreenState extends State<WorkoutBuilderScreen> {
             indicatorColor: AppColors.gold,
             labelColor: AppColors.gold,
             unselectedLabelColor: Colors.grey,
-            tabs: days
-                .map((d) => Tab(text: d.substring(0, 3).toUpperCase()))
-                .toList(),
+            tabs:
+                days
+                    .map((d) => Tab(text: d.substring(0, 3).toUpperCase()))
+                    .toList(),
           ),
         ),
-        body: isLoadingExercises
-            ? const Center(
-                child: CircularProgressIndicator(color: AppColors.gold),
-              )
-            : TabBarView(
-                children: days
-                    .map(
-                      (day) => _DayWorkoutEditor(
-                        memberId: widget.member['id'],
-                        dayOfWeek: day,
-                        allExercises: allExercises,
-                      ),
-                    )
-                    .toList(),
-              ),
+        body:
+            isLoadingExercises
+                ? const Center(
+                  child: CircularProgressIndicator(color: AppColors.gold),
+                )
+                : TabBarView(
+                  children:
+                      days
+                          .map(
+                            (day) => _DayWorkoutEditor(
+                              memberId: widget.member['id'],
+                              dayOfWeek: day,
+                              allExercises: allExercises,
+                            ),
+                          )
+                          .toList(),
+                ),
       ),
     );
   }
@@ -208,13 +225,18 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
 
   // Same server stamp = nothing changed -> reuse the saved copy (0 calls).
   Future<dynamic> _savedOrFetch(
-      String key, Future<dynamic> Function() fetch) async {
-    final saved =
-        MasterDataProvider.instance.readScreenCache(widget.memberId, key);
+    String key,
+    Future<dynamic> Function() fetch,
+  ) async {
+    final saved = MasterDataProvider.instance.readScreenCache(
+      widget.memberId,
+      key,
+    );
     if (saved is Map && saved.containsKey('v')) return saved['v'];
     final fresh = await fetch();
-    MasterDataProvider.instance
-        .writeScreenCache(widget.memberId, key, {'v': fresh});
+    MasterDataProvider.instance.writeScreenCache(widget.memberId, key, {
+      'v': fresh,
+    });
     return fresh;
   }
 
@@ -223,12 +245,13 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
     try {
       final workout = await _savedOrFetch(
         'wk_edit_${widget.dayOfWeek}',
-        () => Supabase.instance.client
-            .from('workouts')
-            .select()
-            .eq('member_id', widget.memberId)
-            .eq('day_of_week', widget.dayOfWeek)
-            .maybeSingle(),
+        () =>
+            Supabase.instance.client
+                .from('workouts')
+                .select()
+                .eq('member_id', widget.memberId)
+                .eq('day_of_week', widget.dayOfWeek)
+                .maybeSingle(),
       );
 
       if (workout == null) {
@@ -273,17 +296,18 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
             bodyPart: ex['body_part'],
             inputType: inputType,
             savedOrderIndex: we['order_index'] as int?,
-            sets: sets
-                .map(
-                  (s) => {
-                    'set_number': s['set_number'],
-                    'kg': s['kg'],
-                    'reps': s['reps'],
-                    'minutes': s['minutes'] ?? 0,
-                    'seconds': s['seconds'] ?? 0,
-                  },
-                )
-                .toList(),
+            sets:
+                sets
+                    .map(
+                      (s) => {
+                        'set_number': s['set_number'],
+                        'kg': s['kg'],
+                        'reps': s['reps'],
+                        'minutes': s['minutes'] ?? 0,
+                        'seconds': s['seconds'] ?? 0,
+                      },
+                    )
+                    .toList(),
           ),
         );
       }
@@ -303,8 +327,8 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
       context: context,
       backgroundColor: AppColors.cardDark,
       isScrollControlled: true,
-      builder: (context) =>
-          ExercisePickerSheet(allExercises: widget.allExercises),
+      builder:
+          (context) => ExercisePickerSheet(allExercises: widget.allExercises),
     );
 
     if (picked != null && picked.isNotEmpty) {
@@ -323,7 +347,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
                   'kg': null,
                   'reps': null,
                   'minutes': 0,
-                  'seconds': 0
+                  'seconds': 0,
                 },
               ],
             ),
@@ -337,11 +361,7 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
     setState(() {
       final ex = exercises[exerciseIndex];
       final sets = ex.sets;
-      sets.add({
-        'set_number': sets.length + 1,
-        'kg': null,
-        'reps': null,
-      });
+      sets.add({'set_number': sets.length + 1, 'kg': null, 'reps': null});
     });
   }
 
@@ -377,18 +397,19 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
     try {
       final coachId = Supabase.instance.client.auth.currentUser!.id;
 
-      final workoutRow = await Supabase.instance.client
-          .from('workouts')
-          .upsert({
-            if (workoutId != null) 'id': workoutId,
-            'member_id': widget.memberId,
-            'coach_id': coachId,
-            'day_of_week': widget.dayOfWeek,
-            'workout_name': nameController.text.trim(),
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
-          }, onConflict: 'member_id,day_of_week')
-          .select()
-          .single();
+      final workoutRow =
+          await Supabase.instance.client
+              .from('workouts')
+              .upsert({
+                if (workoutId != null) 'id': workoutId,
+                'member_id': widget.memberId,
+                'coach_id': coachId,
+                'day_of_week': widget.dayOfWeek,
+                'workout_name': nameController.text.trim(),
+                'updated_at': DateTime.now().toUtc().toIso8601String(),
+              }, onConflict: 'member_id,day_of_week')
+              .select()
+              .single();
 
       final newWorkoutId = workoutRow['id'];
       workoutId = newWorkoutId;
@@ -401,22 +422,24 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
         'save_workout_exercises',
         params: {
           'p_workout_id': newWorkoutId,
-          'p_exercises': exercises
-              .map(
-                (ex) => {
-                  'exercise_id': ex.exerciseId,
-                  'sets': ex.sets
-                      .map(
-                        (s) => {
-                          'set_number': s['set_number'],
-                          'kg': ex.isBodyweight ? null : s['kg'],
-                          'reps': s['reps'] ?? 0,
-                        },
-                      )
-                      .toList(),
-                },
-              )
-              .toList(),
+          'p_exercises':
+              exercises
+                  .map(
+                    (ex) => {
+                      'exercise_id': ex.exerciseId,
+                      'sets':
+                          ex.sets
+                              .map(
+                                (s) => {
+                                  'set_number': s['set_number'],
+                                  'kg': ex.isBodyweight ? null : s['kg'],
+                                  'reps': s['reps'] ?? 0,
+                                },
+                              )
+                              .toList(),
+                    },
+                  )
+                  .toList(),
         },
       );
 
@@ -429,9 +452,9 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Save failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Save failed: $e')));
       }
     } finally {
       setState(() => isSaving = false);
@@ -499,16 +522,17 @@ class _DayWorkoutEditorState extends State<_DayWorkoutEditor>
             width: double.infinity,
             child: ElevatedButton(
               onPressed: isSaving ? null : saveWorkout,
-              child: isSaving
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.black,
-                      ),
-                    )
-                  : Text('SAVE ${widget.dayOfWeek.toUpperCase()} WORKOUT'),
+              child:
+                  isSaving
+                      ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.black,
+                        ),
+                      )
+                      : Text('SAVE ${widget.dayOfWeek.toUpperCase()} WORKOUT'),
             ),
           ),
         ),
@@ -573,22 +597,25 @@ class ExerciseCard extends StatelessWidget {
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: exercise.isBodyweight
-                                ? Colors.orange.withOpacity(0.2)
-                                : Colors.blue.withOpacity(0.2),
+                            color:
+                                exercise.isBodyweight
+                                    ? Colors.orange.withOpacity(0.2)
+                                    : Colors.blue.withOpacity(0.2),
                             borderRadius: BorderRadius.circular(4),
                             border: Border.all(
-                              color: exercise.isBodyweight
-                                  ? Colors.orange.withOpacity(0.4)
-                                  : Colors.blue.withOpacity(0.4),
+                              color:
+                                  exercise.isBodyweight
+                                      ? Colors.orange.withOpacity(0.4)
+                                      : Colors.blue.withOpacity(0.4),
                             ),
                           ),
                           child: Text(
                             exercise.isBodyweight ? 'FREE' : 'WEIGHT',
                             style: TextStyle(
-                              color: exercise.isBodyweight
-                                  ? Colors.orange
-                                  : Colors.blue,
+                              color:
+                                  exercise.isBodyweight
+                                      ? Colors.orange
+                                      : Colors.blue,
                               fontSize: 9,
                               fontWeight: FontWeight.bold,
                             ),
@@ -642,8 +669,8 @@ class ExerciseCard extends StatelessWidget {
                   exercise.inputType == 'Reps'
                       ? 'REPS'
                       : exercise.inputType == 'Min'
-                          ? 'SEC'
-                          : 'REPS',
+                      ? 'SEC'
+                      : 'REPS',
                   style: TextStyle(color: Colors.grey, fontSize: 11),
                 ),
               ),
@@ -701,9 +728,10 @@ class ExerciseCard extends StatelessWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: TextFormField(
-                      initialValue: exercise.inputType == 'Min'
-                          ? (set['seconds']?.toString() ?? '')
-                          : (set['reps']?.toString() ?? ''),
+                      initialValue:
+                          exercise.inputType == 'Min'
+                              ? (set['seconds']?.toString() ?? '')
+                              : (set['reps']?.toString() ?? ''),
                       keyboardType: TextInputType.number,
                       style: const TextStyle(color: Colors.white, fontSize: 14),
                       decoration: const InputDecoration(
@@ -766,14 +794,15 @@ class _ExercisePickerSheetState extends State<ExercisePickerSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = query.isEmpty
-        ? widget.allExercises
-        : widget.allExercises.where((e) {
-            final name = (e['name'] ?? '').toString().toLowerCase();
-            final part = (e['body_part'] ?? '').toString().toLowerCase();
-            final q = query.toLowerCase();
-            return name.contains(q) || part.contains(q);
-          }).toList();
+    final filtered =
+        query.isEmpty
+            ? widget.allExercises
+            : widget.allExercises.where((e) {
+              final name = (e['name'] ?? '').toString().toLowerCase();
+              final part = (e['body_part'] ?? '').toString().toLowerCase();
+              final q = query.toLowerCase();
+              return name.contains(q) || part.contains(q);
+            }).toList();
 
     final Map<String, List<Map<String, dynamic>>> grouped = {};
     for (final e in filtered) {
@@ -816,145 +845,162 @@ class _ExercisePickerSheetState extends State<ExercisePickerSheet> {
               ),
               const SizedBox(height: 8),
               Expanded(
-                child: filtered.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'No exercises found',
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      )
-                    : ListView(
-                        controller: scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        children: grouped.entries.map((groupEntry) {
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.only(
-                                  top: 12,
-                                  bottom: 4,
-                                ),
-                                child: Text(
-                                  groupEntry.key,
-                                  style: TextStyle(
-                                    color: AppColors.gold,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 1,
-                                  ),
-                                ),
-                              ),
-                              ...groupEntry.value.map(
-                                (ex) {
-                                  final name = ex['name'] ?? '';
-                                  final inputType = ex['input_type'] ?? 'Reps';
-                                  final displayType = inputType == 'Reps'
-                                      ? 'Free'
-                                      : inputType == 'kg × reps'
-                                          ? 'Weighted'
-                                          : 'Min';
-                                  final isSelected =
-                                      _selectedIds.contains(ex['id']);
-                                  return ListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    leading: Icon(
-                                      isSelected
-                                          ? Icons.check_box
-                                          : Icons.check_box_outline_blank,
-                                      color: isSelected
-                                          ? AppColors.gold
-                                          : Colors.grey,
-                                      size: 22,
-                                    ),
-                                    title: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            name,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                            ),
-                                          ),
+                child:
+                    filtered.isEmpty
+                        ? const Center(
+                          child: Text(
+                            'No exercises found',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        )
+                        : ListView(
+                          controller: scrollController,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          children:
+                              grouped.entries.map((groupEntry) {
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Padding(
+                                      padding: const EdgeInsets.only(
+                                        top: 12,
+                                        bottom: 4,
+                                      ),
+                                      child: Text(
+                                        groupEntry.key,
+                                        style: TextStyle(
+                                          color: AppColors.gold,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          letterSpacing: 1,
                                         ),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 6,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: inputType == 'Reps'
-                                                ? Colors.orange.withOpacity(0.2)
-                                                : inputType == 'kg × reps'
-                                                    ? Colors.blue
-                                                        .withOpacity(0.2)
-                                                    : Colors.green
-                                                        .withOpacity(0.2),
-                                            borderRadius:
-                                                BorderRadius.circular(4),
-                                          ),
-                                          child: Text(
-                                            inputType == 'Reps'
-                                                ? 'FREE'
-                                                : inputType == 'kg × reps'
-                                                    ? 'WEIGHT'
-                                                    : 'MIN',
-                                            style: TextStyle(
-                                              color: inputType == 'Reps'
-                                                  ? Colors.orange
-                                                  : inputType == 'kg × reps'
-                                                      ? Colors.blue
-                                                      : Colors.green,
-                                              fontSize: 8,
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    subtitle: Text(
-                                      '${ex['body_part']} · ${inputType == 'Reps' ? 'Bodyweight only' : inputType == 'kg × reps' ? 'Kg + Reps' : 'Minutes + Seconds'}',
-                                      style: const TextStyle(
-                                        color: Colors.grey,
-                                        fontSize: 11,
                                       ),
                                     ),
-                                    onTap: () {
-                                      setState(() {
-                                        if (isSelected) {
-                                          _selectedIds.remove(ex['id']);
-                                        } else {
-                                          _selectedIds.add(ex['id']);
-                                        }
-                                      });
-                                    },
-                                  );
-                                },
-                              ),
-                            ],
-                          );
-                        }).toList(),
-                      ),
+                                    ...groupEntry.value.map((ex) {
+                                      final name = ex['name'] ?? '';
+                                      final inputType =
+                                          ex['input_type'] ?? 'Reps';
+                                      final displayType =
+                                          inputType == 'Reps'
+                                              ? 'Free'
+                                              : inputType == 'kg × reps'
+                                              ? 'Weighted'
+                                              : 'Min';
+                                      final isSelected = _selectedIds.contains(
+                                        ex['id'],
+                                      );
+                                      return ListTile(
+                                        contentPadding: EdgeInsets.zero,
+                                        leading: Icon(
+                                          isSelected
+                                              ? Icons.check_box
+                                              : Icons.check_box_outline_blank,
+                                          color:
+                                              isSelected
+                                                  ? AppColors.gold
+                                                  : Colors.grey,
+                                          size: 22,
+                                        ),
+                                        title: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                name,
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                            Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    horizontal: 6,
+                                                    vertical: 2,
+                                                  ),
+                                              decoration: BoxDecoration(
+                                                color:
+                                                    inputType == 'Reps'
+                                                        ? Colors.orange
+                                                            .withOpacity(0.2)
+                                                        : inputType ==
+                                                            'kg × reps'
+                                                        ? Colors.blue
+                                                            .withOpacity(0.2)
+                                                        : Colors.green
+                                                            .withOpacity(0.2),
+                                                borderRadius:
+                                                    BorderRadius.circular(4),
+                                              ),
+                                              child: Text(
+                                                inputType == 'Reps'
+                                                    ? 'FREE'
+                                                    : inputType == 'kg × reps'
+                                                    ? 'WEIGHT'
+                                                    : 'MIN',
+                                                style: TextStyle(
+                                                  color:
+                                                      inputType == 'Reps'
+                                                          ? Colors.orange
+                                                          : inputType ==
+                                                              'kg × reps'
+                                                          ? Colors.blue
+                                                          : Colors.green,
+                                                  fontSize: 8,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        subtitle: Text(
+                                          '${ex['body_part']} · ${inputType == 'Reps'
+                                              ? 'Bodyweight only'
+                                              : inputType == 'kg × reps'
+                                              ? 'Kg + Reps'
+                                              : 'Minutes + Seconds'}',
+                                          style: const TextStyle(
+                                            color: Colors.grey,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                        onTap: () {
+                                          setState(() {
+                                            if (isSelected) {
+                                              _selectedIds.remove(ex['id']);
+                                            } else {
+                                              _selectedIds.add(ex['id']);
+                                            }
+                                          });
+                                        },
+                                      );
+                                    }),
+                                  ],
+                                );
+                              }).toList(),
+                        ),
               ),
               Padding(
                 padding: const EdgeInsets.all(16),
                 child: SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: _selectedIds.isEmpty
-                        ? null
-                        : () {
-                            final selectedExercises = _selectedIds
-                                .map((id) => widget.allExercises
-                                    .firstWhere((e) => e['id'] == id))
-                                .toList();
-                            Navigator.pop(context, selectedExercises);
-                          },
+                    onPressed:
+                        _selectedIds.isEmpty
+                            ? null
+                            : () {
+                              final selectedExercises =
+                                  _selectedIds
+                                      .map(
+                                        (id) => widget.allExercises.firstWhere(
+                                          (e) => e['id'] == id,
+                                        ),
+                                      )
+                                      .toList();
+                              Navigator.pop(context, selectedExercises);
+                            },
                     child: Text(
                       'ADD SELECTED (${_selectedIds.length})',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),

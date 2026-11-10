@@ -32,6 +32,7 @@ class HeadCoachTemplateStore {
   // Cache: kept in memory + saved on the phone. Supabase is only called
   // when there is no cache yet, or after the coach changes a plan.
   static List<Map<String, dynamic>>? _memoryCache;
+  static String? _memoryCacheUid;
 
   static String get _cacheKey =>
       'head_coach_workout_templates_cache_${_db.auth.currentUser?.id ?? 'unknown'}';
@@ -43,6 +44,11 @@ class HeadCoachTemplateStore {
   }
 
   static Future<List<Map<String, dynamic>>> load() async {
+    final uid = _db.auth.currentUser?.id;
+    if (_memoryCacheUid != uid) {
+      _memoryCache = null;
+      _memoryCacheUid = uid;
+    }
     // 1. memory cache (fastest)
     if (_memoryCache != null) {
       return List<Map<String, dynamic>>.from(_memoryCache!);
@@ -53,9 +59,10 @@ class HeadCoachTemplateStore {
     final raw = prefs.getString(_cacheKey);
     if (raw != null) {
       try {
-        _memoryCache = (jsonDecode(raw) as List<dynamic>)
-            .map((e) => Map<String, dynamic>.from(e as Map))
-            .toList();
+        _memoryCache =
+            (jsonDecode(raw) as List<dynamic>)
+                .map((e) => Map<String, dynamic>.from(e as Map))
+                .toList();
         return List<Map<String, dynamic>>.from(_memoryCache!);
       } catch (_) {
         // bad cache -> fall through and fetch from Supabase
@@ -117,11 +124,14 @@ class HeadCoachTemplateStore {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_legacyKey);
       if (raw == null) return;
-      final old = (jsonDecode(raw) as List<dynamic>)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
+      final old =
+          (jsonDecode(raw) as List<dynamic>)
+              .map((e) => Map<String, dynamic>.from(e as Map))
+              .toList();
       if (old.isNotEmpty) {
-        await _db.from(_table).insert(
+        await _db
+            .from(_table)
+            .insert(
               old
                   .map((t) => {'name': t['name'], 'days': t['days'] ?? {}})
                   .toList(),
@@ -147,42 +157,46 @@ class HeadCoachTemplateStore {
     for (final day in _kDays) {
       final d = days[day];
       if (d == null) continue;
-      final exercises =
-          List<Map<String, dynamic>>.from((d['exercises'] as List?) ?? []);
+      final exercises = List<Map<String, dynamic>>.from(
+        (d['exercises'] as List?) ?? [],
+      );
       if (exercises.isEmpty) continue;
 
-      final workoutRow = await client
-          .from('workouts')
-          .upsert({
-            'member_id': memberId,
-            'coach_id': coachId,
-            'day_of_week': day,
-            'workout_name': d['workout_name'],
-            'updated_at': DateTime.now().toUtc().toIso8601String(),
-          }, onConflict: 'member_id,day_of_week')
-          .select()
-          .single();
+      final workoutRow =
+          await client
+              .from('workouts')
+              .upsert({
+                'member_id': memberId,
+                'coach_id': coachId,
+                'day_of_week': day,
+                'workout_name': d['workout_name'],
+                'updated_at': DateTime.now().toUtc().toIso8601String(),
+              }, onConflict: 'member_id,day_of_week')
+              .select()
+              .single();
 
       await client.rpc(
         'save_workout_exercises',
         params: {
           'p_workout_id': workoutRow['id'],
-          'p_exercises': exercises.map((ex) {
-            final isBodyweight = ex['input_type'] == 'Reps';
-            final sets = List<Map<String, dynamic>>.from(ex['sets'] ?? []);
-            return {
-              'exercise_id': ex['exercise_id'],
-              'sets': sets
-                  .map(
-                    (s) => {
-                      'set_number': s['set_number'],
-                      'kg': isBodyweight ? null : s['kg'],
-                      'reps': s['reps'] ?? 0,
-                    },
-                  )
-                  .toList(),
-            };
-          }).toList(),
+          'p_exercises':
+              exercises.map((ex) {
+                final isBodyweight = ex['input_type'] == 'Reps';
+                final sets = List<Map<String, dynamic>>.from(ex['sets'] ?? []);
+                return {
+                  'exercise_id': ex['exercise_id'],
+                  'sets':
+                      sets
+                          .map(
+                            (s) => {
+                              'set_number': s['set_number'],
+                              'kg': isBodyweight ? null : s['kg'],
+                              'reps': s['reps'] ?? 0,
+                            },
+                          )
+                          .toList(),
+                };
+              }).toList(),
         },
       );
     }
@@ -230,9 +244,9 @@ class _HeadCoachWorkoutTemplatesScreenState
     } catch (e) {
       if (!mounted) return;
       setState(() => isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not load plans: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not load plans: $e')));
     }
   }
 
@@ -249,31 +263,32 @@ class _HeadCoachWorkoutTemplatesScreenState
   Future<void> _deleteTemplate(Map<String, dynamic> t) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.cardDark,
-        title: const Text(
-          'Delete workout plan?',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: Text(
-          '"${t['name']}" will be removed from your saved plans. '
-          'Members who already have it keep their workouts.',
-          style: const TextStyle(color: Colors.grey),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('CANCEL'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text(
-              'DELETE',
-              style: TextStyle(color: Colors.redAccent),
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: AppColors.cardDark,
+            title: const Text(
+              'Delete workout plan?',
+              style: TextStyle(color: Colors.white),
             ),
+            content: Text(
+              '"${t['name']}" will be removed from your saved plans. '
+              'Members who already have it keep their workouts.',
+              style: const TextStyle(color: Colors.grey),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('CANCEL'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text(
+                  'DELETE',
+                  style: TextStyle(color: Colors.redAccent),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
     );
     if (ok != true) return;
     try {
@@ -282,9 +297,9 @@ class _HeadCoachWorkoutTemplatesScreenState
       if (mounted) setState(() {});
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Delete failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
       }
     }
   }
@@ -294,29 +309,30 @@ class _HeadCoachWorkoutTemplatesScreenState
     final memberName = member['full_name'] ?? 'this member';
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.cardDark,
-        title: const Text(
-          'Assign workout plan?',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: Text(
-          'Assign "${t['name']}" to $memberName? Days that have exercises '
-          'in this plan will replace the member\'s current workout on '
-          'those days.',
-          style: const TextStyle(color: Colors.grey),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('CANCEL'),
+      builder:
+          (ctx) => AlertDialog(
+            backgroundColor: AppColors.cardDark,
+            title: const Text(
+              'Assign workout plan?',
+              style: TextStyle(color: Colors.white),
+            ),
+            content: Text(
+              'Assign "${t['name']}" to $memberName? Days that have exercises '
+              'in this plan will replace the member\'s current workout on '
+              'those days.',
+              style: const TextStyle(color: Colors.grey),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('CANCEL'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text('ASSIGN', style: TextStyle(color: AppColors.gold)),
+              ),
+            ],
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text('ASSIGN', style: TextStyle(color: AppColors.gold)),
-          ),
-        ],
-      ),
     );
     if (ok != true) return;
 
@@ -330,9 +346,9 @@ class _HeadCoachWorkoutTemplatesScreenState
       Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Assign failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Assign failed: $e')));
         setState(() => isAssigning = false);
       }
     }
@@ -349,116 +365,124 @@ class _HeadCoachWorkoutTemplatesScreenState
               : 'My Workout Plans',
         ),
       ),
-      body: isLoading
-          ? Center(child: CircularProgressIndicator(color: AppColors.gold))
-          : Column(
-              children: [
-                Expanded(
-                  child: templates.isEmpty
-                      ? const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(24),
-                            child: Text(
-                              'No workout plans yet.\nCreate one below.',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: templates.length,
-                          itemBuilder: (context, index) {
-                            final t = templates[index];
-                            final days =
-                                Map<String, dynamic>.from(t['days'] ?? {});
-                            int exerciseCount = 0;
-                            for (final d in days.values) {
-                              exerciseCount +=
-                                  ((d['exercises'] as List?) ?? []).length;
-                            }
-                            final dayLabels = _kDays
-                                .where((d) => days.containsKey(d))
-                                .map((d) => d.substring(0, 3))
-                                .join(' · ');
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 12),
-                              decoration: BoxDecoration(
-                                color: AppColors.cardDark,
-                                borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: Colors.white.withOpacity(0.06),
+      body:
+          isLoading
+              ? Center(child: CircularProgressIndicator(color: AppColors.gold))
+              : Column(
+                children: [
+                  Expanded(
+                    child:
+                        templates.isEmpty
+                            ? const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(24),
+                                child: Text(
+                                  'No workout plans yet.\nCreate one below.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: Colors.grey),
                                 ),
                               ),
-                              child: ListTile(
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 6,
-                                ),
-                                title: Text(
-                                  '${t['name']}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
+                            )
+                            : ListView.builder(
+                              padding: const EdgeInsets.all(16),
+                              itemCount: templates.length,
+                              itemBuilder: (context, index) {
+                                final t = templates[index];
+                                final days = Map<String, dynamic>.from(
+                                  t['days'] ?? {},
+                                );
+                                int exerciseCount = 0;
+                                for (final d in days.values) {
+                                  exerciseCount +=
+                                      ((d['exercises'] as List?) ?? []).length;
+                                }
+                                final dayLabels = _kDays
+                                    .where((d) => days.containsKey(d))
+                                    .map((d) => d.substring(0, 3))
+                                    .join(' · ');
+                                return Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.cardDark,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.06),
+                                    ),
                                   ),
-                                ),
-                                subtitle: Text(
-                                  '${days.length} days · $exerciseCount exercises\n$dayLabels',
-                                  style: TextStyle(
-                                    color: AppColors.gold,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                                isThreeLine: true,
-                                trailing: _isAssignMode
-                                    ? Icon(
-                                        Icons.chevron_right,
-                                        color: AppColors.gold,
-                                      )
-                                    : Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.edit_outlined,
-                                              color: Colors.grey,
-                                              size: 20,
-                                            ),
-                                            onPressed: () => _openEditor(t),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(
-                                              Icons.delete_outline,
-                                              color: Colors.redAccent,
-                                              size: 20,
-                                            ),
-                                            onPressed: () => _deleteTemplate(t),
-                                          ),
-                                        ],
+                                  child: ListTile(
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 6,
+                                    ),
+                                    title: Text(
+                                      '${t['name']}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
                                       ),
-                                onTap: isAssigning
-                                    ? null
-                                    : () => _isAssignMode
-                                        ? _assign(t)
-                                        : _openEditor(t),
-                              ),
-                            );
-                          },
-                        ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton.icon(
-                      icon: const Icon(Icons.add, color: Colors.black),
-                      label: const Text('CREATE NEW WORKOUT PLAN'),
-                      onPressed: isAssigning ? null : () => _openEditor(),
+                                    ),
+                                    subtitle: Text(
+                                      '${days.length} days · $exerciseCount exercises\n$dayLabels',
+                                      style: TextStyle(
+                                        color: AppColors.gold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                    isThreeLine: true,
+                                    trailing:
+                                        _isAssignMode
+                                            ? Icon(
+                                              Icons.chevron_right,
+                                              color: AppColors.gold,
+                                            )
+                                            : Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.edit_outlined,
+                                                    color: Colors.grey,
+                                                    size: 20,
+                                                  ),
+                                                  onPressed:
+                                                      () => _openEditor(t),
+                                                ),
+                                                IconButton(
+                                                  icon: const Icon(
+                                                    Icons.delete_outline,
+                                                    color: Colors.redAccent,
+                                                    size: 20,
+                                                  ),
+                                                  onPressed:
+                                                      () => _deleteTemplate(t),
+                                                ),
+                                              ],
+                                            ),
+                                    onTap:
+                                        isAssigning
+                                            ? null
+                                            : () =>
+                                                _isAssignMode
+                                                    ? _assign(t)
+                                                    : _openEditor(t),
+                                  ),
+                                );
+                              },
+                            ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.add, color: Colors.black),
+                        label: const Text('CREATE NEW WORKOUT PLAN'),
+                        onPressed: isAssigning ? null : () => _openEditor(),
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              ),
     );
   }
 }
@@ -505,9 +529,10 @@ class _TemplateEditorScreenState extends State<_TemplateEditorScreen> {
               name: e['name'] ?? '',
               bodyPart: e['body_part'] ?? '',
               inputType: e['input_type'] ?? 'Reps',
-              sets: ((e['sets'] as List?) ?? [])
-                  .map((s) => Map<String, dynamic>.from(s as Map))
-                  .toList(),
+              sets:
+                  ((e['sets'] as List?) ?? [])
+                      .map((s) => Map<String, dynamic>.from(s as Map))
+                      .toList(),
             ),
           );
         }
@@ -538,8 +563,11 @@ class _TemplateEditorScreenState extends State<_TemplateEditorScreen> {
           .select()
           .order('body_part');
       data = List<Map<String, dynamic>>.from(fresh);
-      await CacheManager.saveGeneric('cached_exercises', data,
-          duration: const Duration(hours: 1));
+      await CacheManager.saveGeneric(
+        'cached_exercises',
+        data,
+        duration: const Duration(hours: 1),
+      );
     }
     if (!mounted) return;
     setState(() {
@@ -572,7 +600,7 @@ class _TemplateEditorScreenState extends State<_TemplateEditorScreen> {
                   'kg': null,
                   'reps': null,
                   'minutes': 0,
-                  'seconds': 0
+                  'seconds': 0,
                 },
               ],
             ),
@@ -585,11 +613,7 @@ class _TemplateEditorScreenState extends State<_TemplateEditorScreen> {
   void addSet(String day, int exerciseIndex) {
     setState(() {
       final sets = dayExercises[day]![exerciseIndex].sets;
-      sets.add({
-        'set_number': sets.length + 1,
-        'kg': null,
-        'reps': null,
-      });
+      sets.add({'set_number': sets.length + 1, 'kg': null, 'reps': null});
     });
   }
 
@@ -623,18 +647,21 @@ class _TemplateEditorScreenState extends State<_TemplateEditorScreen> {
       final dayName = dayNameControllers[day]!.text.trim();
       days[day] = {
         'workout_name': dayName.isEmpty ? '$day Workout' : dayName,
-        'exercises': list
-            .map(
-              (ex) => {
-                'exercise_id': ex.exerciseId,
-                'name': ex.name,
-                'body_part': ex.bodyPart,
-                'input_type': ex.inputType,
-                'sets':
-                    ex.sets.map((s) => Map<String, dynamic>.from(s)).toList(),
-              },
-            )
-            .toList(),
+        'exercises':
+            list
+                .map(
+                  (ex) => {
+                    'exercise_id': ex.exerciseId,
+                    'name': ex.name,
+                    'body_part': ex.bodyPart,
+                    'input_type': ex.inputType,
+                    'sets':
+                        ex.sets
+                            .map((s) => Map<String, dynamic>.from(s))
+                            .toList(),
+                  },
+                )
+                .toList(),
       };
     }
 
@@ -655,9 +682,9 @@ class _TemplateEditorScreenState extends State<_TemplateEditorScreen> {
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Save failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Save failed: $e')));
         setState(() => isSaving = false);
       }
     }
@@ -693,10 +720,7 @@ class _TemplateEditorScreenState extends State<_TemplateEditorScreen> {
         const SizedBox(height: 8),
         OutlinedButton.icon(
           icon: Icon(Icons.add, color: AppColors.gold),
-          label: Text(
-            'ADD EXERCISE',
-            style: TextStyle(color: AppColors.gold),
-          ),
+          label: Text('ADD EXERCISE', style: TextStyle(color: AppColors.gold)),
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(vertical: 14),
             side: BorderSide(color: AppColors.gold),
@@ -727,52 +751,57 @@ class _TemplateEditorScreenState extends State<_TemplateEditorScreen> {
             indicatorColor: AppColors.gold,
             labelColor: AppColors.gold,
             unselectedLabelColor: Colors.grey,
-            tabs: _kDays
-                .map((d) => Tab(text: d.substring(0, 3).toUpperCase()))
-                .toList(),
+            tabs:
+                _kDays
+                    .map((d) => Tab(text: d.substring(0, 3).toUpperCase()))
+                    .toList(),
           ),
         ),
-        body: isLoadingExercises
-            ? Center(child: CircularProgressIndicator(color: AppColors.gold))
-            : Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    child: TextField(
-                      controller: nameController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: 'Workout Plan Name',
-                        hintText: 'e.g. Fat Loss, Muscle Gain...',
+        body:
+            isLoadingExercises
+                ? Center(
+                  child: CircularProgressIndicator(color: AppColors.gold),
+                )
+                : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      child: TextField(
+                        controller: nameController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                          labelText: 'Workout Plan Name',
+                          hintText: 'e.g. Fat Loss, Muscle Gain...',
+                        ),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: TabBarView(
-                      children: _kDays.map((day) => _buildDay(day)).toList(),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton(
-                        onPressed: isSaving ? null : saveTemplate,
-                        child: isSaving
-                            ? const SizedBox(
-                                height: 20,
-                                width: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.black,
-                                ),
-                              )
-                            : const Text('SAVE WORKOUT PLAN'),
+                    Expanded(
+                      child: TabBarView(
+                        children: _kDays.map((day) => _buildDay(day)).toList(),
                       ),
                     ),
-                  ),
-                ],
-              ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: isSaving ? null : saveTemplate,
+                          child:
+                              isSaving
+                                  ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      color: Colors.black,
+                                    ),
+                                  )
+                                  : const Text('SAVE WORKOUT PLAN'),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
       ),
     );
   }
