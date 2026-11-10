@@ -139,7 +139,7 @@ class _MemberProfileCoachViewScreenState
       measurements = dashboardData.measurements;
 
       // Measurement History
-      measurementHistory = dashboardData.measurementHistory;
+      measurementHistory = dashboardData.measurementHistory.reversed.toList();
 
       // Current Streak - from provider
       currentStreak = dashboardData.currentStreak;
@@ -482,7 +482,6 @@ class _MemberProfileCoachViewScreenState
                                 ),
                               ),
                             ],
-                            minY: 0,
                           ),
                         ),
                       ),

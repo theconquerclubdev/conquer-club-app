@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint, mapEquals;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, debugPrint, mapEquals, defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -1340,10 +1341,12 @@ class MasterDataProvider extends ChangeNotifier {
           has || await health.requestAuthorization(types, permissions: perms);
       if (!granted) {
         _usingHealthSource = false;
-        final activityStatus = await Permission.activityRecognition.request();
+        final activityStatus = await _requestMotionPermission();
         if (activityStatus.isGranted) {
           await _startPedometerFallback(); // keeps app-open UI live too
-          await _startAndroidBackgroundStepService(); // + counts all day, app closed or not
+          if (!_isIOS) {
+            await _startAndroidBackgroundStepService(); // + counts all day, app closed or not
+          }
         }
         return;
       }
@@ -1358,11 +1361,20 @@ class MasterDataProvider extends ChangeNotifier {
       );
     } catch (_) {
       _usingHealthSource = false;
-      final activityStatus = await Permission.activityRecognition.request();
+      final activityStatus = await _requestMotionPermission();
       if (activityStatus.isGranted) {
         await _startPedometerFallback();
       }
     }
+  }
+
+  bool get _isIOS => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// iOS: activityRecognition never shows a prompt. Use sensors (CoreMotion).
+  Future<PermissionStatus> _requestMotionPermission() {
+    return _isIOS
+        ? Permission.sensors.request()
+        : Permission.activityRecognition.request();
   }
 
   Future<void> _pollHealthSteps() async {

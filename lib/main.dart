@@ -133,8 +133,7 @@ void main() async {
 
   await Supabase.initialize(
     url: 'https://dafbinwvwxuekdomdmro.supabase.co',
-    anonKey:
-        'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhZmJpbnd2d3h1ZWtkb21kbXJvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMyNjQ2MjcsImV4cCI6MjA5ODg0MDYyN30.OpEAFP__r_lkBeih255iqHmFHW602BUHDfP_qe1iy6I',
+    anonKey: 'sb_publishable_9W-wa-czh4RJMXFfU83nyg_cmfQ1CLI',
   );
 
   // Add lifecycle observer
